@@ -1,0 +1,12 @@
+node_modules
+dist
+.DS_Store
+
+# Per-machine files: never commit these (backups/ holds copies of your Claude/Codex settings).
+state/
+backups/
+browser-profile/
+server.pid
+*.log
+verification.json
+preview.png
