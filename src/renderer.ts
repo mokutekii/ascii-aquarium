@@ -24,6 +24,8 @@ const WAKE = DOT_RGB.length - 1;
 // Splash ripples fade through these purples as the ring spreads: lavender at the origin, deep violet at the edge.
 const RIPPLE_BASE = DOT_RGB.length;
 DOT_RGB.push([226, 208, 255], [196, 160, 250], [166, 124, 240], [140, 100, 226], [116, 82, 204]);
+const ORANGE_BASE = DOT_RGB.length;
+DOT_RGB.push([255, 222, 180], [250, 182, 110], [240, 140, 66], [218, 108, 44], [186, 84, 36]);
 const RIPPLE_STEPS = 5;
 const DOT_BASE_ALPHA = DOT_RGB.map(() => 1);
 
@@ -455,9 +457,15 @@ export class AsciiRenderer {
     this.drawJellies(world);
     this.drawWhale(world);
     this.drawWhirl(world);
+    this.drawDivers(world);
+    this.drawMess(world);
+    this.drawAlerts(world);
+    this.drawUfo(world);
+    this.drawDebris(world);
     this.drawKraken(world);
     this.drawSharks(t);
     this.drawSawBlade(world);
+    this.drawSlices(world);
     if (this.night > 0) {
       ctx.fillStyle = `rgba(0,8,26,${(0.2 * this.night).toFixed(3)})`;
       ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
@@ -636,6 +644,27 @@ export class AsciiRenderer {
     flush();
   }
 
+  /** The white slash that flashes in front of a sawshark as it cuts through the fish ahead. */
+  private drawSlices(world: World) {
+    const cutting = world.sharks.filter((sh) => (sh.sliceUntil ?? 0) > world.time);
+    if (!cutting.length) return;
+    const { put, flush } = this.painter();
+    for (const sh of cutting) {
+      const fade = Math.min(1, (sh.sliceUntil! - world.time) / 0.25);
+      const reach = sh.length * 0.34;
+      for (let a = -0.9; a <= 0.9; a += 0.15) {
+        const ang = sh.heading + a;
+        const x = sh.nodes[0] + Math.cos(ang) * reach;
+        const y = sh.nodes[1] + Math.sin(ang) * reach;
+        // A glyph along the arc's tangent.
+        const t = ang + Math.PI / 2;
+        const glyph = Math.abs(Math.cos(t)) > 0.92 ? "-" : Math.abs(Math.sin(t)) > 0.92 ? "|" : Math.cos(t) * Math.sin(t) > 0 ? "\\" : "/";
+        put(x, y, glyph, `rgba(255,255,250,${fade.toFixed(2)})`, true);
+      }
+    }
+    flush();
+  }
+
   /** The sawshark's blade: a slim, bright white line for a snout. */
   private drawSawBlade(world: World) {
     const saws = world.sharks.filter((sh) => sh.kind === "sawshark");
@@ -672,7 +701,7 @@ export class AsciiRenderer {
           const d = nx * nx + ny * ny;
           if (d > 1) continue;
           let glyph: string;
-          let alpha = 0.5;
+          let alpha = 0.5 + 0.3 * world.night;
           if (d > 0.6) {
             alpha = 0.95;
             if (Math.abs(nx) < 0.45) glyph = "-";
@@ -711,7 +740,8 @@ export class AsciiRenderer {
     const dy = Math.sin(w.heading);
     const W0 = L * 0.095;
     const centre = (u: number): [number, number] => {
-      const bend = Math.sin(w.phase - u * 3.2) * 0.035 * L * u;
+      // A travelling S-curve that grows toward the tail, with the head barely moving.
+      const bend = Math.sin(w.phase - u * 3.2) * L * (0.006 + 0.03 * Math.pow(u, 1.3));
       return [w.x - dx * L * u - dy * bend, w.y - dy * L * u + dx * bend];
     };
     // Position, forward tangent and side normal at a point along the body.
@@ -755,19 +785,21 @@ export class AsciiRenderer {
     // Long pale flippers on both sides, swept back and swaying a little.
     const root = frame(0.3);
     for (const sgn of [-1, 1]) {
-      const sway = Math.sin(w.phase * 1.3 + sgn) * 0.14;
-      const ang = Math.atan2(root.ny * sgn, root.nx * sgn) + sgn * (0.7 + sway) * -1;
-      const fdx = Math.cos(ang);
-      const fdy = Math.sin(ang);
+      // Each flipper paddles: it swings out and back, and the tip lags behind the root like a real fin.
+      const stroke = Math.sin(w.phase * 1.1 + sgn * 1.2) * 0.2;
+      const ang0 = Math.atan2(root.ny * sgn, root.nx * sgn) + sgn * (0.7 + stroke) * -1;
       const flen = L * 0.085;
+      let fx = root.x + root.nx * sgn * half(0.3);
+      let fy = root.y + root.ny * sgn * half(0.3);
       for (let i = 0; i <= 26; i++) {
         const t = i / 26;
-        const bx = root.x + root.nx * sgn * half(0.3) + fdx * flen * t;
-        const by = root.y + root.ny * sgn * half(0.3) + fdy * flen * t;
+        const ang = ang0 - sgn * 0.25 * Math.sin(w.phase * 1.1 + sgn * 1.2 - t * 2.2) * t;
         const thick = Math.round(1 * (1 - t));
         for (let o = -thick; o <= thick; o++) {
-          put(bx - fdy * o * cw * 0.8, by + fdx * o * cw * 0.8, Math.abs(o) === thick && thick > 0 ? "o" : "#", "rgb(222,236,246)", true);
+          put(fx - Math.sin(ang) * o * cw * 0.8, fy + Math.cos(ang) * o * cw * 0.8, Math.abs(o) === thick && thick > 0 ? "o" : "#", "rgb(222,236,246)", true);
         }
+        fx += Math.cos(ang) * (flen / 26);
+        fy += Math.sin(ang) * (flen / 26);
       }
     }
     // The tail is what makes it a whale: huge crescent flukes with a centre notch, a heavy
@@ -776,17 +808,19 @@ export class AsciiRenderer {
     const span = L * 0.23;
     const sweepMax = L * 0.07;
     const chordMax = L * 0.09;
-    const beat = Math.sin(w.phase * 1.1);
+    // The flukes follow the end of the body's wave and flap: the chord narrows and widens each stroke.
+    const beat = Math.sin(w.phase - 0.97 * 3.2);
+    const flap = 0.93 + 0.07 * Math.cos(w.phase - 0.97 * 3.2 + 1.2);
     for (const sgn of [-1, 1]) {
       const STEPS = 60;
       for (let i = 4; i <= STEPS; i++) {
         const t = i / STEPS;
         // Leading edge curves back toward the tip; the whole tail sways with the beat.
         const lateral = sgn * span * t;
-        const sweep = sweepMax * Math.pow(t, 1.7) + beat * L * 0.02 * t * sgn;
+        const sweep = sweepMax * Math.pow(t, 1.7) + beat * L * 0.022 * t * sgn;
         const lx = tail.x + tail.nx * lateral - tail.tx * sweep;
         const ly = tail.y + tail.ny * lateral - tail.ty * sweep;
-        const chord = chordMax * Math.pow(Math.sin(Math.PI * (0.06 + 0.94 * t)), 0.85) * (1 - 0.45 * t) * (1 + 0.12 * Math.sin(t * 38));
+        const chord = chordMax * flap * Math.pow(Math.sin(Math.PI * (0.06 + 0.94 * t)), 0.85) * (1 - 0.45 * t) * (1 + 0.12 * Math.sin(t * 38));
         const depth = Math.max(1, Math.round(chord / (cw * 0.8)));
         for (let k = 0; k <= depth; k++) {
           const glyph = k === 0 ? "@" : k === depth ? "~" : k === depth - 1 ? "%" : "#";
@@ -794,6 +828,127 @@ export class AsciiRenderer {
           put(lx - tail.tx * k * cw * 0.8, ly - tail.ty * k * cw * 0.8, glyph, `rgb(${shade - 30},${shade - 5},${shade + 40})`, true);
         }
       }
+    }
+    flush();
+  }
+
+  /** The red "!" over a shark that has just spotted a diver: pops in, bobs, and fades. */
+  private drawAlerts(world: World) {
+    const alerted = world.sharks.filter((sh) => (sh.alertUntil ?? 0) > world.time && sh.target?.diver && sh.target.alive && !sh.target.riding && (sh.fedUntil ?? 0) <= world.time);
+    if (!alerted.length) return;
+    const { put, flush } = this.painter();
+    for (const sh of alerted) {
+      const age = 1.5 - (sh.alertUntil! - world.time);
+      const fade = Math.min(1, (sh.alertUntil! - world.time) / 0.3);
+      const bob = Math.sin(age * 9) * 2;
+      const x = sh.nodes[0];
+      const y = sh.nodes[1] - 30 - sh.length * 0.1 + bob;
+      put(x, y, "!", `rgba(238,64,86,${fade.toFixed(2)})`, true);
+    }
+    flush();
+  }
+
+  /** A saucer with blinking lights and a shimmering green tractor beam when it is lifting something. */
+  private drawUfo(world: World) {
+    const u = world.ufo;
+    if (!u) return;
+    const { cw, ch } = this;
+    const { put, flush } = this.painter();
+    const t = world.time;
+    if (u.state === "beam") {
+      const bottom = Math.min(world.height, u.y + 220);
+      for (let y = u.y + ch * 1.6; y < bottom; y += ch * 0.7) {
+        const half = 10 + (y - u.y) * 0.16;
+        const fade = Math.max(0.12, 1 - (y - u.y) / 240);
+        for (let x = u.beamX - half; x <= u.beamX + half; x += cw * 0.7) {
+          const edge = Math.abs(x - u.beamX) > half * 0.78;
+          const shimmer = Math.sin(t * 9 + y * 0.05 + x * 0.04) > 0.2;
+          put(x, y, edge ? "|" : shimmer ? ":" : ".", `rgba(170,255,205,${((edge ? 0.55 : 0.4) * fade).toFixed(2)})`);
+        }
+      }
+    }
+    const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
+    const piloted = !!u.pilot?.alive;
+    for (let i = -2; i <= 2; i++) {
+      const head = piloted && i === 0;
+      const glyph = head ? "O" : Math.abs(i) === 2 ? "." : piloted ? (i < 0 ? "[" : "]") : i === 0 ? "^" : "-";
+      put(u.x + i * cw, u.y - ch, glyph, head ? "rgb(255,236,205)" : "rgb(150,225,255)", true);
+    }
+    for (let x = u.x - half; x <= u.x + half; x += cw) put(x, u.y, Math.abs(x - u.x) > half - cw ? (x < u.x ? "(" : ")") : "=", "rgb(205,210,222)", true);
+    const colors = ["rgb(255,222,110)", "rgb(120,255,165)", "rgb(255,120,120)"];
+    let k = 0;
+    for (let x = u.x - half * 0.8; x <= u.x + half * 0.8; x += cw * 1.5, k++) put(x, u.y + ch * 0.9, "o", colors[(k + Math.floor(t * 4)) % 3], true);
+    flush();
+  }
+
+  /** The pop (a quick expanding ring of sparks) and the bits left behind until a shark eats them. */
+  private drawMess(world: World) {
+    if (!world.mess.length && !world.blasts.length) return;
+    const { put, flush } = this.painter();
+    for (const b of world.blasts) {
+      const age = world.time - b.born;
+      const fade = 1 - age / 0.8;
+      const r = 80 * (age / 0.8);
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2 + age * 2;
+        put(b.x + Math.cos(a) * r, b.y + Math.sin(a) * r * 0.8, i % 2 ? "*" : "+", `rgba(255,${Math.round(235 - 120 * age)},120,${fade.toFixed(2)})`, true);
+      }
+      if (age < 0.25) put(b.x, b.y, "#", `rgba(255,250,220,${(1 - age / 0.25).toFixed(2)})`, true);
+    }
+    for (const m of world.mess) {
+      const fade = Math.min(1, (30 - (world.time - m.born)) / 5);
+      put(m.x, m.y, m.glyph, `rgba(${m.rgb},${fade.toFixed(2)})`, true);
+    }
+    flush();
+  }
+
+  /** A ufo cut in half: two pieces tilting apart as they sink, with sparks at the cut. */
+  private drawDebris(world: World) {
+    if (!world.debris.length) return;
+    const { cw, ch } = this;
+    const { put, flush } = this.painter();
+    const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
+    for (const d of world.debris) {
+      const age = world.time - d.born;
+      const fade = Math.max(0, 1 - age / 5);
+      const tilt = 0.12 + 0.3 * Math.min(1, age / 2);
+      const rgb = (v: number) => `rgba(${v},${v + 4},${v + 14},${fade.toFixed(2)})`;
+      for (let k = 0; k * cw <= half; k++) {
+        const x = d.x + d.side * k * cw;
+        const dy = k * cw * tilt;
+        put(x, d.y + dy, k === 0 ? (d.side < 0 ? "/" : "\\") : k * cw > half - cw ? (d.side < 0 ? "(" : ")") : "=", rgb(205), true);
+        if (k <= 2) put(x, d.y - ch + dy, k === 0 ? "|" : "-", `rgba(150,225,255,${fade.toFixed(2)})`, true);
+        if (k % 2 === 1) put(x, d.y + ch * 0.9 + dy, "o", `rgba(255,${Math.floor(200 + 55 * Math.sin(age * 8 + k))},120,${fade.toFixed(2)})`, true);
+      }
+      if (age < 0.6) {
+        for (let i = 0; i < 4; i++) put(d.x - d.side * cw * 0.3 + Math.sin(age * 40 + i * 1.7) * cw * 1.2, d.y + Math.cos(age * 33 + i * 2.1) * ch * 1.1, "*", `rgba(255,235,160,${(1 - age / 0.6).toFixed(2)})`, true);
+      }
+    }
+    flush();
+  }
+
+  /** Divers drawn as little people: head, orange suit, silver tank, and kicking blue fins. */
+  private drawDivers(world: World) {
+    const { cw } = this;
+    const { put, flush } = this.painter();
+    for (const f of world.fish) {
+      if (!f.diver || !f.alive || f.riding) continue;
+      const sp = Math.hypot(f.vx, f.vy);
+      const ang = sp > 1 ? Math.atan2(f.vy, f.vx) : Math.PI / 2;
+      const dx = -Math.cos(ang);
+      const dy = -Math.sin(ang);
+      const px = -dy;
+      const py = dx;
+      const kick = Math.sin(f.phase * 2) * cw * 0.55;
+      const at = (back: number, side = 0) => [f.x + dx * cw * back + px * side, f.y + dy * cw * back + py * side] as const;
+      put(f.x, f.y, "O", "rgb(255,236,205)", true);
+      for (const back of [0.9, 1.8]) put(...at(back), "#", "rgb(255,150,60)", true);
+      put(...at(1.1, cw * 0.95), ":", "rgb(255,150,60)", true);
+      put(...at(1.1, -cw * 0.95), ":", "rgb(255,150,60)", true);
+      put(...at(1.4), "o", "rgb(205,212,222)", true);
+      put(...at(2.7, kick), "=", "rgb(70,120,210)", true);
+      put(...at(3.5, -kick), "=", "rgb(70,120,210)", true);
+      put(...at(4.3, kick * 1.3), "~", "rgb(90,150,235)", true);
     }
     flush();
   }
@@ -861,7 +1016,7 @@ export class AsciiRenderer {
         const y = rp.y + Math.sin(a - Math.PI) * rp.r;
         this.stamp(this.energy, x, y, thick, (thick === 0 ? 0.8 * fade : Math.min(0.5, 0.2 * fade * rp.strength)) * amp);
         const ci = this.cellIndex(x, y);
-        if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], 1 - fade + 0.01);
+        if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], 1 - fade + 0.01 + (rp.hue ? 10 : 0));
       }
     }
   }
@@ -1248,7 +1403,7 @@ export class AsciiRenderer {
     for (const bucket of fishBuckets) bucket.length = 0;
     for (let pass = 0; pass < 2; pass++) {
       for (const f of world.fish) {
-        if (!f.alive || (f.depth > 0.78 ? 0 : 1) !== pass) continue;
+        if (!f.alive || f.diver || (f.depth > 0.78 ? 0 : 1) !== pass) continue;
         const i = this.cellIndex(f.x, f.y);
         if (i < 0 || fishStamp[i] === frame || sharkFlag[i]) continue;
         fishStamp[i] = frame;
@@ -1308,7 +1463,7 @@ export class AsciiRenderer {
       if (e > 0.45) {
         const level = clamp(Math.floor((e - 0.45) * 5), 0, ALPHA_LEVELS - 1);
         const tv = this.tint[i];
-        const color = tv > 0 ? RIPPLE_BASE + Math.min(RIPPLE_STEPS - 1, Math.floor((tv - 0.01) * RIPPLE_STEPS)) : WAKE;
+        const color = tv >= 10 ? ORANGE_BASE + Math.min(RIPPLE_STEPS - 1, Math.floor((tv - 10.01) * RIPPLE_STEPS)) : tv > 0 ? RIPPLE_BASE + Math.min(RIPPLE_STEPS - 1, Math.floor((tv - 0.01) * RIPPLE_STEPS)) : WAKE;
         bucket = color * ALPHA_LEVELS + level;
       } else {
         const col = i % cols;

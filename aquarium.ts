@@ -3,11 +3,14 @@ import { OceanEngine } from './src';
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
 ]);
-type Source = { active: number; stale: number; lastFinished: number; seen: boolean };
+type Source = { active: number; stale: number; lastFinished: number; seen: boolean; attention: number; planAt: number };
 type State = { claude: Source; codex: Source };
 const message = document.querySelector('#message')!;
 let initialized = false;
 let lastFinished = 0;
+let lastPlan = 0;
+let bothSince = 0;
+let bothFired = false;
 let celebrationUntil = 0;
 let timer: ReturnType<typeof setTimeout>;
 
@@ -60,6 +63,19 @@ async function refresh() {
       celebrationUntil = Date.now() + 4500;
       engine.celebrate();
     }
+    const notice = engine.takeNotice();
+    if (notice) showToast(notice);
+    // A plan was just presented: the whale glides through.
+    const plan = Math.max(state.claude.planAt, state.codex.planAt);
+    if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started') showToast('a plan is ready');
+    lastPlan = plan;
+    // Anything waiting on you rings from its dot until you answer.
+    engine.setAttention(state.claude.attention > 0, state.codex.attention > 0);
+    // Both assistants working at once: a bait ball frenzy, once per overlap.
+    if (state.claude.active > 0 && state.codex.active > 0) {
+      bothSince ||= Date.now();
+      if (!bothFired && Date.now() - bothSince > 4000) { bothFired = true; if (engine.trigger('bait') === 'started') showToast('two at once'); }
+    } else { bothSince = 0; bothFired = false; }
     initialized = true;
     lastFinished = finished;
     engine.setWorking(active > 0);
@@ -90,12 +106,12 @@ document.addEventListener('visibilitychange', () => { clearTimeout(timer); void 
 void refresh();
 document.querySelector('#splash')!.addEventListener('click', () => engine.celebrate());
 
-// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, N nightfall.
+// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   k: ['kraken', 'the kraken rises...'], m: ['mega', 'a megalodon approaches...'], c: ['saga', 'something stirs below...'],
   r: ['chase', 'a chase!'], b: ['bait', 'a bait ball forms'], j: ['jelly', 'jellyfish drifting in'],
   w: ['whale', 'a whale is coming...'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
-  f: ['fight', 'a fight breaks out'],
+  f: ['fight', 'a fight breaks out'], u: ['ufo', 'something hovers above...'], d: ['diver', 'a diver slips in...'],
 };
 const toast = document.querySelector('#toast')!;
 let toastTimer: ReturnType<typeof setTimeout>;

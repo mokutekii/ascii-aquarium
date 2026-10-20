@@ -15,9 +15,12 @@ const args = new Set(process.argv.slice(2));
 const hookScript = path.join(root, 'activity-hook.cjs').replaceAll('\\', '/');
 const log = (message) => { if (!args.has('--json')) console.log(message); };
 
+// Run npm through Node itself when its script is next to node (no shell needed); otherwise fall back to the shell.
+const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
 function sh(command, commandArgs) {
-  const result = spawnSync(command, commandArgs, { cwd: root, stdio: args.has('--json') ? 'ignore' : 'inherit', shell: process.platform === 'win32' && command === 'npm' });
-  return result.status === 0;
+  const stdio = args.has('--json') ? 'ignore' : 'inherit';
+  if (command === 'npm' && fs.existsSync(npmCli)) return spawnSync(process.execPath, [npmCli, ...commandArgs], { cwd: root, stdio }).status === 0;
+  return spawnSync(command, commandArgs, { cwd: root, stdio, shell: process.platform === 'win32' && command === 'npm' }).status === 0;
 }
 
 function hooksInstalled(source) {

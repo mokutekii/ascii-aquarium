@@ -29,6 +29,11 @@ export class OceanEngine {
 
   setFps(fps: number) { this.fps = fps; }
 
+  /** The next one-off message from the simulation, if any. */
+  takeNotice() { return this.world.notices.shift() ?? null; }
+
+  setAttention(claude: boolean, codex: boolean) { this.world.attention = { claude, codex }; }
+
   setEventLevel(level: World["settings"]["events"]) { this.world.settings.events = level; }
 
   setNightEnabled(on: boolean) { this.world.settings.night = on; }
@@ -210,7 +215,12 @@ export class OceanEngine {
   private onPointerDown = (e: PointerEvent) => {
     if (e.target instanceof Element && e.target.closest("#status, #panel")) return;
     const { x, y, inside } = this.toLocal(e);
-    if (inside && !this.reducedMotion.matches) { this.trail = { x, y }; this.world.splash(x, y, 2.5); }
+    if (inside && !this.reducedMotion.matches) {
+      // A click on a diver pops it instead of splashing.
+      if (this.world.popDiverAt(x, y)) return;
+      this.trail = { x, y };
+      this.world.splash(x, y, 2.5);
+    }
   };
 
   private onPointerLeave = () => {
