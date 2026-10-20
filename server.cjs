@@ -5,7 +5,7 @@ const PORT = Number(process.env.AQUARIUM_PORT || 43827);
 const STATE_DIR = process.env.AQUARIUM_STATE_DIR || path.join(__dirname, 'state');
 const STALE_MS = 6 * 60 * 60 * 1000;
 function getState(dir = STATE_DIR, now = Date.now()) {
-  const blank = () => ({ active: 0, stale: 0, lastFinished: 0, seen: false });
+  const blank = () => ({ active: 0, stale: 0, lastFinished: 0, seen: false, attention: 0, planAt: 0 });
   const result = { claude: blank(), codex: blank() };
   let files = [];
   try { files = fs.readdirSync(dir).filter(f => /^(claude|codex)-[a-f0-9]{24}\.json$/.test(f)); } catch {}
@@ -18,6 +18,8 @@ function getState(dir = STATE_DIR, now = Date.now()) {
       source.seen = true;
       if (record.working) source[now - record.updatedAt < STALE_MS ? 'active' : 'stale']++;
       source.lastFinished = Math.max(source.lastFinished, Number(record.lastFinished) || 0);
+      if (record.attention && now - record.updatedAt < 20 * 60 * 1000) source.attention++;
+      source.planAt = Math.max(source.planAt, Number(record.planAt) || 0);
     } catch {}
   }
   return result;

@@ -10,3 +10,7 @@ server.pid
 *.log
 verification.json
 preview.png
+
+# Local notes and dev scratch
+HANDOFF.local.md
+dev-tests/*.bundle.mjs

@@ -19,9 +19,22 @@ They happen at random, or press a key to trigger one yourself.
 | W | a whale glides through, fish parting around it |
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
+| U | a flying saucer hovers above and beams up fish, jellyfish and divers |
+| D | one to five divers slip in, and the sharks go after them |
+| (click) | clicking a diver pops it, and a shark swims over to clean up |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
 
 You can also click the **Splash** button in the corner.
+
+### When things meet
+
+- A megalodon eats any ufo it reaches, and every diver it can catch. A normal shark eats one diver, then ignores the rest for a while.
+- A sawshark sometimes charges a ufo and cuts it in half. Otherwise it now and then slices through the fish ahead of it.
+- A diver can take over a ufo, peering out of its window. Some hijacked saucers go after sharks, which break free; others keep grabbing fish.
+- A ufo will steal a diver a shark is chasing. Sharks steer clear of the saucer and its beam.
+- A small red ! appears over the one shark chasing a diver. Some divers pass unnoticed, and other sharks leave a claimed diver alone. Click a diver to pop it, and the nearest shark swims over to clean up.
+- A whirlpool sweeps divers and jellyfish round and drags sharks a little. A diver showing up breaks off a shark fight.
+- Jellyfish glow at night.
 
 ## Options
 
