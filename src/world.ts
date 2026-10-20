@@ -18,7 +18,7 @@ import { pickSpecies, SPECIES } from "./species";
 
 export const SHARK_NODES = 20;
 
-export type SharkKind = "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse";
+export type SharkKind = "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse" | "sawshark";
 
 /** Which sharks to put in the water; size is relative to the biggest. */
 export type SharkSpec = { kind: SharkKind; size: number };
@@ -125,19 +125,21 @@ export interface Whale {
   rippleAt: number;
 }
 
-export interface Angler {
-  x: number;
-  y: number;
-  face: 1 | -1;
-  born: number;
+export interface Fight {
+  a: Shark;
+  b: Shark;
+  /** Centre the pair circles. */
+  mx: number;
+  my: number;
   until: number;
-  snapUntil: number;
-  nextSnap: number;
-  /** Where the glowing lure is right now. */
-  lx: number;
-  ly: number;
-  size: number;
+  dir: 1 | -1;
+  lungeUntil: number;
+  nextLunge: number;
+  /** True once the pair has closed in and started circling. */
+  engaged: boolean;
 }
+
+export type EventLevel = "off" | "calm" | "normal" | "busy";
 
 export interface Whirl {
   x: number;
@@ -200,8 +202,10 @@ export class World {
   kraken: Kraken | null = null;
   jellies: Jelly[] = [];
   whale: Whale | null = null;
-  angler: Angler | null = null;
   whirl: Whirl | null = null;
+  fight: Fight | null = null;
+  /** Options from the settings panel. */
+  settings: { events: EventLevel; night: boolean } = { events: "normal", night: true };
   baitBall: BaitBall | null = null;
   /** Shifts the day/night clock (seconds); the N key jumps it toward night. */
   dayOffset = 0;
@@ -270,12 +274,13 @@ export class World {
     const minSide = Math.min(W, H);
     const baseLength = clamp(minSide * 0.44, 170, 430);
     const sharkCount = this.wantedSharks();
+    const offset = randInt(0, this.sharkSpecs.length - 1);
 
     this.sharks = [];
     for (let i = 0; i < sharkCount; i++) {
-      const spec = this.sharkSpecs[i % this.sharkSpecs.length];
+      const spec = this.sharkSpecs[(i + offset) % this.sharkSpecs.length];
       const kind = spec.kind;
-      const size = spec.size * (1 - 0.08 * Math.floor(i / this.sharkSpecs.length));
+      const size = spec.size * Math.max(0.55, 1 - 0.08 * Math.floor(i / this.sharkSpecs.length));
       const length = baseLength * size;
       const orbitRadius = minSide * rand(0.28, 0.4);
       const a = (i / sharkCount) * TAU + rand(-0.4, 0.4);
@@ -369,19 +374,22 @@ export class World {
     }
     this.stepKraken(dt);
     this.stepCritters(dt);
+    this.stepFight();
     if (time < this.nextEventAt || this.width === 0) return;
     // Irregular gaps: usually a minute or so, sometimes two events close together.
-    this.nextEventAt = time + (Math.random() < 0.2 ? rand(15, 35) : rand(40, 130));
-    const bigBusy = !!mega || !!this.kraken || !!this.whale;
+    const level = this.settings.events;
+    this.nextEventAt = time + (Math.random() < 0.2 ? rand(15, 35) : rand(40, 130)) * (level === "busy" ? 0.5 : level === "calm" ? 1.6 : 1);
+    if (level === "off") return;
+    const bigBusy = !!mega || !!this.kraken || !!this.whale || !!this.fight;
     const pool: [string, number][] = [
       ["chase", 0.22], ["saga", 0.16], ["kraken", 0.07], ["mega", 0.07], ["bait", 0.12],
-      ["jelly", 0.1], ["whale", 0.07], ["angler", 0.08], ["whirl", 0.07],
+      ["jelly", 0.1], ["whale", 0.07], ["whirl", 0.07], ["fight", 0.07],
     ];
+    const bigKinds = ["saga", "kraken", "mega", "whale", "fight"];
     const allowed = pool.filter(([kind]) => {
-      if (bigBusy && ["saga", "kraken", "mega", "whale"].includes(kind)) return false;
+      if ((bigBusy || level === "calm") && bigKinds.includes(kind)) return false;
       if (kind === "bait" && this.baitBall) return false;
       if (kind === "jelly" && this.jellies.length) return false;
-      if (kind === "angler" && this.angler) return false;
       if (kind === "whirl" && this.whirl) return false;
       return true;
     });
@@ -400,18 +408,19 @@ export class World {
       case "bait": return !!this.baitBall;
       case "jelly": return this.jellies.length > 0;
       case "whale": return !!this.whale;
-      case "angler": return !!this.angler;
       case "whirl": return !!this.whirl;
+      case "fight": return !!this.fight;
       case "chase": return this.fish.some((f) => f.temp !== undefined);
       default: return true;
     }
   }
 
   /** Public so a key press can trigger one on demand. Says whether it started, was already running, or had to wait. */
-  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "angler" | "whirl" | "night"): "started" | "already" | "blocked" {
+  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "whirl" | "fight" | "night"): "started" | "already" | "blocked" | "off" {
     const bigBusy = !!this.kraken || !!this.whale || this.sharks.some((sh) => sh.mega);
-    const big = kind === "kraken" || kind === "saga" || kind === "mega" || kind === "whale";
-    if (big && bigBusy) return this.eventActive(kind) ? "already" : "blocked";
+    const big = kind === "kraken" || kind === "saga" || kind === "mega" || kind === "whale" || kind === "fight";
+    if (kind === "night" && !this.settings.night) return "off";
+    if (big && (bigBusy || (kind === "fight" && !!this.fight))) return this.eventActive(kind) ? "already" : "blocked";
     if (kind !== "chase" && kind !== "night" && this.eventActive(kind)) return "already";
     if (kind === "chase") this.spawnRunner(randInt(1, 3));
     else if (kind === "kraken" || kind === "saga") this.spawnKraken(kind === "kraken");
@@ -419,14 +428,15 @@ export class World {
     else if (kind === "bait") this.spawnBaitBall();
     else if (kind === "jelly") this.spawnJellies();
     else if (kind === "whale") this.spawnWhale();
-    else if (kind === "angler") this.spawnAngler();
     else if (kind === "whirl") this.spawnWhirl();
+    else if (kind === "fight") this.spawnFight();
     else if (kind === "night") this.dayOffset = DAY_LEN * 0.35 - this.time;
     return this.eventActive(kind) ? "started" : "blocked";
   }
 
   /** 0 in daylight, 1 in the middle of the night; a slow cycle with soft dusk and dawn. */
   get night() {
+    if (!this.settings.night) return 0;
     const phase = (((this.time + this.dayOffset) / DAY_LEN) % 1 + 1) % 1;
     const light = 0.5 + 0.5 * Math.cos(phase * TAU);
     return clamp((0.3 - light) / 0.3, 0, 1);
@@ -515,14 +525,57 @@ export class World {
     };
   }
 
-  private spawnAngler() {
-    if (this.angler) return;
-    const { width: W, height: H, time } = this;
-    const size = clamp(Math.min(W, H) * 0.05, 22, 44);
-    const face = (Math.random() < 0.5 ? 1 : -1) as 1 | -1;
-    const x = rand(W * 0.15, W * 0.85);
-    const y = H * rand(0.72, 0.86);
-    this.angler = { x, y, face, born: time, until: time + rand(28, 42), snapUntil: 0, nextSnap: time + 4, lx: x, ly: y, size };
+  /** Two similar-sized sharks circle each other and lunge. */
+  private spawnFight() {
+    if (this.fight) return;
+    const free = this.sharks.filter((sh) => !sh.mega && !sh.grabbed);
+    if (free.length < 2) return;
+    // The two sharks that are already closest square off.
+    let a = free[0];
+    let b = free[1];
+    let best = Infinity;
+    for (let i = 0; i < free.length; i++) {
+      for (let j = i + 1; j < free.length; j++) {
+        const d = Math.hypot(free[i].nodes[0] - free[j].nodes[0], free[i].nodes[1] - free[j].nodes[1]);
+        if (d < best) { best = d; a = free[i]; b = free[j]; }
+      }
+    }
+    this.fight = {
+      a, b, mx: (a.nodes[0] + b.nodes[0]) / 2, my: (a.nodes[1] + b.nodes[1]) / 2,
+      until: this.time + 40, dir: (Math.random() < 0.5 ? 1 : -1) as 1 | -1, lungeUntil: 0, nextLunge: Infinity, engaged: false,
+    };
+  }
+
+  private stepFight() {
+    const f = this.fight;
+    if (!f) return;
+    const { time } = this;
+    if (time > f.until || !this.sharks.includes(f.a) || !this.sharks.includes(f.b) || f.a.mega || f.b.mega || f.a.grabbed || f.b.grabbed) { this.fight = null; return; }
+    const hx = (f.a.nodes[0] + f.b.nodes[0]) / 2;
+    const hy = (f.a.nodes[1] + f.b.nodes[1]) / 2;
+    f.mx += (hx - f.mx) * 0.02;
+    f.my += (hy - f.my) * 0.02;
+    if (!f.engaged) {
+      const gap = Math.hypot(f.a.nodes[0] - f.b.nodes[0], f.a.nodes[1] - f.b.nodes[1]);
+      if (gap < (f.a.length + f.b.length) * 0.9) {
+        f.engaged = true;
+        f.until = time + rand(12, 16);
+        f.nextLunge = time + 2.5;
+      }
+      return;
+    }
+    if (time >= f.nextLunge && time >= f.lungeUntil) { f.lungeUntil = time + 1.1; f.nextLunge = time + rand(3, 4.5); }
+    if (time < f.lungeUntil) {
+      const d = Math.hypot(f.a.nodes[0] - f.b.nodes[0], f.a.nodes[1] - f.b.nodes[1]);
+      if (d < (f.a.length + f.b.length) * 0.17) {
+        // The clash: a flash and a splash at the point of contact, then both recoil.
+        this.events.push({ kind: "eat", x: hx, y: hy });
+        this.splash(hx, hy, 1.5);
+        f.lungeUntil = 0;
+        f.a.speed *= 0.35;
+        f.b.speed *= 0.35;
+      }
+    }
   }
 
   private spawnWhirl() {
@@ -611,32 +664,6 @@ export class World {
         }
       }
       if (wh.traveled > Math.max(W, H) * 1.0 + wh.length * 1.15 + 80) this.whale = null;
-    }
-
-    // The anglerfish: a glowing lure draws fish in; one that gets too close is snapped up.
-    const an = this.angler;
-    if (an) {
-      an.lx = an.x + an.face * an.size * 0.95;
-      an.ly = an.y - an.size * 1.1 + Math.sin(time * 2) * 5;
-      for (const f of this.fish) {
-        if (!f.alive) continue;
-        const dx = an.lx - f.x;
-        const dy = an.ly - f.y;
-        const d = Math.hypot(dx, dy);
-        if (d < 340 && d > 1e-3) {
-          const w = (1 - d / 340) * 140 * dt;
-          f.vx += (dx / d) * w;
-          f.vy += (dy / d) * w;
-        }
-        if (d < an.size * 0.7 && time >= an.nextSnap) {
-          f.alive = false;
-          f.respawnAt = time + rand(3, 8);
-          an.snapUntil = time + 0.7;
-          an.nextSnap = time + rand(2.5, 5);
-          this.events.push({ kind: "eat", x: f.x, y: f.y });
-        }
-      }
-      if (time > an.until) this.angler = null;
     }
 
     // The whirlpool: fish are swept into a spiral for a few seconds, then flung out.
@@ -1071,6 +1098,7 @@ export class World {
     const cyW = H / 2;
     const mega = sharks.find((x) => x.mega);
     const kraken = this.kraken;
+    const fight = this.fight;
 
     for (const sh of sharks) {
       const L = sh.length;
@@ -1159,6 +1187,8 @@ export class World {
 
       let fleeing = false;
       let held = false;
+      let lunging = false;
+      let fighting = false;
       if (sh.mega) {
         // Homes in on the kraken while there is one; otherwise holds its line.
         if (kraken) {
@@ -1181,6 +1211,28 @@ export class World {
         dx = (ox / d) * pull + (-oy / d) * thrash;
         dy = (oy / d) * pull + (ox / d) * thrash;
         held = true;
+        hunting = false;
+        sh.target = null;
+      } else if (fight && (sh === fight.a || sh === fight.b)) {
+        // Circle the other shark at a respectful distance, then lunge in.
+        const other = sh === fight.a ? fight.b : fight.a;
+        const ox = other.nodes[0] - hx;
+        const oy = other.nodes[1] - hy;
+        const od = Math.hypot(ox, oy) || 1;
+        const rx = hx - fight.mx;
+        const ry = hy - fight.my;
+        const rd = Math.hypot(rx, ry) || 1;
+        const R0 = (fight.a.length + fight.b.length) * 0.3;
+        lunging = !fight.engaged || time < fight.lungeUntil;
+        if (lunging) {
+          dx = (ox / od) * 3;
+          dy = (oy / od) * 3;
+        } else {
+          const pull = ((R0 - rd) / R0) * 1.3;
+          dx = (-ry / rd) * fight.dir + (rx / rd) * pull;
+          dy = (rx / rd) * fight.dir + (ry / rd) * pull;
+        }
+        fighting = true;
         hunting = false;
         sh.target = null;
       } else {
@@ -1213,14 +1265,14 @@ export class World {
       }
       const desired = Math.atan2(dy, dx);
       // Sharks can't pivot on the spot: the turning circle grows with speed.
-      const agility = Math.min(sh.mega ? 0.3 : held ? 3 : fleeing ? 2 : hunting ? 1.7 + closing : 0.8, sh.speed / (L * 0.22));
+      const agility = Math.min(sh.mega ? 0.3 : held ? 3 : fighting ? 1.8 : fleeing ? 2 : hunting ? 1.7 + closing : 0.8, sh.speed / (L * 0.22));
       const maxTurn = agility * dt;
       const turned = clamp(angleDiff(sh.heading, desired), -maxTurn, maxTurn);
       sh.heading += turned;
       sh.turn += (turned / dt - sh.turn) * Math.min(1, dt * 3);
 
       const cruise = 30 + L * 0.04;
-      const targetSpeed = sh.mega ? (kraken ? 62 : 38 + L * 0.02) : held ? 30 : fleeing ? cruise * 2.3 : hunting ? cruise * (1.45 + closing * 1.5) : cruise;
+      const targetSpeed = sh.mega ? (kraken ? 62 : 38 + L * 0.02) : held ? 30 : fighting ? cruise * (lunging ? 2.4 : 1.3) : fleeing ? cruise * 2.3 : hunting ? cruise * (1.45 + closing * 1.5) : cruise;
       sh.speed += (targetSpeed - sh.speed) * Math.min(1, dt * 1.1);
       sh.phase += dt * (2 + sh.speed / 24);
 

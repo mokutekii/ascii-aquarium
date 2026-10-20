@@ -1,7 +1,7 @@
 import { OceanEngine } from './src';
 
 const engine = new OceanEngine(document.querySelector('canvas')!, [
-  { kind: 'hammerhead', size: 0.8 }, { kind: 'mako', size: 0.6 },
+  { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
 ]);
 type Source = { active: number; stale: number; lastFinished: number; seen: boolean };
 type State = { claude: Source; codex: Source };
@@ -90,11 +90,12 @@ document.addEventListener('visibilitychange', () => { clearTimeout(timer); void 
 void refresh();
 document.querySelector('#splash')!.addEventListener('click', () => engine.celebrate());
 
-// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, A anglerfish, V whirlpool, N nightfall.
+// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   k: ['kraken', 'the kraken rises...'], m: ['mega', 'a megalodon approaches...'], c: ['saga', 'something stirs below...'],
   r: ['chase', 'a chase!'], b: ['bait', 'a bait ball forms'], j: ['jelly', 'jellyfish drifting in'],
-  w: ['whale', 'a whale is coming...'], a: ['angler', 'a light in the deep'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
+  w: ['whale', 'a whale is coming...'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
+  f: ['fight', 'a fight breaks out'],
 };
 const toast = document.querySelector('#toast')!;
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -109,5 +110,27 @@ addEventListener('keydown', e => {
   const entry = keyEvents[e.key.toLowerCase()];
   if (!entry) return;
   const result = engine.trigger(entry[0]);
-  showToast(result === 'started' ? entry[1] : result === 'already' ? 'already happening' : 'one big event at a time');
+  showToast(result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'one big event at a time');
 });
+
+// Options panel: a few cycling toggles, remembered between runs.
+const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], night: ['on', 'off'], motion: ['smooth', 'saver'] };
+const chosen: Record<string, string> = { events: 'normal', night: 'on', motion: 'smooth' };
+try { Object.assign(chosen, JSON.parse(localStorage.getItem('aq-options') || '{}')); } catch {}
+const panel = document.querySelector('#panel')!;
+function applyOptions() {
+  engine.setEventLevel(chosen.events as 'off' | 'calm' | 'normal' | 'busy');
+  engine.setNightEnabled(chosen.night === 'on');
+  engine.setFps(chosen.motion === 'saver' ? 15 : 30);
+  panel.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.querySelector('b')!.textContent = chosen[button.dataset.opt!]; });
+  try { localStorage.setItem('aq-options', JSON.stringify(chosen)); } catch {}
+}
+panel.querySelectorAll<HTMLButtonElement>('button').forEach(button => button.addEventListener('click', () => {
+  const list = choices[button.dataset.opt!];
+  chosen[button.dataset.opt!] = list[(list.indexOf(chosen[button.dataset.opt!]) + 1) % list.length];
+  applyOptions();
+}));
+document.querySelector('#opts')!.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('open'); });
+addEventListener('click', e => { if (!panel.contains(e.target as Node)) panel.classList.remove('open'); });
+addEventListener('keydown', e => { if (e.key === 'Escape') panel.classList.remove('open'); });
+applyOptions();

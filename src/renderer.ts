@@ -233,7 +233,27 @@ const SHAPES: Record<SharkKind, SharkShape> = {
     secondDorsal: [0.63, 0.69],
     eye: [0.05, 0.075],
     gills: [0.14, 0.22],
-    tint: [1.1, 0.96, 0.76],
+    tint: [1.32, 0.74, 0.66],
+  },
+  // Sawshark: a long flat blade for a snout, its edges set with teeth, ahead of a slim,
+  // sandy body with small fins and a modest tail.
+  sawshark: {
+    halfWidth: (s) => {
+      if (s < 0.3) return 0; // the blade is drawn separately, in white (drawSawBlade)
+      if (s < 0.4) return 0.012 + 0.056 * smoothstep(0.3, 0.4, s);
+      if (s < 0.86) return 0.018 + 0.05 * Math.pow(1 - (s - 0.4) / 0.46, 1.2);
+      const k = (s - 0.86) / 0.14;
+      return 0.018 * (1 - k) + 0.01 * Math.sin(k * Math.PI);
+    },
+    pectoral: [0.42, 0.56, 0.64, 0.15],
+    falcate: true,
+    pelvic: [0.65, 0.7, 0.73, 0.055],
+    caudal: 0.1,
+    dorsal: [0.56, 0.63],
+    secondDorsal: [0.74, 0.78],
+    eye: [0.37, 0.4],
+    gills: [0.42, 0.5],
+    tint: [1.04, 0.96, 0.86],
   },
 };
 
@@ -435,9 +455,9 @@ export class AsciiRenderer {
     this.drawJellies(world);
     this.drawWhale(world);
     this.drawWhirl(world);
-    this.drawAngler(world);
     this.drawKraken(world);
     this.drawSharks(t);
+    this.drawSawBlade(world);
     if (this.night > 0) {
       ctx.fillStyle = `rgba(0,8,26,${(0.2 * this.night).toFixed(3)})`;
       ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
@@ -616,6 +636,26 @@ export class AsciiRenderer {
     flush();
   }
 
+  /** The sawshark's blade: a slim, bright white line for a snout. */
+  private drawSawBlade(world: World) {
+    const saws = world.sharks.filter((sh) => sh.kind === "sawshark");
+    if (!saws.length) return;
+    const { cw } = this;
+    const { put, flush } = this.painter();
+    for (const sh of saws) {
+      const L = sh.length;
+      for (let s = 0; s <= 0.31; s += (cw * 0.6) / L) {
+        const f = s * (SHARK_NODES - 1);
+        const i0 = Math.min(SHARK_NODES - 2, Math.floor(f));
+        const w = f - i0;
+        const x = sh.nodes[i0 * 2] * (1 - w) + sh.nodes[i0 * 2 + 2] * w;
+        const y = sh.nodes[i0 * 2 + 1] * (1 - w) + sh.nodes[i0 * 2 + 3] * w;
+        put(x, y, s < 0.03 ? "-" : "=", "rgb(255,255,250)", true);
+      }
+    }
+    flush();
+  }
+
   /** Jellyfish: a round, bulbed bell that pulses, with a frilled rim and short trailing strands. */
   private drawJellies(world: World) {
     if (!world.jellies.length) return;
@@ -775,47 +815,6 @@ export class AsciiRenderer {
     flush();
   }
 
-  /** An anglerfish: a dim toothy body in the dark, a stalk, and a glowing lure. */
-  private drawAngler(world: World) {
-    const an = world.angler;
-    if (!an) return;
-    const { cw, ch } = this;
-    const { put, flush } = this.painter();
-    const t = world.time;
-    const fade = Math.max(0, Math.min(1, (t - an.born) / 2, (an.until - t) / 3));
-    const f = an.face;
-    const a = an.size;
-    const b = an.size * 0.75;
-    const ramp = "S%8#";
-    for (let y = an.y - b; y <= an.y + b; y += ch * 0.7) {
-      for (let x = an.x - a; x <= an.x + a; x += cw * 0.7) {
-        const nx = (x - an.x) / a;
-        const ny = (y - an.y) / b;
-        if (nx * nx + ny * ny > 1) continue;
-        put(x, y, ramp[Math.min(3, Math.floor((0.3 + 0.35 * Math.hypot(nx, ny) + 0.2 * ny) * 4))], `rgba(74,98,126,${(0.85 * fade).toFixed(2)})`, true);
-      }
-    }
-    const open = t < an.snapUntil;
-    for (let i = 0; i < 3; i++) {
-      const x = an.x + f * (a * 0.5 + i * cw * 0.9);
-      put(x, an.y + b * 0.2 - (open ? ch : 0), "v", `rgba(225,230,235,${fade.toFixed(2)})`, true);
-      put(x, an.y + b * 0.2 + (open ? ch * 1 : ch * 0.1), "^", `rgba(225,230,235,${fade.toFixed(2)})`, true);
-    }
-    put(an.x + f * a * 0.35, an.y - b * 0.25, "O", `rgba(255,190,70,${fade.toFixed(2)})`, true);
-    put(an.x - f * a * 1.05, an.y, f > 0 ? ">" : "<", `rgba(74,98,126,${fade.toFixed(2)})`, true);
-    // Stalk arching up and over to the lure.
-    const sx = an.x + f * a * 0.3;
-    const sy = an.y - b * 0.7;
-    for (let i = 0; i <= 14; i++) {
-      const u = i / 14;
-      const cxm = (sx + an.lx) / 2;
-      const cym = Math.min(sy, an.ly) - an.size * 0.5;
-      put((1 - u) * (1 - u) * sx + 2 * (1 - u) * u * cxm + u * u * an.lx, (1 - u) * (1 - u) * sy + 2 * (1 - u) * u * cym + u * u * an.ly, ",", `rgba(140,170,190,${fade.toFixed(2)})`, true);
-    }
-    put(an.lx, an.ly, "@", `rgba(215,255,255,${fade.toFixed(2)})`, true);
-    flush();
-  }
-
   // ── simulation → field ──────────────────────────────────────────────
 
   private cellIndex(x: number, y: number) {
@@ -884,7 +883,6 @@ export class AsciiRenderer {
     if (world.pointer.active) {
       this.stamp(energy, world.pointer.x, world.pointer.y, 1, 0.08);
     }
-    if (world.angler) this.stamp(energy, world.angler.lx, world.angler.ly, 3, 0.7);
   }
 
   /** Blur + decay so wakes spread out like ripples and fade. */
