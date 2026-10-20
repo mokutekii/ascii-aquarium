@@ -90,18 +90,24 @@ document.addEventListener('visibilitychange', () => { clearTimeout(timer); void 
 void refresh();
 document.querySelector('#splash')!.addEventListener('click', () => engine.celebrate());
 
-// Demo keys: K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, A anglerfish, V whirlpool, N nightfall.
+// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, A anglerfish, V whirlpool, N nightfall.
+const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
+  k: ['kraken', 'the kraken rises...'], m: ['mega', 'a megalodon approaches...'], c: ['saga', 'something stirs below...'],
+  r: ['chase', 'a chase!'], b: ['bait', 'a bait ball forms'], j: ['jelly', 'jellyfish drifting in'],
+  w: ['whale', 'a whale is coming...'], a: ['angler', 'a light in the deep'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
+};
+const toast = document.querySelector('#toast')!;
+let toastTimer: ReturnType<typeof setTimeout>;
+function showToast(text: string) {
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+}
 addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const key = e.key.toLowerCase();
-  if (key === 'k') engine.trigger('kraken');
-  if (key === 'm') engine.trigger('mega');
-  if (key === 'c') engine.trigger('saga');
-  if (key === 'r') engine.trigger('chase');
-  if (key === 'b') engine.trigger('bait');
-  if (key === 'j') engine.trigger('jelly');
-  if (key === 'w') engine.trigger('whale');
-  if (key === 'a') engine.trigger('angler');
-  if (key === 'v') engine.trigger('whirl');
-  if (key === 'n') engine.trigger('night');
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  const entry = keyEvents[e.key.toLowerCase()];
+  if (!entry) return;
+  const result = engine.trigger(entry[0]);
+  showToast(result === 'started' ? entry[1] : result === 'already' ? 'already happening' : 'one big event at a time');
 });

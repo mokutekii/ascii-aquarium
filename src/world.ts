@@ -392,18 +392,37 @@ export class World {
     }
   }
 
-  /** Public so a key press can trigger one on demand. */
-  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "angler" | "whirl" | "night") {
+  /** Is this kind of event running right now? */
+  private eventActive(kind: string) {
+    switch (kind) {
+      case "kraken": case "saga": return !!this.kraken;
+      case "mega": return this.sharks.some((sh) => sh.mega);
+      case "bait": return !!this.baitBall;
+      case "jelly": return this.jellies.length > 0;
+      case "whale": return !!this.whale;
+      case "angler": return !!this.angler;
+      case "whirl": return !!this.whirl;
+      case "chase": return this.fish.some((f) => f.temp !== undefined);
+      default: return true;
+    }
+  }
+
+  /** Public so a key press can trigger one on demand. Says whether it started, was already running, or had to wait. */
+  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "angler" | "whirl" | "night"): "started" | "already" | "blocked" {
     const bigBusy = !!this.kraken || !!this.whale || this.sharks.some((sh) => sh.mega);
+    const big = kind === "kraken" || kind === "saga" || kind === "mega" || kind === "whale";
+    if (big && bigBusy) return this.eventActive(kind) ? "already" : "blocked";
+    if (kind !== "chase" && kind !== "night" && this.eventActive(kind)) return "already";
     if (kind === "chase") this.spawnRunner(randInt(1, 3));
-    else if (kind === "kraken" || kind === "saga") { if (!bigBusy) this.spawnKraken(kind === "kraken"); }
-    else if (kind === "mega") { if (!bigBusy) this.spawnMegalodon(); }
+    else if (kind === "kraken" || kind === "saga") this.spawnKraken(kind === "kraken");
+    else if (kind === "mega") this.spawnMegalodon();
     else if (kind === "bait") this.spawnBaitBall();
     else if (kind === "jelly") this.spawnJellies();
-    else if (kind === "whale") { if (!bigBusy) this.spawnWhale(); }
+    else if (kind === "whale") this.spawnWhale();
     else if (kind === "angler") this.spawnAngler();
     else if (kind === "whirl") this.spawnWhirl();
     else if (kind === "night") this.dayOffset = DAY_LEN * 0.35 - this.time;
+    return this.eventActive(kind) ? "started" : "blocked";
   }
 
   /** 0 in daylight, 1 in the middle of the night; a slow cycle with soft dusk and dawn. */
@@ -480,7 +499,7 @@ export class World {
     const count = randInt(3, 6);
     for (let i = 0; i < count; i++) {
       this.jellies.push({
-        x: rand(W * 0.08, W * 0.92), y: H + rand(40, 420), size: rand(26, 54), phase: rand(0, TAU),
+        x: rand(W * 0.08, W * 0.92), y: H + rand(40, 420), size: rand(22, 30), phase: rand(0, TAU),
         drift: rand(-14, 14), hue: Math.random(),
       });
     }
@@ -499,7 +518,7 @@ export class World {
   private spawnAngler() {
     if (this.angler) return;
     const { width: W, height: H, time } = this;
-    const size = clamp(Math.min(W, H) * 0.12, 50, 120);
+    const size = clamp(Math.min(W, H) * 0.05, 22, 44);
     const face = (Math.random() < 0.5 ? 1 : -1) as 1 | -1;
     const x = rand(W * 0.15, W * 0.85);
     const y = H * rand(0.72, 0.86);
@@ -716,7 +735,14 @@ export class World {
         k.grabbed = prey;
       }
     } else if (k.state === "grab") {
-      move(4, k.heading, false);
+      // Turn so the arms point at the sharks it holds and the mantle trails away from them.
+      let want = k.heading;
+      if (k.grabbed.length) {
+        const gx = k.grabbed.reduce((sum, sh) => sum + sh.nodes[0], 0) / k.grabbed.length;
+        const gy = k.grabbed.reduce((sum, sh) => sum + sh.nodes[1], 0) / k.grabbed.length;
+        want = Math.atan2(gy - k.y, gx - k.x) + Math.PI;
+      }
+      move(0, want, false);
       if (!k.megaSent && time - k.stateAt > k.megaDelay) {
         k.megaSent = true;
         this.spawnMegalodon(k.side === 0 ? 1 : 0);

@@ -466,9 +466,10 @@ export class AsciiRenderer {
   }
 
   /**
-   * The kraken: a bulbous head with one huge slit-pupilled eye in the middle of it, and ten
-   * thick tentacles that burst out around the back of the head, sweep back and curl at the tips.
-   * Tentacles holding a shark lunge to it and coil along its body; the whole thing shudders in its grip.
+   * The kraken, drawn as a giant squid in pale, heavy glyphs: a hatched cone mantle with fins, a
+   * round head with one big hollow eye, a bunch of short arms, and four long tentacles that curl
+   * into loops. Its arms always reach toward what it holds (it turns to face its prey), coil around
+   * the sharks, and the whole squid shudders in its grip.
    */
   private drawKraken(world: World) {
     const k = world.kraken;
@@ -480,24 +481,31 @@ export class AsciiRenderer {
     const hy = k.y + (grip ? Math.cos(k.phase * 9.1) * 3 : 0);
     const dx = Math.cos(k.heading);
     const dy = Math.sin(k.heading);
+    const px = -dy;
+    const py = dx;
     const S = k.size;
     const back = k.heading + Math.PI;
-    const R = S * 0.17 * (1 + 0.04 * Math.sin(k.phase * 1.1));
-    const cx = hx + dx * R * 0.2;
-    const cy = hy + dy * R * 0.2;
+    const pulse = 1 + 0.04 * Math.sin(k.phase * 1.1);
+    const R = S * 0.1 * pulse;
     const holders = k.grabbed.length;
-    const HOLD = [1, 2, 4, 5, 7, 8];
-    const limbs = 10;
+    const bone = (v: number, tint = 0) => {
+      const c = Math.round(Math.max(60, Math.min(250, v)));
+      return `rgb(${c},${Math.round(c - 8 - tint * 0.5)},${Math.round(c - 4 - tint * 0.2)})`;
+    };
 
+    // Six short arms and four long looping tentacles, reaching out from the front of the head.
+    const shortArms = 6;
+    const limbs = shortArms + 4;
     for (let a = 0; a < limbs; a++) {
-      const phi = (a / (limbs - 1) - 0.5) * 2 * 1.75;
-      const ang0 = back + phi;
-      const rx = cx + Math.cos(ang0) * R * 0.75;
-      const ry = cy + Math.sin(ang0) * R * 0.75;
-      const feeder = a === 4 || a === 5;
-      const N = 80;
+      const feeder = a >= shortArms;
+      const fi = a - shortArms;
+      const psi = feeder ? [-0.75, -0.25, 0.25, 0.75][fi] : (a / (shortArms - 1) - 0.5) * 2.0;
+      const rootAng = back + psi;
+      const rx = hx + Math.cos(rootAng) * R * 0.85;
+      const ry = hy + Math.sin(rootAng) * R * 0.85;
+      const N = 90;
       const pts: number[] = [];
-      const holds = grip && holders > 0 && HOLD.includes(a);
+      const holds = grip && holders > 0 && !feeder;
       if (holds) {
         const sh = k.grabbed[a % holders];
         const n0 = 5 + (a % 3) * 3;
@@ -506,7 +514,7 @@ export class AsciiRenderer {
         const vx = x0 - rx;
         const vy = y0 - ry;
         const vl = Math.hypot(vx, vy) || 1;
-        const bow = S * 0.2 * Math.sin(k.phase * 1.5 + a * 1.3);
+        const bow = S * 0.16 * Math.sin(k.phase * 1.5 + a * 1.3);
         const bx = (rx + x0) / 2 + (-vy / vl) * bow;
         const by = (ry + y0) / 2 + (vx / vl) * bow;
         for (let i = 0; i <= N; i++) {
@@ -530,17 +538,17 @@ export class AsciiRenderer {
           }
         }
       } else {
-        // Leaves the head radially, then sweeps back and hooks inward at the tip.
-        const len = feeder ? S * 1.5 : S * (0.7 + 0.3 * Math.abs(Math.sin(a * 2.3)) + 0.25 * (Math.abs(phi) / 1.75));
+        // Arms fan out and wave; the long tentacles trail out and curl over into loops.
+        const len = feeder ? S * (1.2 + 0.18 * Math.abs(psi)) : S * (0.4 + 0.2 * Math.sin((a + 0.5) * 1.9) ** 2);
         const ds = len / N;
-        const curl = -phi * 0.55;
+        const curl = feeder ? (psi < 0 ? -1 : 1) * (3.4 + 1.2 * Math.abs(psi)) : -psi * 0.6;
         let x = rx;
         let y = ry;
         for (let i = 0; i <= N; i++) {
           const t = i / N;
           pts.push(x, y);
-          const wave = Math.sin(k.phase * 1.3 - t * 5 + a * 0.9) * 0.42 * Math.pow(t, 0.8);
-          const ang = back + phi * (1 - 0.55 * t) + curl * t * t - k.bend * 0.4 * t + wave;
+          const wave = Math.sin(k.phase * 1.2 - t * 5 + a * 0.9) * (feeder ? 0.16 : 0.36) * Math.pow(t, 0.8);
+          const ang = back + psi * (feeder ? 0.7 : 0.9 - 0.4 * t) + curl * Math.pow(t, feeder ? 2.2 : 2) - k.bend * 0.4 * t + wave;
           x += Math.cos(ang) * ds;
           y += Math.sin(ang) * ds;
         }
@@ -553,75 +561,106 @@ export class AsciiRenderer {
         const tl = Math.hypot(tx, ty) || 1;
         const nx = -ty / tl;
         const ny = tx / tl;
-        const half = feeder ? 1 : Math.round(2.3 * Math.pow(1 - t, 1.5));
+        const half = Math.round((feeder ? 1.4 : 1.9) * Math.pow(1 - t, 1.2));
         for (let o = -half; o <= half; o++) {
           const edge = Math.abs(o) === half && half > 0;
-          const glyph = holds && t > 0.97 ? "@" : feeder && t > 0.93 ? "@" : edge ? "o" : t < 0.25 ? "#" : t < 0.7 ? "o" : ".";
-          const shade = 190 - 85 * t - (edge ? 25 : 0);
-          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, `rgb(${shade + 15},${40 + 24 * (1 - t)},${84 + 26 * (1 - t)})`);
+          const glyph = holds && t > 0.97 ? "@" : edge ? "o" : t < 0.2 ? "@" : t < 0.45 ? "8" : t < 0.75 ? "o" : ".";
+          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, bone(240 - 110 * t - (edge ? 25 : 0), 40 * t));
         }
       }
     }
 
-    // The head: a mottled dome.
-    const ramp = ":;t%S8#@";
-    for (let y = cy - R; y <= cy + R; y += ch * 0.7) {
-      for (let x = cx - R; x <= cx + R; x += cw * 0.7) {
-        const d = Math.hypot(x - cx, y - cy) / R;
-        if (d > 1) continue;
-        const shade = Math.min(0.99, 0.2 + 0.55 * d + 0.2 * (y > cy ? 1 : 0));
-        const wart = (Math.floor(x / cw) * 7 + Math.floor(y / ch) * 13) % 9 === 0;
-        const c = 214 - shade * 110;
-        put(x, y, wart ? "*" : ramp[Math.floor(shade * ramp.length)], `rgb(${c},${Math.max(30, c - 90)},${Math.max(60, c - 60)})`, true);
+    // Mantle: a large cone behind the head, hatched with slashes and outlined heavily.
+    const Lm = S * 0.62 * pulse;
+    const halfAt = (u: number) => R * 1.3 * Math.pow(1 - u, 0.9) * (1 + 0.35 * Math.sin(Math.PI * Math.min(1, u * 1.2)));
+    for (let y = hy - Lm - R * 2.5; y <= hy + Lm + R * 2.5; y += ch * 0.7) {
+      for (let x = hx - Lm - R * 2.5; x <= hx + Lm + R * 2.5; x += cw * 0.7) {
+        const rx = x - hx;
+        const ry = y - hy;
+        const along = rx * dx + ry * dy;
+        const across = rx * px + ry * py;
+        const u = along / Lm;
+        const inHead = Math.hypot(rx, ry) <= R;
+        const inCone = u >= 0 && u <= 1 && Math.abs(across) <= halfAt(u);
+        const fu = (u - 0.45) / 0.55;
+        const fin = fu > 0 && fu <= 1 && Math.abs(across) <= halfAt(u) + R * 0.9 * Math.sin(Math.PI * fu) && Math.abs(across) > halfAt(u) * 0.85;
+        if (!inHead && !inCone && !fin) continue;
+        const col = Math.floor(x / cw);
+        const row = Math.floor(y / ch);
+        const band = (col + row) % 4;
+        const rel = inCone ? Math.abs(across) / Math.max(halfAt(u), 1) : 0;
+        let glyph: string;
+        if (fin && !inCone && !inHead) glyph = across > 0 ? "\\" : "/";
+        else if (inHead) glyph = (col * 3 + row) % 5 === 0 ? "0" : "8";
+        else if (rel > 0.84) glyph = "@";
+        else if (u < 0.12) glyph = "8";
+        else glyph = band === 3 ? "%" : (col + row * 2) % 11 === 0 ? "*" : "/";
+        const lum = inHead ? 238 : 232 - 80 * u - (rel > 0.84 ? 0 : 20);
+        put(x, y, glyph, bone(lum, 30 * u), true);
       }
     }
 
-    // One huge eye in the middle of the head: pale rim, amber iris, a glowing vertical slit.
-    const re = R * 0.52;
-    for (let y = cy - re; y <= cy + re; y += ch * 0.7) {
-      for (let x = cx - re; x <= cx + re; x += cw * 0.7) {
-        const e = Math.hypot(x - cx, y - cy) / re;
+    // One big hollow eye: a white ring around a black pupil, with a small highlight.
+    const re = R * 0.62;
+    const ex = hx - dx * R * 0.1;
+    const ey = hy - dy * R * 0.1;
+    for (let y = ey - re; y <= ey + re; y += ch * 0.7) {
+      for (let x = ex - re; x <= ex + re; x += cw * 0.7) {
+        const e = Math.hypot(x - ex, y - ey) / re;
         if (e > 1) continue;
-        if (e > 0.8) put(x, y, "O", "rgb(250,244,232)", true);
-        else if (Math.abs(x - cx) < cw * 0.55 && e < 0.7) put(x, y, "|", "rgb(255,250,225)", true);
-        else if (e > 0.4) put(x, y, "@", "rgb(236,164,50)", true);
-        else put(x, y, "@", "rgb(120,40,20)", true);
+        if (e > 0.62) put(x, y, "O", "rgb(255,255,255)", true);
+        else if (e < 0.18 && x < ex && y < ey) put(x, y, ".", "rgb(255,255,255)", true);
+        else put(x, y, " ", "rgb(0,0,0)", true);
       }
     }
     flush();
   }
 
-  /** Jellyfish: a pulsing glass bell with trailing strands, glowing cyan to violet. */
+  /** Jellyfish: a round, bulbed bell that pulses, with a frilled rim and short trailing strands. */
   private drawJellies(world: World) {
     if (!world.jellies.length) return;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     for (const j of world.jellies) {
-      const r = j.size * (1 + 0.14 * Math.sin(j.phase));
+      const r = j.size * (1 + 0.12 * Math.sin(j.phase));
       const rgb = `${Math.round(120 + 80 * j.hue)},${Math.round(205 - 65 * j.hue)},255`;
-      for (let y = j.y - r * 0.85; y <= j.y + r * 0.12; y += ch * 0.7) {
-        for (let x = j.x - r; x <= j.x + r; x += cw * 0.7) {
+      const top = j.y - r * 1.5;
+      for (let y = top; y <= j.y + r * 0.1; y += ch * 0.6) {
+        for (let x = j.x - r; x <= j.x + r; x += cw * 0.6) {
           const nx = (x - j.x) / r;
-          const ny = (y - j.y) / (r * 0.85);
+          const ny = (y - j.y) / (r * 1.5);
           const d = nx * nx + ny * ny;
           if (d > 1) continue;
-          const rim = d > 0.68;
-          put(x, y, rim ? (ny < -0.2 ? "-" : nx < 0 ? "(" : ")") : (Math.floor(x / cw) + Math.floor(y / ch)) % 4 === 0 ? "." : ":", `rgba(${rgb},${rim ? 0.95 : 0.55})`, true);
+          let glyph: string;
+          let alpha = 0.5;
+          if (d > 0.6) {
+            alpha = 0.95;
+            if (Math.abs(nx) < 0.45) glyph = "-";
+            else if (ny < -0.4) glyph = ".";
+            else glyph = nx < 0 ? "(" : ")";
+          } else {
+            glyph = (Math.floor(x / cw) + Math.floor(y / ch)) % 3 === 0 ? "." : ":";
+          }
+          put(x, y, glyph, `rgba(${rgb},${alpha})`, true);
         }
       }
-      for (let x = j.x - r; x <= j.x + r; x += cw) put(x, j.y + r * 0.16, "~", `rgba(${rgb},0.9)`, true);
-      for (let sIdx = 0; sIdx < 6; sIdx++) {
-        const len = 8 + (sIdx % 3) * 3;
+      put(j.x, j.y - r * 0.55, "o", `rgba(${rgb},0.95)`, true);
+      for (let x = j.x - r * 0.9; x <= j.x + r * 0.9; x += cw * 0.8) put(x, j.y + r * 0.16, "~", `rgba(${rgb},0.9)`, true);
+      for (let sIdx = 0; sIdx < 5; sIdx++) {
+        const len = 3 + (sIdx % 3);
         for (let i = 1; i <= len; i++) {
-          const sway = Math.sin(j.phase * 0.8 - i * 0.55 + sIdx) * cw * 1.3 * (i / len);
-          put(j.x + (sIdx - 2.5) * r * 0.36 + sway, j.y + r * 0.16 + i * ch * 0.9, i < len * 0.6 ? "|" : i < len * 0.85 ? ":" : ".", `rgba(${rgb},${(0.8 * (1 - i / (len + 2))).toFixed(2)})`);
+          const sway = Math.sin(j.phase * 0.8 - i * 0.6 + sIdx) * cw * 0.9 * (i / len);
+          put(j.x + (sIdx - 2) * r * 0.42 + sway, j.y + r * 0.16 + i * ch * 0.9, i < len ? "|" : ":", `rgba(${rgb},${(0.8 * (1 - i / (len + 2))).toFixed(2)})`);
         }
       }
     }
     flush();
   }
 
-  /** A whale: a huge slow body that undulates, with pectoral fins and horizontal flukes. */
+  /**
+   * A humpback seen from above: a blunt knobbly head, a long body that tapers to the tail,
+   * two long pale flippers swept back, and wide notched flukes that sway as it swims.
+   */
   private drawWhale(world: World) {
     const w = world.whale;
     if (!w) return;
@@ -630,42 +669,92 @@ export class AsciiRenderer {
     const L = w.length;
     const dx = Math.cos(w.heading);
     const dy = Math.sin(w.heading);
-    const px = -dy;
-    const py = dx;
+    const W0 = L * 0.095;
     const centre = (u: number): [number, number] => {
       const bend = Math.sin(w.phase - u * 3.2) * 0.035 * L * u;
-      return [w.x - dx * L * u + px * bend, w.y - dy * L * u + py * bend];
+      return [w.x - dx * L * u - dy * bend, w.y - dy * L * u + dx * bend];
     };
-    const half = (u: number) => L * 0.1 * Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.15 + 0.04)), 0.8) * (u < 0.8 ? 1 : Math.max(0.12, (1 - u) / 0.2));
-    const ramp = ".:;%S8#";
-    for (let u = 0; u <= 0.93; u += (cw * 0.6) / L) {
-      const [cx, cy] = centre(u);
-      const [nx2, ny2] = centre(u + 0.01);
-      const tl = Math.hypot(nx2 - cx, ny2 - cy) || 1;
-      const nx = -(ny2 - cy) / tl;
-      const ny = (nx2 - cx) / tl;
+    // Position, forward tangent and side normal at a point along the body.
+    const frame = (u: number) => {
+      const [x0, y0] = centre(u);
+      const [x1, y1] = centre(u + 0.01);
+      const tl = Math.hypot(x0 - x1, y0 - y1) || 1;
+      const tx = (x0 - x1) / tl;
+      const ty = (y0 - y1) / tl;
+      return { x: x0, y: y0, tx, ty, nx: -ty, ny: tx };
+    };
+    const half = (u: number) => {
+      if (u < 0.14) { const q = 1 - u / 0.14; return W0 * 0.92 * Math.sqrt(Math.max(0, 1 - q * q)); }
+      if (u < 0.45) return W0 * (0.92 + 0.08 * ((u - 0.14) / 0.31));
+      if (u < 0.85) { const q = (u - 0.45) / 0.4; return W0 * (1 - 0.88 * (0.5 - 0.5 * Math.cos(Math.PI * q))); }
+      return Math.max(2, W0 * 0.12 * (1 - (u - 0.85) / 0.15));
+    };
+    const ramp = ":;%8#";
+    // Body, with knobbly tubercles on the head.
+    for (let u = 0; u <= 0.975; u += (cw * 0.6) / L) {
+      const f = frame(u);
       const hw = half(u);
       const steps = Math.max(1, Math.ceil(hw / (cw * 0.6)));
       for (let o = -steps; o <= steps; o++) {
         const v = o / steps;
-        const bx = cx + nx * v * hw;
-        const by = cy + ny * v * hw;
-        const belly = Math.max(-1, Math.min(1, (by - cy) / Math.max(hw, 1)));
-        const dark = 0.5 - 0.5 * belly;
-        const c = 150 - dark * 70;
-        put(bx, by, ramp[Math.min(ramp.length - 1, Math.floor(dark * ramp.length))], `rgb(${c - 20},${c + 5},${c + 45})`, true);
+        const x = f.x + f.nx * v * hw;
+        const y = f.y + f.ny * v * hw;
+        const centreWeight = 1 - Math.abs(v);
+        const tubercle = u < 0.2 && (Math.floor(x / cw) * 5 + Math.floor(y / 14) * 7) % 6 === 0;
+        const glyph = tubercle ? "*" : ramp[Math.min(ramp.length - 1, Math.floor(Math.pow(centreWeight, 0.8) * ramp.length))];
+        const lum = 100 + 55 * Math.abs(v) + (tubercle ? 40 : 0);
+        put(x, y, glyph, `rgb(${lum - 20},${lum + 5},${lum + 45})`, true);
       }
     }
-    const [ex, ey] = centre(0.07);
-    put(ex + px * half(0.07) * 0.5, ey + py * half(0.07) * 0.5, "o", "rgb(240,240,230)", true);
-    // Flukes at the tail, pectoral fin along the flank.
-    const [tx0, ty0] = centre(0.96);
-    for (let i = -14; i <= 14; i++) {
-      const f = i / 14;
-      put(tx0 + px * f * L * 0.13 - dx * Math.abs(f) * L * 0.03, ty0 + py * f * L * 0.13 - dy * Math.abs(f) * L * 0.03, "~", "rgb(120,150,195)", true);
+    // Eyes and blowholes on the head.
+    const head = frame(0.12);
+    for (const sgn of [-1, 1]) {
+      put(head.x + head.nx * half(0.12) * 0.82 * sgn, head.y + head.ny * half(0.12) * 0.82 * sgn, "o", "rgb(245,245,238)", true);
+      put(frame(0.2).x + frame(0.2).nx * half(0.2) * 0.12 * sgn, frame(0.2).y + frame(0.2).ny * half(0.2) * 0.12 * sgn, '"', "rgb(200,225,245)", true);
     }
-    const [fx, fy] = centre(0.3);
-    for (let i = 0; i <= 8; i++) put(fx + px * (half(0.3) + i * cw * 0.9) - dx * i * cw * 0.5, fy + py * (half(0.3) + i * cw * 0.9) - dy * i * cw * 0.5, "/", "rgb(130,160,200)", true);
+    // Long pale flippers on both sides, swept back and swaying a little.
+    const root = frame(0.3);
+    for (const sgn of [-1, 1]) {
+      const sway = Math.sin(w.phase * 1.3 + sgn) * 0.14;
+      const ang = Math.atan2(root.ny * sgn, root.nx * sgn) + sgn * (0.7 + sway) * -1;
+      const fdx = Math.cos(ang);
+      const fdy = Math.sin(ang);
+      const flen = L * 0.085;
+      for (let i = 0; i <= 26; i++) {
+        const t = i / 26;
+        const bx = root.x + root.nx * sgn * half(0.3) + fdx * flen * t;
+        const by = root.y + root.ny * sgn * half(0.3) + fdy * flen * t;
+        const thick = Math.round(1 * (1 - t));
+        for (let o = -thick; o <= thick; o++) {
+          put(bx - fdy * o * cw * 0.8, by + fdx * o * cw * 0.8, Math.abs(o) === thick && thick > 0 ? "o" : "#", "rgb(222,236,246)", true);
+        }
+      }
+    }
+    // The tail is what makes it a whale: huge crescent flukes with a centre notch, a heavy
+    // leading edge, swept-back tips and a scalloped trailing edge, swaying with each stroke.
+    const tail = frame(0.97);
+    const span = L * 0.23;
+    const sweepMax = L * 0.07;
+    const chordMax = L * 0.09;
+    const beat = Math.sin(w.phase * 1.1);
+    for (const sgn of [-1, 1]) {
+      const STEPS = 60;
+      for (let i = 4; i <= STEPS; i++) {
+        const t = i / STEPS;
+        // Leading edge curves back toward the tip; the whole tail sways with the beat.
+        const lateral = sgn * span * t;
+        const sweep = sweepMax * Math.pow(t, 1.7) + beat * L * 0.02 * t * sgn;
+        const lx = tail.x + tail.nx * lateral - tail.tx * sweep;
+        const ly = tail.y + tail.ny * lateral - tail.ty * sweep;
+        const chord = chordMax * Math.pow(Math.sin(Math.PI * (0.06 + 0.94 * t)), 0.85) * (1 - 0.45 * t) * (1 + 0.12 * Math.sin(t * 38));
+        const depth = Math.max(1, Math.round(chord / (cw * 0.8)));
+        for (let k = 0; k <= depth; k++) {
+          const glyph = k === 0 ? "@" : k === depth ? "~" : k === depth - 1 ? "%" : "#";
+          const shade = 150 - 40 * (k / depth);
+          put(lx - tail.tx * k * cw * 0.8, ly - tail.ty * k * cw * 0.8, glyph, `rgb(${shade - 30},${shade - 5},${shade + 40})`, true);
+        }
+      }
+    }
     flush();
   }
 
@@ -707,7 +796,7 @@ export class AsciiRenderer {
       }
     }
     const open = t < an.snapUntil;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 3; i++) {
       const x = an.x + f * (a * 0.5 + i * cw * 0.9);
       put(x, an.y + b * 0.2 - (open ? ch : 0), "v", `rgba(225,230,235,${fade.toFixed(2)})`, true);
       put(x, an.y + b * 0.2 + (open ? ch * 1 : ch * 0.1), "^", `rgba(225,230,235,${fade.toFixed(2)})`, true);
