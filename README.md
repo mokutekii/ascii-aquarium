@@ -17,11 +17,19 @@ They happen at random, or press a key to trigger one yourself.
 | B | a bait ball: fish spin into a tight ball while sharks circle in |
 | J | jellyfish drift up through the tank |
 | W | a whale glides through, fish parting around it |
-| A | an anglerfish lights a lure in the dark and snaps up fish that come close |
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
+| F | two sharks square off, circle and lunge at each other |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
 
 You can also click the **Splash** button in the corner.
+
+## Options
+
+Click **opts** in the top corner. Each line cycles when you click it, and your choices are remembered.
+
+- **events:** off, calm (no big events), normal, or busy. Keys still work when events are off.
+- **night:** turn the slow night cycle on or off.
+- **motion:** smooth (30 frames per second) or saver (15).
 
 ## Install on Windows
 

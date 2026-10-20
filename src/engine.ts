@@ -27,6 +27,12 @@ export class OceanEngine {
     this.activitySpeed = working ? 1.55 : 0.65;
   }
 
+  setFps(fps: number) { this.fps = fps; }
+
+  setEventLevel(level: World["settings"]["events"]) { this.world.settings.events = level; }
+
+  setNightEnabled(on: boolean) { this.world.settings.night = on; }
+
   /** Demo hook: run a random event on demand. */
   trigger(kind: Parameters<World["triggerEvent"]>[0]) {
     return this.world.triggerEvent(kind);
@@ -115,11 +121,12 @@ export class OceanEngine {
   }
 
   private lastDraw = 0;
+  private fps = 30;
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
     // Cap the frame rate: 30 fps in focus, 15 fps when another window has focus.
-    const interval = document.hasFocus() ? 1000 / 30 : 1000 / 15;
+    const interval = 1000 / (document.hasFocus() ? this.fps : Math.min(this.fps, 15));
     if (now - this.lastDraw < interval - 3) return;
     this.lastDraw = now;
     const dt = Math.min(0.1, (now - this.last) / 1000);
@@ -193,6 +200,7 @@ export class OceanEngine {
   }
 
   private onPointerUp = (e: PointerEvent) => {
+    if (e.target instanceof Element && e.target.closest("#status, #panel")) { this.trail = null; return; }
     const { x, y, inside } = this.toLocal(e);
     // Finishing a drag lands a heavier ripple where you let go.
     if (this.trail && inside && !this.reducedMotion.matches) this.world.splash(x, y, 1.4);
@@ -200,6 +208,7 @@ export class OceanEngine {
   };
 
   private onPointerDown = (e: PointerEvent) => {
+    if (e.target instanceof Element && e.target.closest("#status, #panel")) return;
     const { x, y, inside } = this.toLocal(e);
     if (inside && !this.reducedMotion.matches) { this.trail = { x, y }; this.world.splash(x, y, 2.5); }
   };
