@@ -29,7 +29,7 @@ export class OceanEngine {
 
   /** Demo hook: run a random event on demand. */
   trigger(kind: Parameters<World["triggerEvent"]>[0]) {
-    this.world.triggerEvent(kind);
+    return this.world.triggerEvent(kind);
   }
 
   celebrate() {
