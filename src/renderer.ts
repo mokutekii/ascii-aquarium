@@ -335,6 +335,8 @@ export class AsciiRenderer {
   private ctx: CanvasRenderingContext2D;
   private bg: HTMLCanvasElement;
   private dpr = 1;
+  private displayScale = 1;
+  setDisplayScale(scale: number) { this.displayScale = scale; }
   private width = 0;
   private height = 0;
   private yeat = 0;
@@ -371,6 +373,8 @@ export class AsciiRenderer {
   /** Cells darkened by a shark's shadow on the seabed. */
   private sharkShadow = new Uint8Array(0);
   private spine = new Float32Array(SHARK_NODES * 2);
+  /** Scratch spine for the yeat skeleton, reused every frame instead of allocated. */
+  private skeletonSpine = new Float32Array(SHARK_NODES * 2);
   private arc = new Float32Array(SHARK_NODES);
   private arcTotal = 1;
   private shape = SHAPES.classic;
@@ -542,6 +546,7 @@ export class AsciiRenderer {
       }
     }
 
+    this.drawCurrent(world);
     this.markFish(world);
     this.drawDots(t);
     this.drawYeatGlows(world, t);
@@ -945,7 +950,7 @@ export class AsciiRenderer {
   /** Blood clouding out where a megalodon has clamped onto the whale. */
   private drawWhaleBite(world: World) {
     const wf = world.whaleFight;
-    if (!wf || !wf.locked || !world.whale) return;
+    if (!wf || !wf.locked || !world.whales.includes(wf.whale)) return;
     const { cw } = this;
     const { put, flush } = this.painter();
     const m = wf.mega;
@@ -1151,7 +1156,7 @@ export class AsciiRenderer {
         put(uf.x + Math.cos(a) * half * 1.05, uf.y + Math.sin(a) * ch * 1.4, i % 2 ? "@" : "8", krakenBone(232), true);
       }
     }
-    const whaleHeld = world.whale;
+    const whaleHeld = k.whaleTarget;
     if (whaleHeld && k.whaleUntil > world.time) {
       // Thick arms clamped round the whale's body.
       const wx = Math.cos(whaleHeld.heading);
@@ -1501,9 +1506,9 @@ export class AsciiRenderer {
     g.addColorStop(1, `rgba(${Math.round(60 + 120 * pulse)},${Math.round(160 - 90 * pulse)},60,${(0.1 + 0.07 * pulse).toFixed(3)})`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
+    const done = inv.killed + inv.escaped;
     const { put, flush } = this.painter();
     const title = "ALIEN INVASION";
-    const done = inv.killed + inv.escaped;
     const width = 26;
     const filled = Math.round((done / inv.total) * width);
     const cx = w / 2;
@@ -1535,11 +1540,17 @@ export class AsciiRenderer {
     }
     const { put, flush } = this.painter();
     const k = world.kraken;
-    const progress = sg.kind === "clash"
-      ? (k && k.state === "wrap" ? Math.max(0, Math.min(1, (t - k.stateAt) / Math.max(1, k.wrapFor))) : 0)
-      : Math.max(0, Math.min(1, (t - sg.born) / (sg.until - sg.born)));
-    const label = sg.kind === "moon" ? `THE MOON SETS IN ${Math.max(0, Math.ceil(sg.until - t))}s`
-      : sg.kind === "meteor" ? `${sg.count} STRIKES   ${Math.max(0, Math.ceil(sg.until - t))}s LEFT`
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const left = Math.max(0, Math.ceil(sg.until - t));
+    const progress = sg.kind === "clash" ? (k && k.state === "wrap" ? clamp01((t - k.stateAt) / Math.max(1, k.wrapFor)) : 0)
+      : sg.kind === "migration" ? clamp01(sg.count / Math.max(1, sg.total))
+      : sg.kind === "bloom" ? clamp01(sg.count / Math.max(1, sg.peak))
+      : clamp01((t - sg.born) / (sg.until - sg.born));
+    const label = sg.kind === "moon" ? `THE MOON SETS IN ${left}s`
+      : sg.kind === "meteor" ? `${sg.count} STRIKES   ${left}s LEFT`
+      : sg.kind === "maelstrom" ? `${sg.lost} LOST   ${left}s LEFT`
+      : sg.kind === "bloom" ? `${sg.count}/${Math.max(sg.peak, sg.count)} DIVERS SAFE   ${left}s`
+      : sg.kind === "migration" ? `${sg.count}/${sg.total} ACROSS   ${sg.lost} LOST`
       : k && k.state === "wrap" ? "KRAKEN vs MEGALODON" : "THE TITANS GATHER...";
     const cx = w / 2;
     const y = ch * (3.2 + slot * 5.6);
@@ -1551,6 +1562,7 @@ export class AsciiRenderer {
     for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(225,225,230)", true);
     flush();
   }
+
 
   /** Meteors: a white-hot head with a long orange tail streaking down through the water. */
   private drawMeteors(world: World) {
@@ -1625,18 +1637,39 @@ export class AsciiRenderer {
     flush();
   }
 
-  /** A whirlpool: four spiral arms of foam turning around the centre. */
+  /** A whirlpool: three spiral arms of foam turning around the centre. */
+  /** A quiet living-light ribbon, behind the animals and without physical force. */
+  private drawCurrent(world: World) {
+    if (world.currentUntil <= world.time) return;
+    const left = world.currentUntil - world.time;
+    const fade = Math.min(1, (45 - left) / 4, left / 6);
+    const { put, flush } = this.painter();
+    for (let lane = 0; lane < 3; lane++) {
+      for (let i = 0; i < 100; i++) {
+        const u = i / 99;
+        const x = u * world.width;
+        const y = world.height * (0.36 + lane * 0.09 + 0.12 * Math.sin(u * 6 + world.time * 0.09 + lane * 0.4));
+        const twinkle = 0.5 + 0.5 * Math.sin(i * 2.4 + world.time * 0.8 + lane);
+        put(x, y, twinkle > 0.85 ? "+" : ".", `rgba(${lane === 1 ? "125,155,225" : "80,205,190"},${(fade * (0.1 + twinkle * 0.28)).toFixed(3)})`);
+      }
+    }
+    flush();
+  }
+
   private drawWhirl(world: World) {
-    const wp = world.whirl;
-    if (!wp) return;
+    if (world.whirl) this.drawOneWhirl(world, world.whirl);
+    for (const v of world.vortices) this.drawOneWhirl(world, v);
+  }
+
+  private drawOneWhirl(world: World, wp: NonNullable<World["whirl"]>) {
     const { put, flush } = this.painter();
     const fade = Math.max(0, Math.min(1, (world.time - wp.born) / 2, (wp.until - world.time) / 2));
-    for (let arm = 0; arm < 4; arm++) {
-      for (let i = 0; i <= 70; i++) {
-        const t = i / 70;
+    for (let arm = 0; arm < 3; arm++) {
+      for (let i = 0; i <= 120; i++) {
+        const t = i / 120;
         const rad = wp.r * 2.3 * t;
-        const ang = wp.dir * (t * 6 + world.time * 2.2) + (arm * Math.PI) / 2;
-        put(wp.x + Math.cos(ang) * rad, wp.y + Math.sin(ang) * rad * 0.8, t < 0.15 ? "@" : "~", `rgba(110,220,235,${(0.8 * fade * (1 - t * 0.7)).toFixed(2)})`, true);
+        const ang = wp.dir * (t * 11 + world.time * 1.1) + (arm * Math.PI * 2) / 3;
+        put(wp.x + Math.cos(ang) * rad, wp.y + Math.sin(ang) * rad * 0.8, t < 0.1 ? "." : "~", `rgba(110,220,235,${(0.8 * fade * (1 - t * 0.7)).toFixed(2)})`, true);
       }
     }
     flush();
@@ -1683,7 +1716,7 @@ export class AsciiRenderer {
       const soft = rp.strength >= 0.55;
       const phase = rp.x * 0.013 + rp.y * 0.007;
       // [radial offset in cells, weight]: the crest, then fainter swells trailing behind it.
-      const passes = rp.song ? [[0, 1], [-9, 0.7], [-18, 0.45], [-27, 0.25]] : soft ? [[0, 1], [-2.4, 0.55], [-4.8, 0.28]] : [[0, 1]];
+      const passes = rp.song ? [[0, 1], [-9, 0.45]] : soft ? [[0, 1], [-2.4, 0.55], [-4.8, 0.28]] : [[0, 1]];
       for (let p = 0; p < passes.length; p++) {
         const r0 = rp.r + passes[p][0] * this.cw;
         if (r0 < 3) continue;
@@ -1698,7 +1731,7 @@ export class AsciiRenderer {
           const x = rp.x + Math.cos(a - Math.PI) * r0 * wob;
           const y = rp.y + Math.sin(a - Math.PI) * r0 * wob;
           const amount = rp.song ? 0.5 * fade : thick === 0 ? (soft ? 0.9 : 0.8) * fade : Math.min(0.5, 0.2 * fade * rp.strength);
-          this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, amount * amp * weight);
+          this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, amount * amp * weight / Math.sqrt(Math.max(1, world.ripples.length / 8)));
           const ci = this.cellIndex(x, y);
           if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], Math.max(0.01, 1 - fade + 0.01 - p * 0.1) + (rp.hue ? 10 : 0));
         }
@@ -2088,7 +2121,7 @@ export class AsciiRenderer {
       const L = sh.length;
       const N = SHARK_NODES;
       const n = sh.nodes;
-      const sp = new Float32Array(N * 2);
+      const sp = this.skeletonSpine;
       for (let k = 0; k < N; k++) {
         const s = k / (N - 1);
         const a = Math.max(0, k - 1);

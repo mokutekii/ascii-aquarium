@@ -6,15 +6,19 @@ It runs only on your own computer. No account, no sign-in, no API key, and nothi
 
 ## Events
 
-They happen at random, or press a key to trigger one yourself.
+Everything here happens on its own: leave the window alone and the sea keeps putting on shows, with no input needed. The keys are just there if you want to call one up yourself.
 
 | Key | Event |
 | --- | --- |
+| L | living light: a quiet bioluminescent current drifts behind the animals |
 | K | a kraken rises, grabs sharks and divers, and squeezes (it can even grab a ufo) |
 | M | a megalodon crosses the tank and every shark bolts (with a kraken out, it comes for the kraken: press it when you want the fight) |
 | C | TITANS CLASH, the full story with its own banner: the kraken grabs sharks, then the megalodon comes for it and they fight |
 | O | BLOOD MOON: the sea turns red, the sharks are always hungry and armed divers keep arriving (sometimes the megalodon too) |
-| E | METEOR SHOWER: burning rocks slam into the water, and a tech diver salvages the scrap |
+| E | METEOR SHOWER: burning rocks slam into the water (a rock that meets a saucer, diver or shark on the way down hits it on the spot), and a tech diver salvages the scrap |
+| S | THE MAELSTROM: two or three whirlpools tear across the tank, sling sharks about and swallow anything that reaches the middle; the bar counts down and keeps score of who was lost |
+| G | JELLYFISH BLOOM: a huge glowing swarm drifts up and zaps divers while the sharks pile in; the bar shows how many divers are still safe |
+| P | GREAT MIGRATION: two whales and a giant school cross the tank together with sharks tailing them, and sometimes the megalodon; the bar shows how many fish make it across |
 | R | a fast fish is chased by a shark |
 | B | a bait ball: fish spin into a tight ball while sharks circle in |
 | J | jellyfish drift up through the tank |
@@ -26,8 +30,6 @@ They happen at random, or press a key to trigger one yourself.
 | (click) | clicking a diver pops it, and a shark swims over to clean up |
 | Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it; it very rarely shows up on its own, about 1% of the time or less) |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
-
-You can also click the **Splash** button in the corner.
 
 ### When things meet
 
@@ -41,22 +43,23 @@ You can also click the **Splash** button in the corner.
 - The kraken lashes a tentacle out at any diver in reach, flings it about and crushes it. Fast scooter divers race in to cut sharks free, and the kraken tries to grab them first.
 - When the megalodon meets the kraken they really fight: the kraken wraps it, the megalodon thrashes it around, and either one can win. A tiring megalodon gets help from the other sharks, a megalodon beaten by the kraken drives off with long, heavy strokes, and a kraken the megalodon eats leaves scraps for the sharks to clean up. The kraken very rarely eats a shark. Floating labels and a tug of war bar say who is winning.
 - The kraken swims head first and swings its arms round to face whatever it is after. Alone, it reaches wide and holds up to five divers at once. A megalodon attacking a whale clamps its jaws on the flank, with teeth and blood.
-- Sharks give the megalodon room, and more of them swim in while a titan is out so the tank never looks empty.
+- Sharks give the megalodon room, with a smaller background population so each encounter has room.
 - A whale already in the water when the kraken or megalodon turns up gets attacked and bolts, so those two get the tank to themselves. No new whale shows up during their fight.
 - Some sharks grab a diver in their jaws and carry it around before eating it (or letting go). Divers come in five kinds: scuba, photographer (flashes at fights), treasure hunter, snorkeler and scooter.
 - When a ufo goes down, a purple tech diver swims in, salvages the scrap into a laser blaster and starts shooting fish and ufos. His shots can cut a kraken's grab short, free whatever it is holding, or provoke the megalodon into coming for him, and they lean the kraken and megalodon tug of war. He often blasts himself free when something grabs him.
 - Yellow bomber divers swim at a ufo, a titan or a shark, light a fuse (a red ! shows over their head) and blow up: the shockwave shoves sharks away, kills fish, stuns divers, frees what the kraken holds, destroys ufos and can swing the titan fight.
-- The big announced events (blood moon, meteor shower, titans clash and the alien invasion) each get a banner and progress bar, and they all run at the same time, stacked one under another. Ask for one that is already running and it queues up and starts when that one ends.
-- When a third ufo arrives, the aliens are invading: a green banner and progress bar appear, and seven saucers come in waves (never more than three at once, and never on top of each other). Shoot, smash or blow up enough of them and the invasion is repelled.
+- The big announced events (blood moon, meteor shower, titans clash and the alien invasion) each get a banner and a bar that report how it is going, and they stack one under another, as many as you like when you start them by hand (the sandbox has no caps). On their own, each kind of event rests on its own cooldown after it fires, so repeats are spaced out while different events overlap at random intervals. The two titans together (C, or M and K) are the exception: while they are clashing, nothing else begins. Ask for an announced event that is already running and it queues up and starts when that one ends.
+- When a third ufo arrives, the aliens are invading: a green banner and progress bar appear, and seven saucers come in waves (never more than three at once, and never on top of each other). The sea's own defenders (tech divers, bombers, the megalodon) take them down on their own, and if enough fall the invasion is repelled. The invasion never begins during a titans clash.
 - The kraken and megalodon tug of war is wild: white fills the bar as the kraken wins, blue as the megalodon does, and it lurches around while they thrash.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.
-- The tank is simulated twice as big as the window and drawn scaled down, so there is room for more sharks, divers and events at the same time. The number of sharks wanders up and down instead of staying fixed.
+- The tank is simulated twice as big as the window and drawn scaled down. Fewer background sharks and smaller Titans give encounters more open water. The number of sharks wanders up and down instead of staying fixed.
 
 ## Options
 
 Click **opts** in the top corner. Each line cycles when you click it, and your choices are remembered.
 
-- **events:** off, calm (no big events), normal, or busy. Keys still work when events are off.
+- **pace:** off, calm (no big events), normal, or busy. Keys still work when pace is off.
+- **events:** shows every event by name with a small box. Untick one to stop it appearing (its key and any queued arrival are switched off too), tick it again to bring it back. Remembered between runs.
 - **night:** turn the slow night cycle on or off.
 - **motion:** smooth (30 frames per second) or saver (15).
 

@@ -25,6 +25,11 @@ export class OceanEngine {
   private trail: { x: number; y: number } | null = null;
   private f = 1;
 
+  setEventEnabled(kind: Parameters<World["triggerEvent"]>[0], enabled: boolean) { this.world.setEventEnabled(kind, enabled); }
+  queueEvent(kind: Parameters<World["triggerEvent"]>[0]) { return this.world.queueEvent(kind); }
+  cancelQueuedEvent(kind: Parameters<World["triggerEvent"]>[0]) { this.world.cancelQueuedEvent(kind); }
+  eventStatus(kind: Parameters<World["triggerEvent"]>[0]) { return this.world.eventStatus(kind); }
+
   setWorking(working: boolean) {
     this.activitySpeed = working ? 1.55 : 0.65;
   }
@@ -38,7 +43,7 @@ export class OceanEngine {
 
   setEventLevel(level: World["settings"]["events"]) { this.world.settings.events = level; }
 
-  setNightEnabled(on: boolean) { this.world.settings.night = on; }
+  setNightEnabled(on: boolean) { this.world.settings.night = on; if (!on) this.world.cancelQueuedEvent("night"); }
 
   /** Demo hook: run a random event on demand. */
   trigger(kind: Parameters<World["triggerEvent"]>[0]) {

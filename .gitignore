@@ -13,7 +13,3 @@ browser-profile/
 server.pid
 *.log
 
-.claude/
-.claude*
-CLAUDE.md
-CLAUDE.local.md
