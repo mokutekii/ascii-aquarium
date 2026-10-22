@@ -16,11 +16,11 @@ They happen at random, or press a key to trigger one yourself.
 | R | a fast fish is chased by a shark |
 | B | a bait ball: fish spin into a tight ball while sharks circle in |
 | J | jellyfish drift up through the tank |
-| W | a whale glides through, fish parting around it |
+| W | a whale glides through, fish parting around it (up to two at once, and fine to call while one titan is out) |
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
-| U | a flying saucer hovers above and beams up fish, jellyfish and divers |
-| D | divers slip in, and the sharks go after them (spam it, up to 25 at once) |
+| U | a flying saucer hovers above and beams up fish, jellyfish and divers (up to three at once) |
+| D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once) |
 | (click) | clicking a diver pops it, and a shark swims over to clean up |
 | Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it; it very rarely shows up on its own, about 1% of the time or less) |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
@@ -42,6 +42,10 @@ You can also click the **Splash** button in the corner.
 - Sharks give the megalodon room, and more of them swim in while a titan is out so the tank never looks empty.
 - A whale already in the water when the kraken or megalodon turns up gets attacked and bolts, so those two get the tank to themselves. No new whale shows up during their fight.
 - Some sharks grab a diver in their jaws and carry it around before eating it (or letting go). Divers come in five kinds: scuba, photographer (flashes at fights), treasure hunter, snorkeler and scooter.
+- When a ufo goes down, a purple tech diver swims in, salvages the scrap into a laser blaster and starts shooting fish and ufos. His shots can cut a kraken's grab short, free whatever it is holding, or provoke the megalodon into coming for him, and they lean the kraken and megalodon tug of war. He often blasts himself free when something grabs him.
+- Yellow bomber divers swim at a ufo, a titan or a shark, light a fuse (a red ! shows over their head) and blow up: the shockwave shoves sharks away, kills fish, stuns divers, frees what the kraken holds, destroys ufos and can swing the titan fight.
+- When a third ufo arrives, the aliens are invading: a green banner and progress bar appear, and seven saucers come in waves (never more than three at once, and never on top of each other). Shoot, smash or blow up enough of them and the invasion is repelled.
+- The kraken and megalodon tug of war is wild: white fills the bar as the kraken wins, blue as the megalodon does, and it lurches around while they thrash.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.
 - The tank is simulated twice as big as the window and drawn scaled down, so there is room for more sharks, divers and events at the same time. The number of sharks wanders up and down instead of staying fixed.
 
