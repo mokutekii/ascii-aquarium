@@ -3,6 +3,8 @@ import { World, type SharkSpec } from "./world";
 
 const STEP = 1 / 60;
 const MAX_STEPS = 4;
+/** How much bigger the simulated tank is than the window; everything is drawn this much smaller. */
+const ZOOM_OUT = 2;
 
 /**
  * Wires World + AsciiRenderer to a canvas: fixed-timestep loop, resize,
@@ -108,11 +110,13 @@ export class OceanEngine {
     // The tank is simulated in 100%-zoom pixels, so zoom never changes what you see;
     // only the window size does. The header undoes the zoom too (--uz in index.html).
     const f = this.zoom();
-    this.f = f;
+    // Simulate a tank ZOOM_OUT times wider and taller than the window and draw it scaled down,
+    // so there is room for more sharks, divers and events without crowding.
+    this.f = f * ZOOM_OUT;
     document.documentElement.style.setProperty("--uz", String(1 / f));
-    const w = rect.width * f;
-    const h = rect.height * f;
-    const dpr = Math.min((window.devicePixelRatio || 1) / f, 1.5);
+    const w = rect.width * this.f;
+    const h = rect.height * this.f;
+    const dpr = Math.min((window.devicePixelRatio || 1) / this.f, 1.5);
     this.renderer.resize(w, h, dpr);
     this.world.resize(w, h, this.renderer.cellWidth, this.renderer.cellHeight);
     if (this.reducedMotion.matches) this.drawStill();

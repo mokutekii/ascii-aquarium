@@ -106,12 +106,12 @@ document.addEventListener('visibilitychange', () => { clearTimeout(timer); void 
 void refresh();
 document.querySelector('#splash')!.addEventListener('click', () => engine.celebrate());
 
-// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, N nightfall.
+// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   k: ['kraken', 'the kraken rises...'], m: ['mega', 'a megalodon approaches...'], c: ['saga', 'something stirs below...'],
   r: ['chase', 'a chase!'], b: ['bait', 'a bait ball forms'], j: ['jelly', 'jellyfish drifting in'],
   w: ['whale', 'a whale is coming...'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
-  f: ['fight', 'a fight breaks out'], u: ['ufo', 'something hovers above...'], d: ['diver', 'a diver slips in...'],
+  f: ['fight', 'a fight breaks out'], u: ['ufo', 'something hovers above...'], d: ['diver', 'a diver slips in...'], y: ['yeat', ''],
 };
 const toast = document.querySelector('#toast')!;
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -126,7 +126,9 @@ addEventListener('keydown', e => {
   const entry = keyEvents[e.key.toLowerCase()];
   if (!entry) return;
   const result = engine.trigger(entry[0]);
-  showToast(result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'one big event at a time');
+  // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
+  if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
+  showToast(result === 'ended' ? 'yeat mode off' : result === 'full' ? 'no more divers :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'the kraken and megalodon are already in play');
 });
 
 // Options panel: a few cycling toggles, remembered between runs.
