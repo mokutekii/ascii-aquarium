@@ -1,8 +1,12 @@
-node_modules
-dist
-.DS_Store
+# Dependencies and build output
+node_modules/
+dist/
 
-# Per-machine files: never commit these (backups/ holds copies of your Claude/Codex settings).
+# OS files
+.DS_Store
+Thumbs.db
+
+# Per-machine runtime files (backups/ holds copies of your editor and assistant settings)
 state/
 backups/
 browser-profile/
@@ -13,4 +17,21 @@ preview.png
 
 # Local notes and dev scratch
 HANDOFF.local.md
+.dev-tests/
 dev-tests/*.bundle.mjs
+
+# AI assistant files: configs, memory, instructions and scratch from any assistant
+.claude/
+.claude*
+CLAUDE.md
+CLAUDE.local.md
+.codex/
+.cursor/
+.cursorrules
+.windsurf/
+.aider*
+.continue/
+.gemini/
+GEMINI.md
+.github/copilot-instructions.md
+.agents/
