@@ -56,6 +56,12 @@ const MARK_GLYPHS = "#%@";
 const SUBSAMPLES = [0.25, 0.3, 0.75, 0.3, 0.25, 0.72, 0.75, 0.72];
 
 /** Classic top-down half-width at s ∈ [0, 1] (snout → tail), as a fraction of length. */
+/** The kraken's ivory, shared by its body and every arm that wraps something so they match exactly. */
+function krakenBone(v: number, tint = 0) {
+  const c = Math.round(Math.max(90, Math.min(252, v)));
+  return `rgb(${c},${Math.round(c - 4 - tint * 0.2)},${Math.round(c - 10 - tint * 0.4)})`;
+}
+
 function classicHalfWidth(s: number) {
   if (s < 0.13) return 0.09 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.95);
   if (s < 0.3) return 0.09 + 0.016 * smoothstep(0.13, 0.3, s);
@@ -302,6 +308,8 @@ export class AsciiRenderer {
   private width = 0;
   private height = 0;
   private yeat = 0;
+  private lastShake = "";
+  private reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   private lastYeat = 0;
   private cw = 12;
   private ch = 18;
@@ -511,6 +519,7 @@ export class AsciiRenderer {
     ctx.textBaseline = "middle";
 
     this.drawHeat();
+    this.drawInk(world);
     this.drawFish();
     this.drawJellies(world);
     this.drawWhale(world);
@@ -537,12 +546,70 @@ export class AsciiRenderer {
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, w, h);
     }
+    this.drawTitanEntrance(world);
     if (this.night > 0) {
       ctx.fillStyle = `rgba(0,8,26,${(0.2 * this.night).toFixed(3)})`;
       ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
     }
   }
 
+
+  /**
+   * A kraken or megalodon swimming in shakes the whole tank for a couple of seconds and dims everything
+   * except the water around it, as if it blotted out the light.
+   */
+  private drawTitanEntrance(world: World) {
+    const te = world.titanEntry;
+    const age = te ? world.time - te.born : 99;
+    const still = age > 5 || this.reduced;
+    const shake = still ? 0 : Math.min(1, age / 0.25) * Math.max(0, 1 - age / 2.6);
+    const css = shake > 0.01 ? `translate(${(Math.sin(world.time * 47) * 5 * shake).toFixed(1)}px,${(Math.cos(world.time * 39) * 4 * shake).toFixed(1)}px)` : "";
+    if (css !== this.lastShake) {
+      this.lastShake = css;
+      this.canvas.style.transform = css;
+    }
+    if (still) return;
+    const env = Math.min(1, age / 0.8) * Math.max(0, 1 - age / 5);
+    if (env <= 0.01) return;
+    const mega = world.sharks.find((sh) => sh.mega);
+    const k = world.kraken;
+    const at = k && (!mega || k.born > (mega.born ?? 0)) ? { x: k.x, y: k.y, r: k.size * 0.7 } : mega ? { x: mega.nodes[0], y: mega.nodes[1], r: mega.length * 0.5 } : null;
+    if (!at) return;
+    const w = this.cols * this.cw;
+    const h = this.rows * this.ch;
+    const g = this.ctx.createRadialGradient(at.x, at.y, at.r * 0.4, at.x, at.y, Math.max(w, h) * 0.95);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(0.35, `rgba(0,0,6,${(0.38 * env).toFixed(3)})`);
+    g.addColorStop(1, `rgba(0,0,6,${(0.62 * env).toFixed(3)})`);
+    this.ctx.fillStyle = g;
+    this.ctx.fillRect(0, 0, w, h);
+  }
+
+  /** Clouds of kraken ink: dark, slightly violet blots that swell, drift and thin out. */
+  private drawInk(world: World) {
+    const { ctx } = this;
+    const hash = (n: number) => {
+      const x = Math.sin(n * 127.1) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    for (const c of world.inks) {
+      const age = world.time - c.born;
+      const R = c.r0 + (c.r1 - c.r0) * Math.min(1, age / 3);
+      const a = Math.min(1, age / 1.2) * Math.pow(Math.max(0, 1 - age / c.life), 0.8);
+      if (a <= 0.01) continue;
+      for (let b = 0; b < 3; b++) {
+        const bx = c.x + (hash(c.seed + b * 3) - 0.5) * R * 0.9;
+        const by = c.y + (hash(c.seed + b * 3 + 1) - 0.5) * R * 0.7;
+        const br = R * (0.6 + 0.4 * hash(c.seed + b * 3 + 2));
+        const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+        g.addColorStop(0, `rgba(2,0,10,${(0.92 * a).toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(20,8,44,${(0.6 * a).toFixed(3)})`);
+        g.addColorStop(1, "rgba(30,14,60,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(bx - br, by - br, br * 2, br * 2);
+      }
+    }
+  }
 
   /** Collects glyphs by grid cell (first one wins unless forced), then draws them in one pass. */
   private painter() {
@@ -590,10 +657,7 @@ export class AsciiRenderer {
     const R = S * 0.1 * pulse;
     const held = wrapped ? [k.wrapping!] : k.grabbed;
     const holders = held.length;
-    const bone = (v: number, tint = 0) => {
-      const c = Math.round(Math.max(60, Math.min(250, v)));
-      return `rgb(${c},${Math.round(c - 8 - tint * 0.5)},${Math.round(c - 4 - tint * 0.2)})`;
-    };
+    const bone = krakenBone;
 
     // Six short arms and four long looping tentacles, reaching out from the front of the head.
     const shortArms = 6;
@@ -866,10 +930,8 @@ export class AsciiRenderer {
         put(x, y, glyph, `rgb(${lum - 20},${lum + 5},${lum + 45})`, true);
       }
     }
-    // Eyes and blowholes on the head.
-    const head = frame(0.12);
+    // Blowholes on the head (the eyes are too small to show at this scale).
     for (const sgn of [-1, 1]) {
-      put(head.x + head.nx * half(0.12) * 0.82 * sgn, head.y + head.ny * half(0.12) * 0.82 * sgn, "o", "rgb(245,245,238)", true);
       put(frame(0.2).x + frame(0.2).nx * half(0.2) * 0.12 * sgn, frame(0.2).y + frame(0.2).ny * half(0.2) * 0.12 * sgn, '"', "rgb(200,225,245)", true);
     }
     // Long pale flippers on both sides, swept back and swaying a little.
@@ -954,9 +1016,9 @@ export class AsciiRenderer {
         if (Math.hypot(x - k.x, y - k.y) < k.size * 0.115) continue;
         const th = Math.max(0, Math.round(thick * (1 - 0.5 * u)));
         for (let o = -th; o <= th; o++) {
-          put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, o !== 0 && Math.abs(o) === th ? "O" : (s + o) % 2 ? "8" : "@", o !== 0 && Math.abs(o) === th ? "rgb(95,90,88)" : "rgb(232,228,216)", true);
+          put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, o !== 0 && Math.abs(o) === th ? "O" : (s + o) % 2 ? "8" : "@", o !== 0 && Math.abs(o) === th ? krakenBone(95) : krakenBone(232), true);
         }
-        if (s % 2 === 0) put(x, y, "o", "rgb(255,255,250)", true);
+        if (s % 2 === 0) put(x, y, "o", krakenBone(250), true);
       }
     };
     if (k.strike && k.strike.f.alive) {
@@ -977,7 +1039,7 @@ export class AsciiRenderer {
       const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
       for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2 + world.time * 4;
-        put(uf.x + Math.cos(a) * half * 1.05, uf.y + Math.sin(a) * ch * 1.4, i % 2 ? "@" : "8", "rgb(232,228,216)", true);
+        put(uf.x + Math.cos(a) * half * 1.05, uf.y + Math.sin(a) * ch * 1.4, i % 2 ? "@" : "8", krakenBone(232), true);
       }
     }
     const whaleHeld = world.whale;
@@ -986,13 +1048,18 @@ export class AsciiRenderer {
       const wx = Math.cos(whaleHeld.heading);
       const wy = Math.sin(whaleHeld.heading);
       const hw = whaleHeld.length * 0.095;
-      arm(whaleHeld.x - wx * whaleHeld.length * 0.4, whaleHeld.y - wy * whaleHeld.length * 0.4, 5, 3);
-      for (const u of [0.3, 0.42, 0.54]) {
+      // Several arms reach out from the kraken to clamp the whale, with dark-edged bands so they stand out on its pale hide.
+      for (const [i, u] of [0.3, 0.42, 0.54, 0.64].entries()) arm(whaleHeld.x - wx * whaleHeld.length * u, whaleHeld.y - wy * whaleHeld.length * u, 5 + i, 3);
+      const squeeze = 1 + 0.08 * Math.sin(world.time * 6);
+      for (const u of [0.2, 0.28, 0.36, 0.44, 0.52, 0.6, 0.68]) {
         const cx = whaleHeld.x - wx * whaleHeld.length * u;
         const cy = whaleHeld.y - wy * whaleHeld.length * u;
-        for (let s = -10; s <= 10; s++) {
-          const v = s / 10;
-          for (const o of [0, 1]) put(cx - wy * v * hw * 1.05 + wx * (v * 2 + o) * cw, cy + wx * v * hw * 1.05 + wy * (v * 2 + o) * cw, (s + o) % 2 ? "@" : "8", "rgb(232,228,216)", true);
+        for (let s = -12; s <= 12; s++) {
+          const v = s / 12;
+          for (const o of [-1, 0, 1, 2]) {
+            const edge = o === -1 || o === 2;
+            put(cx - wy * v * hw * 1.1 * squeeze + wx * (v * 3 + o) * cw, cy + wx * v * hw * 1.1 * squeeze + wy * (v * 3 + o) * cw, edge ? "O" : (s + o) % 2 ? "@" : "8", edge ? krakenBone(95) : krakenBone(245), true);
+          }
         }
       }
     }
@@ -1004,7 +1071,7 @@ export class AsciiRenderer {
         const rad = cw * (rad0 - 0.5 * Math.min(1, 1 - left / 7));
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2 * dir + world.time * 5 * dir;
-          put(f.x + Math.cos(a) * rad, f.y + Math.sin(a) * rad * 0.8, i % 2 ? "@" : "8", "rgb(232,228,216)", true);
+          put(f.x + Math.cos(a) * rad, f.y + Math.sin(a) * rad * 0.8, i % 2 ? "@" : "8", krakenBone(232), true);
         }
       }
     }
@@ -1040,11 +1107,11 @@ export class AsciiRenderer {
             for (let ox = -thick; ox <= thick; ox++) {
               if (ox * ox + oy * oy > thick * thick + 0.5) continue;
               const rim = ox * ox + oy * oy > (thick - 1) * (thick - 1) && thick > 1;
-              put(px + ox * cw * 0.8, py + oy * ch * 0.8, rim ? "O" : (s + ox) % 2 ? "@" : "8", rim ? "rgb(95,90,88)" : "rgb(232,228,216)", true);
+              put(px + ox * cw * 0.8, py + oy * ch * 0.8, rim ? "O" : (s + ox) % 2 ? "@" : "8", rim ? krakenBone(95) : krakenBone(232), true);
             }
           }
           // The row of suckers down the middle of the band.
-          if (s % 2 === 0) put(px, py, "o", "rgb(255,255,250)", true);
+          if (s % 2 === 0) put(px, py, "o", krakenBone(250), true);
         }
       }
     }
@@ -1079,12 +1146,30 @@ export class AsciiRenderer {
       text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
       for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y, bar[i], i === mark ? "rgb(255,255,255)" : i < mark ? "rgb(235,235,240)" : "rgb(110,150,225)", true);
     }
-    for (const c of world.callouts) {
-      const age = world.time - c.born;
-      const alpha = Math.min(1, age / 0.2, (4 - age) / 1);
-      text(Math.max(c.text.length * cw * 0.5, Math.min(world.width - c.text.length * cw * 0.5, c.x)), Math.max(ch, c.y - age * 10), c.text, c.rgb, Math.max(0, alpha));
-    }
     flush();
+    // Event labels: big bold text on a dark plate with a coloured edge, so they read against any background.
+    if (world.callouts.length) {
+      const { ctx } = this;
+      ctx.save();
+      ctx.font = `800 ${Math.round(ch * 1.05)}px ${this.fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const c of world.callouts) {
+        const age = world.time - c.born;
+        const alpha = Math.max(0, Math.min(1, age / 0.2, (5 - age) / 1));
+        const tw = ctx.measureText(c.text).width;
+        const x = Math.max(tw / 2 + 12, Math.min(world.width - tw / 2 - 12, c.x));
+        const y = Math.max(ch * 1.2, c.y - age * 8);
+        ctx.fillStyle = `rgba(0,0,0,${(0.78 * alpha).toFixed(2)})`;
+        ctx.fillRect(x - tw / 2 - 8, y - ch * 0.75, tw + 16, ch * 1.5);
+        ctx.strokeStyle = `rgba(${c.rgb},${(0.8 * alpha).toFixed(2)})`;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x - tw / 2 - 8, y - ch * 0.75, tw + 16, ch * 1.5);
+        ctx.fillStyle = `rgba(${c.rgb},${alpha.toFixed(2)})`;
+        ctx.fillText(c.text, x, y + 1);
+      }
+      ctx.restore();
+    }
   }
 
   /** The red "!" over a shark that has just spotted a diver: pops in, bobs, and fades. */
@@ -1129,18 +1214,28 @@ export class AsciiRenderer {
     }
     const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
     const piloted = !!u.pilot?.alive;
-    for (let i = -2; i <= 2; i++) {
-      const head = piloted && i === 0;
-      const glyph = head ? "O" : Math.abs(i) === 2 ? "." : piloted ? (i < 0 ? "[" : "]") : i === 0 ? "^" : "-";
-      put(u.x + i * cw, u.y - ch, glyph, head ? "rgb(255,236,205)" : "rgb(150,225,255)", true);
+    // The glass dome spans about half the hull and gets a second row when the saucer is wide.
+    const dome = Math.max(2, Math.round((half * 0.5) / cw));
+    for (let i = -dome; i <= dome; i++) {
+      const rim = Math.abs(i) >= dome - 1;
+      put(u.x + i * cw, u.y - ch, rim ? "." : piloted ? (i < 0 ? "[" : "]") : "-", "rgb(150,225,255)", true);
     }
+    const rows2 = dome >= 4 ? 1 : 0;
+    if (rows2) {
+      for (let i = -(dome - 2); i <= dome - 2; i++) {
+        const rim = Math.abs(i) >= dome - 3;
+        put(u.x + i * cw, u.y - ch * 2, rim ? "." : "^", "rgb(150,225,255)", true);
+      }
+    }
+    put(u.x, u.y - ch * (1 + rows2), piloted ? "O" : "^", piloted ? "rgb(255,236,205)" : "rgb(150,225,255)", true);
+    const domeTop = ch * (1 + rows2);
     for (let x = u.x - half; x <= u.x + half; x += cw) put(x, u.y, Math.abs(x - u.x) > half - cw ? (x < u.x ? "(" : ")") : "=", "rgb(205,210,222)", true);
     // A hijacked saucer flashes red and orange and flies a blinking beacon, so the takeover is easy to spot.
     if (piloted) {
       const blink = Math.floor(t * 5) % 2 === 0;
-      put(u.x, u.y - ch * 2.4, "!", blink ? "rgb(255,80,80)" : "rgb(255,190,80)", true);
-      put(u.x - cw * 1.6, u.y - ch * 2, "<", blink ? "rgb(255,190,80)" : "rgb(255,80,80)", true);
-      put(u.x + cw * 1.6, u.y - ch * 2, ">", blink ? "rgb(255,190,80)" : "rgb(255,80,80)", true);
+      put(u.x, u.y - domeTop - ch * 1.4, "!", blink ? "rgb(255,80,80)" : "rgb(255,190,80)", true);
+      put(u.x - cw * (dome + 1.5), u.y - domeTop - ch, "<", blink ? "rgb(255,190,80)" : "rgb(255,80,80)", true);
+      put(u.x + cw * (dome + 1.5), u.y - domeTop - ch, ">", blink ? "rgb(255,190,80)" : "rgb(255,80,80)", true);
     }
     const colors = piloted ? ["rgb(255,90,90)", "rgb(255,170,70)", "rgb(255,90,90)"] : ["rgb(255,222,110)", "rgb(120,255,165)", "rgb(255,120,120)"];
     let k = 0;
@@ -1184,7 +1279,7 @@ export class AsciiRenderer {
         const x = d.x + d.side * k * cw;
         const dy = k * cw * tilt;
         put(x, d.y + dy, k === 0 ? (d.side < 0 ? "/" : "\\") : k * cw > half - cw ? (d.side < 0 ? "(" : ")") : "=", rgb(205), true);
-        if (k <= 2) put(x, d.y - ch + dy, k === 0 ? "|" : "-", `rgba(150,225,255,${fade.toFixed(2)})`, true);
+        if (k * cw <= half * 0.5) put(x, d.y - ch + dy, k === 0 ? "|" : "-", `rgba(150,225,255,${fade.toFixed(2)})`, true);
         if (k % 2 === 1) put(x, d.y + ch * 0.9 + dy, "o", `rgba(255,${Math.floor(200 + 55 * Math.sin(age * 8 + k))},120,${fade.toFixed(2)})`, true);
       }
       if (age < 0.6) {
@@ -1300,11 +1395,11 @@ export class AsciiRenderer {
     // edge, and a colour that eases from light to deep as it spreads.
     for (const rp of world.ripples) {
       const fade = 1 - rp.r / rp.max;
-      const thick = rp.strength > 1.5 ? 2 : rp.strength >= 1.2 ? 1 : 0;
+      const thick = rp.song ? 1 : rp.strength > 1.5 ? 2 : rp.strength >= 1.2 || (rp.weight ?? 1) >= 2 ? 1 : 0;
       const soft = rp.strength >= 0.55;
       const phase = rp.x * 0.013 + rp.y * 0.007;
       // [radial offset in cells, weight]: the crest, then fainter swells trailing behind it.
-      const passes = soft ? [[0, 1], [-2.4, 0.55], [-4.8, 0.28]] : [[0, 1]];
+      const passes = rp.song ? [[0, 1], [-9, 0.7], [-18, 0.45], [-27, 0.25]] : soft ? [[0, 1], [-2.4, 0.55], [-4.8, 0.28]] : [[0, 1]];
       for (let p = 0; p < passes.length; p++) {
         const r0 = rp.r + passes[p][0] * this.cw;
         if (r0 < 3) continue;
@@ -1318,7 +1413,7 @@ export class AsciiRenderer {
           const wob = 1 + 0.035 * Math.sin(3 * a + rp.r * 0.012 + phase) + 0.025 * Math.sin(5 * a - rp.r * 0.017 + phase * 2);
           const x = rp.x + Math.cos(a - Math.PI) * r0 * wob;
           const y = rp.y + Math.sin(a - Math.PI) * r0 * wob;
-          const amount = thick === 0 ? (soft ? 0.9 : 0.8) * fade : Math.min(0.5, 0.2 * fade * rp.strength);
+          const amount = rp.song ? 0.5 * fade : thick === 0 ? (soft ? 0.9 : 0.8) * fade : Math.min(0.5, 0.2 * fade * rp.strength);
           this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, amount * amp * weight);
           const ci = this.cellIndex(x, y);
           if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], Math.max(0.01, 1 - fade + 0.01 - p * 0.1) + (rp.hue ? 10 : 0));

@@ -11,7 +11,7 @@ They happen at random, or press a key to trigger one yourself.
 | Key | Event |
 | --- | --- |
 | K | a kraken rises, grabs sharks and divers, and squeezes (it can even grab a ufo) |
-| M | a megalodon crosses the tank and every shark bolts |
+| M | a megalodon crosses the tank and every shark bolts (with a kraken out, it comes for the kraken: press it when you want the fight) |
 | C | the full story: the kraken grabs sharks, then the megalodon comes for it and they fight |
 | R | a fast fish is chased by a shark |
 | B | a bait ball: fish spin into a tight ball while sharks circle in |
@@ -20,7 +20,7 @@ They happen at random, or press a key to trigger one yourself.
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers |
-| D | divers slip in, and the sharks go after them (spam it, up to 15 at once) |
+| D | divers slip in, and the sharks go after them (spam it, up to 25 at once) |
 | (click) | clicking a diver pops it, and a shark swims over to clean up |
 | Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it, it also shows up on its own) |
 | N | nightfall (the tank also slowly turns to night and back by itself) |

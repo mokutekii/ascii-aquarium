@@ -1,6 +1,6 @@
 {
   "name": "ascii-aquarium",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "An ASCII aquarium that reacts to Claude Code and Codex activity. Runs locally; no API keys.",
   "private": true,
   "type": "module",
