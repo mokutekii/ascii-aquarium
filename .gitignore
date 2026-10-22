@@ -1,11 +1,19 @@
-node_modules
-dist
-.DS_Store
+# Dependencies and build output
+node_modules/
+dist/
 
-# Per-machine files: never commit these (backups/ holds copies of your Claude/Codex settings).
+# OS files
+.DS_Store
+Thumbs.db
+
+# Per-machine runtime files (backups/ holds copies of your local settings)
 state/
 backups/
 browser-profile/
 server.pid
 *.log
 
+.claude/
+.claude*
+CLAUDE.md
+CLAUDE.local.md

@@ -12,7 +12,9 @@ They happen at random, or press a key to trigger one yourself.
 | --- | --- |
 | K | a kraken rises, grabs sharks and divers, and squeezes (it can even grab a ufo) |
 | M | a megalodon crosses the tank and every shark bolts (with a kraken out, it comes for the kraken: press it when you want the fight) |
-| C | the full story: the kraken grabs sharks, then the megalodon comes for it and they fight |
+| C | TITANS CLASH, the full story with its own banner: the kraken grabs sharks, then the megalodon comes for it and they fight |
+| O | BLOOD MOON: the sea turns red, the sharks are always hungry and armed divers keep arriving (sometimes the megalodon too) |
+| E | METEOR SHOWER: burning rocks slam into the water, and a tech diver salvages the scrap |
 | R | a fast fish is chased by a shark |
 | B | a bait ball: fish spin into a tight ball while sharks circle in |
 | J | jellyfish drift up through the tank |
@@ -44,6 +46,7 @@ You can also click the **Splash** button in the corner.
 - Some sharks grab a diver in their jaws and carry it around before eating it (or letting go). Divers come in five kinds: scuba, photographer (flashes at fights), treasure hunter, snorkeler and scooter.
 - When a ufo goes down, a purple tech diver swims in, salvages the scrap into a laser blaster and starts shooting fish and ufos. His shots can cut a kraken's grab short, free whatever it is holding, or provoke the megalodon into coming for him, and they lean the kraken and megalodon tug of war. He often blasts himself free when something grabs him.
 - Yellow bomber divers swim at a ufo, a titan or a shark, light a fuse (a red ! shows over their head) and blow up: the shockwave shoves sharks away, kills fish, stuns divers, frees what the kraken holds, destroys ufos and can swing the titan fight.
+- The big announced events (blood moon, meteor shower, titans clash and the alien invasion) each get a banner and progress bar, and they all run at the same time, stacked one under another. Ask for one that is already running and it queues up and starts when that one ends.
 - When a third ufo arrives, the aliens are invading: a green banner and progress bar appear, and seven saucers come in waves (never more than three at once, and never on top of each other). Shoot, smash or blow up enough of them and the invasion is repelled.
 - The kraken and megalodon tug of war is wild: white fills the bar as the kraken wins, blue as the megalodon does, and it lurches around while they thrash.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.

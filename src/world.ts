@@ -380,6 +380,14 @@ export class World {
   set whale(v: Whale | null) { if (v === null) this.whales.shift(); else this.whales.unshift(v); }
   whirl: Whirl | null = null;
   fight: Fight | null = null;
+  /** Big announced events, each with a banner and progress bar: the blood moon, a titans clash, a meteor shower. They run side by side (one of each kind), alongside the alien invasion. */
+  sagas: { kind: "moon" | "clash" | "meteor"; title: string; rgb: string; born: number; until: number; count: number }[] = [];
+  /** Meteors in flight: where they are, how they fall, and the depth they hit the water at. */
+  meteors: { x: number; y: number; vx: number; vy: number; ty: number; born: number }[] = [];
+  private nextMeteorAt = 0;
+  /** An announced event asked for while the same kind is already running waits here and starts when that one ends. */
+  private sagaQueue: ("moon" | "meteor" | "clash")[] = [];
+  private nextMoonTech = 0;
   /** An alien invasion, Terraria style: it begins when the third saucer arrives and runs through a fixed number of them. */
   invasion: { total: number; spawned: number; killed: number; escaped: number; nextAt: number; born: number; banner: number } | null = null;
   /** Up to three saucers at once. `ufo` is the oldest, which the kraken and the sharks deal with. */
@@ -620,6 +628,7 @@ export class World {
     }
     this.stepSharkDrift();
     this.stepKraken(dt);
+    this.stepSaga(dt);
     this.stepTitanContacts();
     this.stepWhaleFight(dt);
     this.stepKrakenQueue();
@@ -640,7 +649,7 @@ export class World {
     const minorsActive = [this.baitBall, this.whirl, this.ufo, this.fight, this.jellies.length ? 1 : 0, this.fish.some((f) => f.diver && f.alive) ? 1 : 0].filter(Boolean).length;
     const pool: [string, number][] = [
       ["chase", 0.22], ["saga", 0.11], ["kraken", 0.06], ["mega", 0.05], ["bait", 0.17],
-      ["jelly", 0.15], ["whale", 0.07], ["whirl", 0.11], ["fight", 0.07], ["ufo", 0.17], ["diver", 0.2], ["yeat", 0.0025],
+      ["moon", 0.035], ["meteor", 0.05], ["jelly", 0.15], ["whale", 0.07], ["whirl", 0.11], ["fight", 0.07], ["ufo", 0.17], ["diver", 0.2], ["yeat", 0.0025],
     ];
     const majorKinds = ["saga", "kraken", "mega", "whale"];
     const calmOff = [...majorKinds, "fight", "diver"];
@@ -652,6 +661,7 @@ export class World {
     const allowed = pool.filter(([kind]) => {
       if (combatActive && (kind === "saga" || kind === "kraken" || kind === "mega" || kind === "fight")) return false;
       if (time < this.titanCooldownUntil && (kind === "saga" || kind === "kraken" || kind === "mega")) return false;
+      if ((kind === "moon" || kind === "meteor") && (this.sagas.some((s) => s.kind === kind) || (kind === "moon" && combatActive))) return false;
       if (kind === "whale" && (this.whales.length >= 2 || combatActive)) return false;
       // Rare by design: it runs five minutes, is a very rare roll, and stays away at least three hours after, so it covers about 1% of the time or less.
       if (kind === "yeat" && (this.yeat > 0 || (this.yeatUntil > 0 && time < this.yeatUntil + 10800))) return false;
@@ -688,6 +698,7 @@ export class World {
       case "whirl": return !!this.whirl;
       case "fight": return !!this.fight;
       case "ufo": return this.ufos.length >= 3;
+      case "moon": case "meteor": return this.sagas.some((s) => s.kind === kind);
       case "diver": return this.fish.some((f) => f.diver && f.alive) || this.diverQueue.length > 0;
       case "chase": return this.fish.some((f) => f.temp !== undefined);
       default: return true;
@@ -695,7 +706,7 @@ export class World {
   }
 
   /** Public so a key press can trigger one on demand. Says whether it started, was already running, or had to wait. */
-  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "whirl" | "fight" | "ufo" | "diver" | "night" | "yeat"): "started" | "already" | "blocked" | "off" | "full" | "ended" | "insist" | "cake" {
+  triggerEvent(kind: "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" | "whale" | "whirl" | "fight" | "ufo" | "diver" | "night" | "yeat" | "moon" | "meteor"): "started" | "already" | "blocked" | "off" | "full" | "ended" | "insist" | "cake" | "queued" {
     const combatActive = !!this.kraken || this.sharks.some((sh) => sh.mega);
     const combat = kind === "kraken" || kind === "saga" || kind === "mega";
     // No whale while the kraken or megalodon is around.
@@ -723,13 +734,31 @@ export class World {
       return "started";
     }
     if (combat && combatActive) return this.eventActive(kind) ? "already" : "blocked";
+    // The announced events all run at once, but only one of each kind: asking for the same one again queues it.
+    if (kind === "moon" || kind === "meteor" || kind === "saga") {
+      const want = kind === "saga" ? "clash" : kind;
+      if (this.sagas.some((s) => s.kind === want)) {
+        if (this.sagaQueue.includes(want)) return "already";
+        this.sagaQueue.push(want);
+        return "queued";
+      }
+    }
+    if (kind === "moon" || kind === "meteor") {
+      if (kind === "moon") this.startSaga("moon", "BLOOD MOON", "255,70,70", 75, "THE BLOOD MOON RISES!", "the sea turns red!!! the sharks are hungry... and the divers are armed...");
+      else this.startSaga("meteor", "METEOR SHOWER", "255,170,80", 40, "A METEOR SHOWER BEGINS!", "fire is falling from the sky!!! keep your head down...");
+      return "started";
+    }
     // A fight needs free sharks; a bait ball and a whirlpool would both fight over the same fish.
     if (kind === "fight" && (combatActive || this.fight)) return this.fight ? "already" : "blocked";
     if ((kind === "bait" && this.whirl) || (kind === "whirl" && this.baitBall)) return "blocked";
     // Divers stack: every press brings more.
     if (kind !== "chase" && kind !== "night" && kind !== "diver" && this.eventActive(kind)) return "already";
     if (kind === "chase") this.spawnRunner(randInt(1, 3));
-    else if (kind === "kraken" || kind === "saga") this.spawnKraken(kind === "kraken");
+    else if (kind === "kraken" || kind === "saga") {
+      this.spawnKraken(kind === "kraken");
+      // The full saga is announced: the kraken rises, and the megalodon comes for it.
+      if (kind === "saga" && !this.sagas.some((s) => s.kind === "clash")) this.startSaga("clash", "TITANS CLASH", "235,235,245", Infinity, "THE TITANS CLASH!", "the kraken rises... and something vast comes for it!!!");
+    }
     else if (kind === "mega") this.spawnMegalodon();
     else if (kind === "bait") this.spawnBaitBall();
     else if (kind === "jelly") this.spawnJellies();
@@ -989,14 +1018,134 @@ export class World {
     this.stepInvasion();
   }
 
+  private startSaga(kind: "moon" | "clash" | "meteor", title: string, rgb: string, duration: number, banner: string, notice: string) {
+    const { time } = this;
+    const slot = this.sagas.length + (this.invasion ? 1 : 0);
+    this.sagas.push({ kind, title, rgb, born: time, until: time + duration, count: 0 });
+    this.callout(this.width / 2, this.height * (0.2 + 0.07 * slot), banner, rgb);
+    this.notices.push(notice);
+    if (kind === "meteor") this.nextMeteorAt = time + 1.5;
+    if (kind === "moon") {
+      this.nextMoonTech = time + 6;
+      // The hungry sea sometimes brings its biggest hunter.
+      if (!this.kraken && !this.sharks.some((s) => s.mega) && Math.random() < 0.6) this.spawnMegalodon();
+    }
+  }
+
+  private stepSaga(dt: number) {
+    for (const sg of [...this.sagas]) this.stepOneSaga(sg, dt);
+    if (!this.sagas.some((s) => s.kind === "meteor")) this.meteors.length = 0;
+  }
+
+  private stepOneSaga(sg: World["sagas"][number], dt: number) {
+    const { time, width: W, height: H } = this;
+    if (sg.kind === "clash") {
+      if (time - sg.born > 4 && !this.kraken && !this.sharks.some((s) => s.mega)) {
+        this.sagas = this.sagas.filter((q) => q !== sg);
+        this.callout(W / 2, H * 0.2, "THE TITANS PART...", "235,235,245");
+        this.notices.push("the titans have parted... the water settles...");
+      }
+      return;
+    }
+    if (time >= sg.until) {
+      this.sagas = this.sagas.filter((q) => q !== sg);
+      if (sg.kind === "moon") {
+        this.callout(W / 2, H * 0.2, "THE MOON SETS...", "255,190,160");
+        this.notices.push("the blood moon sets... the sea breathes again...");
+      } else {
+        this.callout(W / 2, H * 0.2, "THE SKY CLEARS...", "255,210,150");
+        this.notices.push(`the sky clears... ${sg.count} meteors fell!`);
+      }
+      return;
+    }
+    if (sg.kind === "moon") {
+      // The sharks never stop being hungry, and armed divers keep arriving to hold them off.
+      for (const sh of this.sharks) if (!sh.mega && !sh.grabbed) sh.hunger = Math.max(sh.hunger, 0.9);
+      if (time >= this.nextMoonTech) {
+        this.nextMoonTech = time + rand(10, 14);
+        if (this.fish.filter((f) => f.dkind === "tech" && f.alive).length < 3) {
+          const edge = randInt(0, 3);
+          this.fish.push({
+            x: edge === 2 ? -20 : edge === 3 ? W + 20 : rand(W * 0.1, W * 0.9), y: edge === 0 ? -20 : edge === 1 ? H + 20 : rand(H * 0.15, H * 0.85),
+            vx: edge === 2 ? 30 : edge === 3 ? -30 : 0, vy: edge === 0 ? 30 : edge === 1 ? -30 : 0, species: 0, alarm: 0, alive: true,
+            respawnAt: Infinity, phase: rand(0, TAU), turn: 0, depth: 1, millDir: 1, temp: time + 160, diver: true, dkind: "tech", equipUntil: time, nextShot: time + rand(1, 3),
+          });
+          sg.count++;
+        }
+      }
+      return;
+    }
+    // Meteors: burning rocks fall in from above and slam into the water at random depths.
+    if (time >= this.nextMeteorAt) {
+      this.nextMeteorAt = time + rand(0.5, 1.4);
+      const x0 = rand(W * 0.05, W * 1.0);
+      const slope = rand(-0.5, 0.5);
+      const speed = rand(520, 760);
+      this.meteors.push({ x: x0, y: -40, vx: slope * speed, vy: speed, ty: H * rand(0.35, 0.92), born: time });
+    }
+    for (const m of this.meteors) {
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+    }
+    for (const m of this.meteors.filter((q) => q.y >= q.ty)) this.meteorImpact(m.x, m.y);
+    this.meteors = this.meteors.filter((q) => q.y < q.ty && q.x > -200 && q.x < W + 200);
+  }
+
+  private meteorImpact(x: number, y: number) {
+    const { time } = this;
+    const R = 170;
+    const shower = this.sagas.find((s) => s.kind === "meteor");
+    if (shower) shower.count++;
+    this.bombs.push({ x, y, born: time, r: R });
+    this.splash(x, y, 2.6);
+    this.events.push({ kind: "eat", x, y });
+    for (const o of this.fish) {
+      if (!o.alive || o.diver) continue;
+      if (Math.hypot(o.x - x, o.y - y) < R * 0.8) { o.alive = false; o.respawnAt = time + rand(4, 9); }
+    }
+    for (const o of this.fish) {
+      if (!o.alive || !o.diver || o.dkind === "tech") continue;
+      if (Math.hypot(o.x - x, o.y - y) < R * 0.6) { o.vx += (o.x - x) * 2; o.vy += (o.y - y) * 2; o.stunUntil = time + 2; }
+    }
+    for (const sh of this.sharks) {
+      if (sh.mega) continue;
+      if (Math.hypot(sh.nodes[0] - x, sh.nodes[1] - y) < R * 1.3) { sh.heading = Math.atan2(sh.nodes[1] - y, sh.nodes[0] - x); sh.speed = 170; sh.target = null; sh.alertUntil = time + 1.5; }
+    }
+    for (const u of [...this.ufos]) {
+      if (Math.hypot(u.x - x, u.y - y) < R) { this.callout(u.x, u.y - 40, "UFO HIT BY A METEOR", "255,170,80"); this.destroyUfo("blasted", u); }
+    }
+    // Some leave glowing scrap behind, and a tech diver comes to salvage it.
+    if (Math.random() < 0.4) {
+      const scrap: [string, string][] = [["#", "255,150,70"], ["%", "200,110,60"], ["*", "255,220,120"], ["o", "170,170,180"], ["=", "140,140,150"]];
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU);
+        const sp = rand(10, 60);
+        const [glyph, rgb] = scrap[i % scrap.length];
+        this.mess.push({ x: x + Math.cos(a) * rand(0, 30), y: y + Math.sin(a) * rand(0, 20), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, born: time, glyph, rgb });
+      }
+      if (!this.techQueue.length && !this.fish.some((f) => f.dkind === "tech" && f.alive)) this.techQueue.push({ x, y: Math.min(y + 40, this.height * 0.8), at: time + rand(2, 4) });
+    }
+    if (Math.random() < 0.25) this.callout(x, y - 50, "METEOR STRIKE!", "255,170,80");
+  }
+
   /** The third saucer has arrived: the aliens are invading. A fixed number of saucers come in waves until all are down or gone. */
   private startInvasion() {
     this.invasion = { total: 7, spawned: this.ufos.length, killed: 0, escaped: 0, nextAt: this.time + rand(7, 11), born: this.time, banner: this.time };
-    this.callout(this.width / 2, this.height * 0.2, "THE ALIENS ARE INVADING!", "120,255,150");
+    this.callout(this.width / 2, this.height * (0.2 + 0.07 * this.sagas.length), "THE ALIENS ARE INVADING!", "120,255,150");
     this.notices.push("the aliens are invading!!! hold the line...");
   }
 
   private stepInvasion() {
+    // An invasion starts whenever a third saucer is out, and a queued event starts the moment its own kind is free.
+    if (!this.invasion && this.ufos.length >= 3) this.startInvasion();
+    for (let i = 0; i < this.sagaQueue.length; i++) {
+      const next = this.sagaQueue[i];
+      if (this.sagas.some((s) => s.kind === next)) continue;
+      if (next === "clash" && (this.kraken || this.sharks.some((s) => s.mega))) continue;
+      this.sagaQueue.splice(i, 1);
+      this.triggerEvent(next === "clash" ? "saga" : next);
+      break;
+    }
     const inv = this.invasion;
     if (!inv) return;
     const { time } = this;

@@ -106,12 +106,12 @@ document.addEventListener('visibilitychange', () => { clearTimeout(timer); void 
 void refresh();
 document.querySelector('#splash')!.addEventListener('click', () => engine.celebrate());
 
-// Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
+// Keys (any casing): O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   k: ['kraken', 'the kraken rises from the deep...'], m: ['mega', 'a megalodon approaches... brace yourselves!'], c: ['saga', 'something stirs below... something HUGE!'],
   r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
   w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
-  f: ['fight', 'a fight breaks out! teeth out!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
+  f: ['fight', 'a fight breaks out! teeth out!'], o: ['moon', 'the sky darkens...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
 };
 const toast = document.querySelector('#toast')!;
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -128,7 +128,7 @@ addEventListener('keydown', e => {
   const result = engine.trigger(entry[0]);
   // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
   if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
-  showToast(result === 'ended' ? 'yeat mode off...' : result === 'cake' ? 'let them have their cake!' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'the kraken and megalodon are already in play! patience...');
+  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up... it comes next!' : result === 'cake' ? 'let them have their cake!' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'the kraken and megalodon are already in play! patience...');
 });
 
 // Options panel: a few cycling toggles, remembered between runs.
