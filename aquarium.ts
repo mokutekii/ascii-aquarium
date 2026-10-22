@@ -128,7 +128,7 @@ addEventListener('keydown', e => {
   const result = engine.trigger(entry[0]);
   // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
   if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
-  showToast(result === 'ended' ? 'yeat mode off' : result === 'full' ? 'no more divers :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'the kraken and megalodon are already in play');
+  showToast(result === 'ended' ? 'yeat mode off' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'the kraken and megalodon are already in play');
 });
 
 // Options panel: a few cycling toggles, remembered between runs.
