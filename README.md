@@ -22,14 +22,14 @@ They happen at random, or press a key to trigger one yourself.
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers |
 | D | divers slip in, and the sharks go after them (spam it, up to 25 at once) |
 | (click) | clicking a diver pops it, and a shark swims over to clean up |
-| Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it, it also shows up on its own) |
+| Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it; it very rarely shows up on its own, about 1% of the time or less) |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
 
 You can also click the **Splash** button in the corner.
 
 ### When things meet
 
-- A megalodon eats any ufo it reaches, and every diver it can catch. A normal shark eats one diver, then ignores the rest for a while.
+- A megalodon smashes any ufo it swims into, with any part of its body, and eats every diver it can catch. Anything that bumps into it is bitten or eaten. A normal shark eats one diver, then ignores the rest for a while.
 - A sawshark sometimes charges a ufo and cuts it in half. Otherwise it now and then slices through the fish ahead of it.
 - A diver can take over a ufo, peering out of its window. Some hijacked saucers go after sharks, which break free; others keep grabbing fish.
 - A ufo will steal a diver a shark is chasing. Sharks steer clear of the saucer and its beam.
@@ -37,7 +37,9 @@ You can also click the **Splash** button in the corner.
 - A whirlpool sweeps divers and jellyfish round and drags sharks a little. A diver showing up breaks off a shark fight.
 - Jellyfish glow at night, and now and then one zaps a diver that drifts too close. A zapped diver goes limp, which makes it easy for a shark to grab, the kraken to throw, or a ufo to snatch.
 - The kraken lashes a tentacle out at any diver in reach, flings it about and crushes it. Fast scooter divers race in to cut sharks free, and the kraken tries to grab them first.
-- When the megalodon meets the kraken they really fight: the kraken wraps it, the megalodon thrashes it around, and either one can win. A tiring megalodon gets help from the other sharks, a scared one flees fast, and the kraken very rarely eats a shark. Floating labels and a tug of war bar say who is winning.
+- When the megalodon meets the kraken they really fight: the kraken wraps it, the megalodon thrashes it around, and either one can win. A tiring megalodon gets help from the other sharks, a megalodon beaten by the kraken drives off with long, heavy strokes, and a kraken the megalodon eats leaves scraps for the sharks to clean up. The kraken very rarely eats a shark. Floating labels and a tug of war bar say who is winning.
+- The kraken swims head first and swings its arms round to face whatever it is after. Alone, it reaches wide and holds up to five divers at once. A megalodon attacking a whale clamps its jaws on the flank, with teeth and blood.
+- Sharks give the megalodon room, and more of them swim in while a titan is out so the tank never looks empty.
 - A whale already in the water when the kraken or megalodon turns up gets attacked and bolts, so those two get the tank to themselves. No new whale shows up during their fight.
 - Some sharks grab a diver in their jaws and carry it around before eating it (or letting go). Divers come in five kinds: scuba, photographer (flashes at fights), treasure hunter, snorkeler and scooter.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.
