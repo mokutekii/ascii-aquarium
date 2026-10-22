@@ -67,14 +67,14 @@ async function refresh() {
     if (notice) showToast(notice);
     // A plan was just presented: the whale glides through.
     const plan = Math.max(state.claude.planAt, state.codex.planAt);
-    if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started') showToast('a plan is ready');
+    if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started') showToast('a plan is ready!');
     lastPlan = plan;
     // Anything waiting on you rings from its dot until you answer.
     engine.setAttention(state.claude.attention > 0, state.codex.attention > 0);
     // Both assistants working at once: a bait ball frenzy, once per overlap.
     if (state.claude.active > 0 && state.codex.active > 0) {
       bothSince ||= Date.now();
-      if (!bothFired && Date.now() - bothSince > 4000) { bothFired = true; if (engine.trigger('bait') === 'started') showToast('two at once'); }
+      if (!bothFired && Date.now() - bothSince > 4000) { bothFired = true; if (engine.trigger('bait') === 'started') showToast('two at once!'); }
     } else { bothSince = 0; bothFired = false; }
     initialized = true;
     lastFinished = finished;
@@ -108,10 +108,10 @@ document.querySelector('#splash')!.addEventListener('click', () => engine.celebr
 
 // Keys (any casing): K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
-  k: ['kraken', 'the kraken rises...'], m: ['mega', 'a megalodon approaches...'], c: ['saga', 'something stirs below...'],
-  r: ['chase', 'a chase!'], b: ['bait', 'a bait ball forms'], j: ['jelly', 'jellyfish drifting in'],
-  w: ['whale', 'a whale is coming...'], v: ['whirl', 'a whirlpool opens'], n: ['night', 'night falls'],
-  f: ['fight', 'a fight breaks out'], u: ['ufo', 'something hovers above...'], d: ['diver', 'a diver slips in...'], y: ['yeat', ''],
+  k: ['kraken', 'the kraken rises from the deep...'], m: ['mega', 'a megalodon approaches... brace yourselves!'], c: ['saga', 'something stirs below... something HUGE!'],
+  r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
+  w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
+  f: ['fight', 'a fight breaks out! teeth out!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
 };
 const toast = document.querySelector('#toast')!;
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -128,7 +128,7 @@ addEventListener('keydown', e => {
   const result = engine.trigger(entry[0]);
   // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
   if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
-  showToast(result === 'ended' ? 'yeat mode off' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening' : result === 'off' ? 'turned off in opts' : 'the kraken and megalodon are already in play');
+  showToast(result === 'ended' ? 'yeat mode off...' : result === 'cake' ? 'let them have their cake!' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'the kraken and megalodon are already in play! patience...');
 });
 
 // Options panel: a few cycling toggles, remembered between runs.

@@ -558,6 +558,7 @@ export class AsciiRenderer {
     this.drawWhirl(world);
     this.drawDivers(world);
     this.drawBolts(world);
+    this.drawBombs(world);
     this.drawMess(world);
     this.drawAlerts(world);
     this.drawUfo(world);
@@ -568,6 +569,7 @@ export class AsciiRenderer {
     this.drawMegaSkeleton(world);
     this.drawWraps(world);
     this.drawFightHud(world);
+    this.drawInvasion(world);
     this.drawSawBlade(world);
     this.drawSlices(world);
     if (this.yeat > 0) {
@@ -958,8 +960,10 @@ export class AsciiRenderer {
   }
 
   private drawWhale(world: World) {
-    const w = world.whale;
-    if (!w) return;
+    for (const w of world.whales) this.drawOneWhale(world, w);
+  }
+
+  private drawOneWhale(world: World, w: NonNullable<World["whale"]>) {
     const { cw } = this;
     const { put, flush } = this.painter();
     const L = w.length;
@@ -1235,15 +1239,18 @@ export class AsciiRenderer {
     if (k && k.state === "wrap" && k.wrapping) {
       const progress = Math.max(0, Math.min(1, (world.time - k.stateAt) / k.wrapFor));
       const lead = (k.winner === "kraken" ? 1 : -1) * (0.15 + 0.85 * Math.pow(progress, 1.2));
-      const swing = Math.sin(world.time * 9) * (world.time < k.shakeUntil ? 0.14 : 0.05);
-      const pos = Math.max(-1, Math.min(1, lead + swing));
+      // A massive fight: the line lurches around, harder during the thrashing, and the divers lean it too.
+      const shaking = world.time < k.shakeUntil;
+      const swing = Math.sin(world.time * 9) * (shaking ? 0.2 : 0.09) + Math.sin(world.time * 23 + 1) * (shaking ? 0.12 : 0.06) + Math.sin(world.time * 4.1) * 0.08 + (shaking ? (Math.random() - 0.5) * 0.14 : 0);
+      const pos = Math.max(-1, Math.min(1, lead + k.tilt * 0.5 + swing));
       const width = 22;
       const cx = Math.max(width * cw, Math.min(world.width - width * cw, k.x));
       const y = Math.max(ch * 2, k.y - k.size * 0.42);
-      const mark = Math.round(((1 - pos) / 2) * (width - 1));
+      // White (the kraken's side, on the left) fills toward the right as it wins; blue (the megalodon's) fills toward the left as it wins.
+      const mark = Math.round(((1 + pos) / 2) * (width - 1));
       let bar = "";
       for (let i = 0; i < width; i++) bar += i === mark ? "|" : i < mark ? "#" : "=";
-      text(cx, y - ch * 1.1, world.time < k.shakeUntil ? "THRASHING!" : "WRAPPED", "255,255,255", 0.9);
+      text(cx, y - ch * 1.1, shaking ? "THRASHING!!" : "WRAPPED", "255,255,255", 0.9);
       // The kraken's share is on the left, the megalodon's on the right.
       text(cx - (width / 2 + 5) * cw, y, "KRAKEN", "235,235,240");
       text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
@@ -1298,8 +1305,10 @@ export class AsciiRenderer {
 
   /** A saucer with blinking lights and a shimmering green tractor beam when it is lifting something. */
   private drawUfo(world: World) {
-    const u = world.ufo;
-    if (!u) return;
+    for (const u of world.ufos) this.drawOneUfo(world, u);
+  }
+
+  private drawOneUfo(world: World, u: NonNullable<World["ufo"]>) {
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     const t = world.time;
@@ -1426,6 +1435,16 @@ export class AsciiRenderer {
       else if (kind === "treasure") put(...at(1.6, -cw * 1.1), "$", "rgb(255,215,80)", true);
       else if (kind === "snorkel") put(...at(0.2, cw * 0.9), "/", "rgb(250,225,120)", true);
       else if (kind === "scooter") { put(...at(-1.1), "=", "rgb(190,198,210)", true); put(...at(-2), ">", "rgb(255,236,120)", true); }
+      else if (kind === "bomber") {
+        // A pack of explosives on his back; once the fuse is lit a red ! flashes over his head.
+        put(...at(1.5), "@", "rgb(255,120,40)", true);
+        put(...at(1.7, cw * 0.9), "*", f.fuseAt !== undefined && Math.sin(world.time * 25) > 0 ? "rgb(255,240,150)" : "rgb(190,90,40)", true);
+        if (f.fuseAt !== undefined) {
+          const red = Math.sin(world.time * 18) > -0.2;
+          put(f.x, f.y - cw * 2.4, "!", red ? "rgb(255,50,50)" : "rgb(255,200,60)", true);
+          put(f.x, f.y - cw * 3.4, "!", red ? "rgb(255,50,50)" : "rgb(255,200,60)", true);
+        }
+      }
       else if (kind === "tech") {
         put(...at(1.5), "o", "rgb(205,212,222)", true);
         if (f.salvage) put(...at(-0.4, cw * 1.2), "?", "rgb(120,255,170)", true);
@@ -1456,6 +1475,72 @@ export class AsciiRenderer {
       put(...at(2.7, kick), "=", fin, true);
       put(...at(3.5, -kick), "=", fin, true);
       put(...at(4.3, kick * 1.3), "~", finTip, true);
+    }
+    flush();
+  }
+
+  /**
+   * The alien invasion banner, Terraria style: a title, a progress bar of saucers down, and a red pulse at the screen
+   * edges while it lasts. A big callout announces its start and its end.
+   */
+  private drawInvasion(world: World) {
+    const inv = world.invasion;
+    if (!inv) return;
+    const { ctx, cw, ch } = this;
+    const t = world.time;
+    const w = this.cols * cw;
+    const h = this.rows * ch;
+    // A slow green-red alarm pulse round the edges.
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, `rgba(${Math.round(60 + 120 * pulse)},${Math.round(160 - 90 * pulse)},60,${(0.1 + 0.07 * pulse).toFixed(3)})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    const { put, flush } = this.painter();
+    const title = "ALIEN INVASION";
+    const done = inv.killed + inv.escaped;
+    const width = 26;
+    const filled = Math.round((done / inv.total) * width);
+    const cx = w / 2;
+    const y = ch * 3.2;
+    for (let i = 0; i < title.length; i++) put(cx + (i - title.length / 2) * cw, y, title[i], t % 1 < 0.5 ? "rgb(150,255,170)" : "rgb(110,235,140)", true);
+    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? "rgb(150,255,170)" : "rgb(70,110,80)", true);
+    const label = `${inv.killed} DOWN   ${inv.total - done} TO GO`;
+    for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(210,235,215)", true);
+    flush();
+  }
+
+  /** Bomber explosions: a fireball that swells from yellow through orange to red, and a shockwave ring racing outward. */
+  private drawBombs(world: World) {
+    if (!world.bombs.length) return;
+    const { cw } = this;
+    const { put, flush } = this.painter();
+    for (const b of world.bombs) {
+      const age = world.time - b.born;
+      if (age < 0 || age > 1.3) continue;
+      const fire = Math.min(1, age / 0.3);
+      const fade = Math.max(0, 1 - age / 1.3);
+      const coreR = b.r * 0.55 * fire;
+      const rings = 9;
+      for (let i = 1; i <= rings; i++) {
+        const f = i / rings;
+        const rad = coreR * f;
+        const count = Math.max(6, Math.min(70, Math.round((2 * Math.PI * rad) / (cw * 0.8))));
+        const rgb = f < 0.4 ? "255,240,130" : f < 0.75 ? "255,160,40" : "230,60,30";
+        const glyphs = f < 0.4 ? "@%#" : f < 0.75 ? "%#*" : "*o:";
+        for (let j = 0; j < count; j++) {
+          const a = (j / count) * Math.PI * 2 + i * 0.7;
+          put(b.x + Math.cos(a) * rad, b.y + Math.sin(a) * rad * 0.85, glyphs[(i + j) % glyphs.length], `rgba(${rgb},${(fade * (1.1 - f * 0.4)).toFixed(2)})`, true);
+        }
+      }
+      // The shockwave: a thin ring of foam that outruns the fire.
+      const wave = b.r * Math.min(1, age / 0.9);
+      const wc = Math.max(10, Math.min(120, Math.round((2 * Math.PI * wave) / (cw * 0.9))));
+      for (let j = 0; j < wc; j++) {
+        const a = (j / wc) * Math.PI * 2;
+        put(b.x + Math.cos(a) * wave, b.y + Math.sin(a) * wave * 0.85, j % 2 ? "o" : ".", `rgba(255,255,255,${(fade * 0.9).toFixed(2)})`, true);
+      }
     }
     flush();
   }
@@ -1915,8 +2000,7 @@ export class AsciiRenderer {
     world.jellies.forEach((j, i) => glowAt(j.x, j.y, j.size * 7, i + 71, 0.6, 6));
     const k = world.kraken;
     if (k) glowAt(k.x, k.y, k.size * 0.55, 211, 0.7, 6);
-    const u = world.ufo;
-    if (u) glowAt(u.x, u.y, 130, 223, 0.8, 4);
+    world.ufos.forEach((u, i) => glowAt(u.x, u.y, 130, 223 + i * 17, 0.8, 4));
     const wh = world.whale;
     if (wh) glowAt(wh.x - Math.cos(wh.heading) * wh.length * 0.4, wh.y - Math.sin(wh.heading) * wh.length * 0.4, wh.length * 0.35, 239, 0.6, 9);
     // Stray flares drifting in the fog.
