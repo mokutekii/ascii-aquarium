@@ -20,7 +20,3 @@ HANDOFF.local.md
 .dev-tests/
 dev-tests/*.bundle.mjs
 
-.claude/
-.claude*
-CLAUDE.md
-CLAUDE.local.md
