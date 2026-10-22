@@ -569,7 +569,11 @@ export class AsciiRenderer {
     this.drawMegaSkeleton(world);
     this.drawWraps(world);
     this.drawFightHud(world);
-    this.drawInvasion(world);
+    // The announced events stack their banners one under another, the invasion first.
+    let slot = 0;
+    if (world.invasion) this.drawInvasion(world, slot++);
+    for (const sg of world.sagas) this.drawSagaBanner(world, sg, slot++);
+    this.drawMeteors(world);
     this.drawSawBlade(world);
     this.drawSlices(world);
     if (this.yeat > 0) {
@@ -1483,7 +1487,7 @@ export class AsciiRenderer {
    * The alien invasion banner, Terraria style: a title, a progress bar of saucers down, and a red pulse at the screen
    * edges while it lasts. A big callout announces its start and its end.
    */
-  private drawInvasion(world: World) {
+  private drawInvasion(world: World, slot: number) {
     const inv = world.invasion;
     if (!inv) return;
     const { ctx, cw, ch } = this;
@@ -1503,11 +1507,67 @@ export class AsciiRenderer {
     const width = 26;
     const filled = Math.round((done / inv.total) * width);
     const cx = w / 2;
-    const y = ch * 3.2;
+    const y = ch * (3.2 + slot * 5.6);
     for (let i = 0; i < title.length; i++) put(cx + (i - title.length / 2) * cw, y, title[i], t % 1 < 0.5 ? "rgb(150,255,170)" : "rgb(110,235,140)", true);
     for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? "rgb(150,255,170)" : "rgb(70,110,80)", true);
     const label = `${inv.killed} DOWN   ${inv.total - done} TO GO`;
     for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(210,235,215)", true);
+    flush();
+  }
+
+  /**
+   * The banner for the other big events (blood moon, titans clash, meteor shower): a title, a progress bar and a
+   * line of detail, plus the blood moon's red wash.
+   */
+  private drawSagaBanner(world: World, sg: World["sagas"][number], slot: number) {
+    const { ctx, cw, ch } = this;
+    const t = world.time;
+    const w = this.cols * cw;
+    const h = this.rows * ch;
+    const fade = Math.max(0, Math.min(1, (t - sg.born) / 3, Number.isFinite(sg.until) ? (sg.until - t) / 3 : 1));
+    if (sg.kind === "moon") {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.6);
+      const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.75);
+      g.addColorStop(0, `rgba(120,0,10,${(0.1 * fade).toFixed(3)})`);
+      g.addColorStop(1, `rgba(150,10,20,${((0.22 + 0.06 * pulse) * fade).toFixed(3)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
+    const { put, flush } = this.painter();
+    const k = world.kraken;
+    const progress = sg.kind === "clash"
+      ? (k && k.state === "wrap" ? Math.max(0, Math.min(1, (t - k.stateAt) / Math.max(1, k.wrapFor))) : 0)
+      : Math.max(0, Math.min(1, (t - sg.born) / (sg.until - sg.born)));
+    const label = sg.kind === "moon" ? `THE MOON SETS IN ${Math.max(0, Math.ceil(sg.until - t))}s`
+      : sg.kind === "meteor" ? `${sg.count} STRIKES   ${Math.max(0, Math.ceil(sg.until - t))}s LEFT`
+      : k && k.state === "wrap" ? "KRAKEN vs MEGALODON" : "THE TITANS GATHER...";
+    const cx = w / 2;
+    const y = ch * (3.2 + slot * 5.6);
+    const width = 26;
+    const filled = Math.round(progress * width);
+    const rgb = sg.rgb;
+    for (let i = 0; i < sg.title.length; i++) put(cx + (i - sg.title.length / 2) * cw, y, sg.title[i], `rgba(${rgb},${((t % 1 < 0.5 ? 1 : 0.8) * Math.max(0.3, fade)).toFixed(2)})`, true);
+    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? `rgb(${rgb})` : "rgb(80,80,90)", true);
+    for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(225,225,230)", true);
+    flush();
+  }
+
+  /** Meteors: a white-hot head with a long orange tail streaking down through the water. */
+  private drawMeteors(world: World) {
+    if (!world.meteors.length) return;
+    const { cw } = this;
+    const { put, flush } = this.painter();
+    for (const m of world.meteors) {
+      const sp = Math.hypot(m.vx, m.vy) || 1;
+      const bx = -m.vx / sp;
+      const by = -m.vy / sp;
+      for (let i = 0; i < 18; i++) {
+        const f = 1 - i / 18;
+        const g = i < 3 ? "@" : i < 8 ? "*" : i < 13 ? "+" : ".";
+        const rgb = i < 3 ? "255,245,220" : i < 8 ? "255,170,70" : "220,80,40";
+        put(m.x + bx * i * cw * 1.1, m.y + by * i * cw * 1.1, g, `rgba(${rgb},${(0.2 + 0.8 * f).toFixed(2)})`, true);
+      }
+    }
     flush();
   }
 
