@@ -201,7 +201,7 @@ export class OceanEngine {
     while (dist >= spacing) {
       this.trail.x += (dx / dist) * spacing;
       this.trail.y += (dy / dist) * spacing;
-      this.world.splash(this.trail.x, this.trail.y, 0.55);
+      this.world.splash(this.trail.x, this.trail.y, 0.55, undefined, { dir: Math.atan2(dy, dx) });
       dx = x - this.trail.x;
       dy = y - this.trail.y;
       dist = Math.hypot(dx, dy);
