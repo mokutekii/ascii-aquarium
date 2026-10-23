@@ -73,6 +73,6 @@ function openDefault() {
   const browser = findBrowser();
   if (!browser) { openDefault(); return; }
   const profile = path.join(root, 'browser-profile');
-  spawn(browser, [`--app=${URL_ROOT}`, `--user-data-dir=${profile}`, '--window-size=560,380', '--no-first-run', '--no-default-browser-check', '--disable-background-mode'],
+  spawn(browser, [`--app=${URL_ROOT}`, `--user-data-dir=${profile}`, '--window-size=560,380', '--no-first-run', '--no-default-browser-check', '--disable-background-mode', '--disable-pinch'],
     { detached: true, stdio: 'ignore' }).unref();
 })();
