@@ -39,6 +39,13 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 - The kraken's arms always grow from its body: an arm taking hold sweeps from its waving pose onto the grip instead of jumping there, and all ten limbs take hold of a wrapped megalodon, drawn over it. Charging a megalodon or a whale, the arms spread wide and snap together with each jet stroke to drive it forward. Its turns ease in and out.
 - Saucers fire at things: a red laser provokes the kraken or the megalodon, and a green bomb (a bomber diver it beamed aboard, or now and then one it arrived with) is dropped on fish, divers, sharks, whales or a titan, shoving sharks, killing fish and killing divers near the blast. Now and then a drop goes odd: a carpet-bombing run, a dud, a wild drop, friendly fire on another ufo, a fumble onto itself, or a bomber that wakes up inside and sets off stray bombs; a bomber caught can carry spares.
 - The window is a fixed tank: browser zoom and find are switched off (F11 still goes fullscreen).
+- Kraken fights run in order: it turns, thrusts in arms first, lands, and is only "wrapped" once the arms have closed.
+- The megalodon can start a fight: it charges (a "dun dun" beat quickens as it closes), bites the kraken's head and whips it about. A fleeing kraken is sometimes chased: its ink loses the megalodon, or it is run down. A megalodon getting away can be hooked by an arm and dragged back ("GET OVER HERE!").
+- A kraken that reaches a whale pokes or squeezes it, then chooses: let go, crush or eat. Nothing dies on contact.
+- Sharks have species roles, moods and stamina, rally to a kill and frenzy around blood.
+- Boss toasts are one short line: red for the kraken or megalodon, purple for a clash. Other toasts lose their symbols and use color instead (amber for danger, green for good, a trailing ~ for whales), and most have several wordings.
+- A key press starts any event whatever else is running, apart from one kraken, one megalodon, two whales and the diver cap. Random events still follow the usual rules.
+- The code is split into world, titans, sharks, types and lines.
 - A megalodon smashes any ufo it swims into, with any part of its body, and eats every diver it can catch. Anything that bumps into it is bitten or eaten. A normal shark eats one diver, then ignores the rest for a while.
 - A sawshark sometimes charges a ufo and cuts it in half. Otherwise it now and then slices through the fish ahead of it.
 - A diver can take over a ufo, peering out of its window. Some hijacked saucers go after sharks, which break free; others keep grabbing fish.
