@@ -111,14 +111,111 @@ const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> 
   w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
   f: ['fight', 'a fight breaks out! teeth out!'], o: ['moon', 'the sky darkens...'], s: ['maelstrom', 'the sea begins to turn...'], g: ['bloom', 'a faint glow rises from below...'], p: ['migration', 'the whole sea starts to move...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
 };
-const toast = document.querySelector('#toast')!;
-let toastTimer: ReturnType<typeof setTimeout>;
-function showToast(text: string) {
-  toast.textContent = text;
-  toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+// Pressing D again and again gets a different line every time, and the lines get more resigned the longer it goes on.
+const DIVER_LINES = [
+  'a diver slips in... what could go wrong?', 'another diver. brave. or lost.', 'splash! a diver arrives.', 'he says he knows what he is doing...',
+  'a diver jumps in, camera first.', 'fresh from the boat, still dry behind the ears.', 'someone should really warn him.', 'he waves at the sharks. oh no.',
+  'a diver descends with great confidence.', 'a wild diver appears!', 'he brought snacks. for the sharks, apparently.', 'this one has a plan. it is not a good plan.',
+  'he is here for the photos. the sharks are here for him.', 'a diver arrives, humming. oblivious.', 'he checked the forecast. not the food chain.', 'a diver sinks in, tank gleaming.',
+  'he whispers: "they look friendly."', 'brave little diver, big wide ocean.', 'he practised for this. mostly in a pool.', 'a diver arrives. the water goes quiet.',
+  'the diver doubles his tip to the boat captain. a good sign?', 'he pats a shark. the shark allows it. for now.', 'a diver in a very bright suit. subtle.', 'he forgot something on the boat. his sense, probably.',
+  'a diver rolls in backwards, as is tradition.', 'he is "just popping down for a minute."', 'the diver gives a thumbs up. to the megalodon.', 'one more for the logbook... if he returns.',
+  'a diver drifts in, eyes shut, vibes high.', 'he brought a tiny flag to plant on the seabed.', 'a diver arrives and immediately loses a flipper.', 'he is here to find himself. at the bottom.', 'a diver waves at the camera. there is no camera.', 'he read half the safety manual. the fun half.', 'he came for the coral. the coral is not the issue.',
+];
+const DIVER_SPAM = ['more divers...?', 'the boat is just throwing them in now.', 'is anyone counting these?', 'the sharks have started taking numbers.', 'at this point it is a buffet.', 'the horror of man!', 'please. stop. they have families.'];
+const DIVER_FULL = ['no more divers... :(', 'the water is full of divers!', 'there is no room left to drown in...', 'the divers are going to need a bigger tank.'];
+// Saucers and whales get a different line for the first, the second and the cap, and a line never comes round again until its
+// whole pool has been used.
+const COUNT_LINES: Record<string, string[]> = {
+  ufo1: ['something hovers above... we are not alone...', 'a saucer drifts in, humming softly.', 'a light in the sky. it is looking at you.', 'one lonely saucer wanders over.', 'a visitor from above... take me to your fish.'],
+  ufo2: ['a second saucer! they brought a friend.', 'two lights now. this is a pattern.', 'the first saucer waves. the second one blinks back.', 'two saucers, one tank. awkward.', 'company arrives... the sky is getting crowded.'],
+  ufo3: ['a THIRD saucer... this is an invasion!', 'three saucers! the aliens have a plan.', 'the sky is full of lights... brace yourselves!', 'they came in force. three, and counting.', 'the fleet has arrived!'],
+  ufoCap: ['three saucers is the limit... for now.', 'no room left in the sky for another!', 'the saucers are circling. the sky is full.', 'the mothership says: enough, enough.'],
+  whale1: ['a whale is coming... listen closely...', 'a low song rolls in from the deep...', 'something huge and gentle glides in.', 'the water hums. a whale approaches.', 'a whale surfaces from the blue...'],
+  whale2: ['and here comes a second whale!', 'a duet! two whales now.', 'the first whale calls. the second answers.', 'two whales share the deep.', 'a calf? no, a whole second whale!'],
+  whaleCap: ['two whales is the limit...', 'the tank cannot fit a third whale!', 'two whales already. that is plenty.', 'the whales politely decline a third.'],
+};
+const countDecks: Record<string, string[]> = {};
+function countLine(key: string) {
+  const deck = countDecks[key] ??= [];
+  if (!deck.length) {
+    deck.push(...COUNT_LINES[key]);
+    for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+    // Never the line that closed the previous deck.
+    if (deck[deck.length - 1] === lastCountLine[key] && deck.length > 1) deck.unshift(deck.pop()!);
+  }
+  return (lastCountLine[key] = deck.pop()!);
 }
+const lastCountLine: Record<string, string> = {};
+let lastDiverLine = '';
+let diverStreak = 0;
+let lastDiverAt = 0;
+function diverToast(result: string) {
+  const now = Date.now();
+  diverStreak = now - lastDiverAt < 6000 ? diverStreak + 1 : 0;
+  lastDiverAt = now;
+  const pool = result === 'full' ? DIVER_FULL : diverStreak >= 4 && Math.random() < 0.6 ? DIVER_SPAM : DIVER_LINES;
+  const lines = pool.filter((l) => l !== lastDiverLine);
+  lastDiverLine = lines[Math.floor(Math.random() * lines.length)];
+  return lastDiverLine;
+}
+// Each toast gets a tone, a small glyph and its own entrance, so a quick run of them does not read as one grey line.
+const TONES: [RegExp, string, string][] = [
+  [/eaten|crushed|swallowed|lost|horror|ow. just|gone. just|boom|squeezed|ate /i, 'danger', '(!) '],
+  [/really...|wow|oh come on|well. that|bold of him|nobody saw|did he really|he was warned|he lit it|counting|buffet|taking numbers|brave|warn him|plan is not/i, 'quip', '(?) '],
+  [/invad|aliens|ufo|saucer|diver/i, 'alien', '<o> '],
+  [/whale|song/i, 'whale', '~o~ '],
+  [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
+  [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd/i, 'event', '>>> '],
+];
+const SPECIAL: Record<string, string> = { rainbow: '*~ ', insist: '(-_-) ' };
+// Notices stack up bottom-left like a game log: the newest at the bottom, at most five at once, each holding for a while and
+// then fading away slowly. The oldest is dropped when a sixth arrives.
+const log = document.createElement('div');
+log.id = 'toasts';
+document.body.append(log);
+const LOG_MAX = 5;
+const lives = new WeakMap<HTMLElement, Animation>();
+function showToast(text: string, forced?: string) {
+  // The same line never shows twice: repeating it (say, "already happening!") just refreshes the one on screen.
+  const same = [...log.children].find((c) => (c as HTMLElement).dataset.text === text) as HTMLElement | undefined;
+  if (same) {
+    try {
+      lives.get(same)?.cancel();
+      const life = same.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
+      life.onfinish = () => same.remove();
+      lives.set(same, life);
+      same.animate([{ transform: 'scale(1.06)' }, { transform: 'none' }], { duration: 180, easing: 'ease-out' });
+    } catch { /* the line simply stays */ }
+    log.append(same);
+    return;
+  }
+  const [, tone, glyph] = forced ? [0, forced, SPECIAL[forced] ?? ''] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  const el = document.createElement('div');
+  el.className = 'toast t-' + tone;
+  el.textContent = glyph + text;
+  el.dataset.text = text;
+  log.append(el);
+  while (log.children.length > LOG_MAX) log.firstElementChild!.remove();
+  try {
+    // Danger shakes, quips drop in, everything else slides up; then a long hold and a slow fade.
+    const enter = tone === 'danger'
+      ? [{ transform: 'translateX(-6px)', opacity: 0 }, { transform: 'translateX(5px)' }, { transform: 'translateX(-3px)' }, { transform: 'none', opacity: 1 }]
+      : tone === 'quip' ? [{ transform: 'translateY(-8px)', opacity: 0 }, { transform: 'none', opacity: 1 }]
+      : [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }];
+    el.animate(enter, { duration: tone === 'danger' ? 340 : 260, easing: 'ease-out' });
+    const life = el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
+    life.onfinish = () => el.remove();
+    lives.set(el, life);
+  } catch { setTimeout(() => el.remove(), 9000); }
+}
+setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) showToast(n); }, 400);
+// The window is a fixed little tank: no browser zoom and no find bar. F11 and the window buttons are untouched.
+addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (['+', '-', '=', '_', '0', 'f', 'F'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract' || e.code === 'Numpad0')) e.preventDefault();
+}, { capture: true });
+addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
+for (const g of ['gesturestart', 'gesturechange', 'gestureend']) addEventListener(g, e => e.preventDefault());
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || (e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) return;
   const entry = keyEvents[e.key.toLowerCase()];
@@ -126,7 +223,16 @@ addEventListener('keydown', e => {
   const result = engine.trigger(entry[0]);
   // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
   if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
-  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up... it comes next!' : result === 'cake' ? 'let them have their cake!' : result === 'insist' ? 'fine...if you insist...' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'this event needs more room right now...');
+  if (entry[0] === 'diver' && (result === 'started' || result === 'full')) { showToast(diverToast(result)); return; }
+  if (result === 'cake') { showToast('let them have their cake!', 'rainbow'); return; }
+  if (result === 'insist') { showToast('fine...if you insist...', 'insist'); return; }
+  if ((entry[0] === 'ufo' || entry[0] === 'whale') && (result === 'started' || result === 'already' || result === 'full')) {
+    const n = engine.count(entry[0]);
+    const cap = entry[0] === 'ufo' ? 3 : 2;
+    showToast(countLine(result === 'started' ? entry[0] + Math.max(1, Math.min(n, cap)) : entry[0] + 'Cap'));
+    return;
+  }
+  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up... it comes next!' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? (entry[0] === 'whale' ? ['two whales is the limit...', 'the tank cannot fit a third whale!', 'two whales already. that is plenty.'][Math.floor(Math.random() * 3)] : 'already happening!') : result === 'off' ? 'turned off in opts...' : 'this event needs more room right now...');
 });
 
 // Options panel: a few cycling toggles, plus an events list where each event can be ticked on or off. Remembered between runs.
