@@ -36,6 +36,9 @@ export class OceanEngine {
 
   setFps(fps: number) { this.fps = fps; }
 
+  /** How many saucers or whales are out right now. */
+  count(kind: "ufo" | "whale") { return kind === "ufo" ? this.world.ufos.length : this.world.whales.length; }
+
   /** The next one-off message from the simulation, if any. */
   takeNotice() { return this.world.notices.shift() ?? null; }
 
@@ -187,6 +190,7 @@ export class OceanEngine {
     p.x = x;
     p.y = y;
     p.active = inside && e.pointerType !== "touch";
+    if (this.world.heldDiver) { this.world.dragHeldTo(x, y); this.trail = null; return; }
     if (!inside || this.reducedMotion.matches || e.buttons === 0) { this.trail = null; return; }
     // Walk every coalesced sample so a fast drag still leaves an unbroken trail.
     const samples = e.getCoalescedEvents?.() ?? [];
@@ -214,6 +218,7 @@ export class OceanEngine {
   }
 
   private onPointerUp = (e: PointerEvent) => {
+    if (this.world.releaseHeld()) { this.trail = null; return; }
     if (e.target instanceof Element && e.target.closest("#status, #panel")) { this.trail = null; return; }
     const { x, y, inside } = this.toLocal(e);
     // Finishing a drag lands a heavier ripple where you let go.
@@ -225,14 +230,15 @@ export class OceanEngine {
     if (e.target instanceof Element && e.target.closest("#status, #panel")) return;
     const { x, y, inside } = this.toLocal(e);
     if (inside && !this.reducedMotion.matches) {
-      // A click on a diver pops it instead of splashing.
-      if (this.world.popDiverAt(x, y)) return;
+      // Pressing on a diver picks it up (a quick tap pops it) instead of splashing.
+      if (this.world.holdDiverAt(x, y)) return;
       this.trail = { x, y };
       this.world.splash(x, y, 2.5);
     }
   };
 
   private onPointerLeave = () => {
+    this.world.releaseHeld();
     this.world.pointer.active = false;
     this.trail = null;
   };

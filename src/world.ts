@@ -33,6 +33,11 @@ const DEFAULT_SHARKS: SharkSpec[] = [
 
 export type DiverKind = "scuba" | "photo" | "treasure" | "snorkel" | "scooter" | "tech" | "bomber";
 
+/** How heavy a diver is (0 light → 1 heavy): heavier ones swing slower in the kraken's arms. */
+export const DIVER_MASS: Record<DiverKind, number> = {
+  snorkel: 0, photo: 0.25, scuba: 0.5, bomber: 0.5, tech: 0.65, scooter: 0.8, treasure: 1,
+};
+
 /** Suit colour (r,g,b) per kind of diver; the renderer and the popped bits share it. */
 export const DIVER_SUIT: Record<DiverKind, string> = {
   scuba: "255,150,60", photo: "60,200,190", treasure: "190,150,85", snorkel: "240,110,150", scooter: "120,225,120", tech: "175,100,255", bomber: "255,235,50",
@@ -87,6 +92,8 @@ export interface Fish {
   crushAt?: number;
   /** Scooter divers: already had a go at freeing a shark from the kraken. */
   tried?: true;
+  /** Held by the pointer: carried wherever the mouse goes until let go. */
+  held?: true;
 }
 
 export interface Shark {
@@ -141,7 +148,14 @@ export interface Shark {
   rallying?: boolean;
   /** A megalodon chases a fleeing kraken only until this time. */
   chaseUntil?: number;
+  /** A provoked megalodon is enraged until this time; rageLevel (0-1, set every step) is what the renderer reads. */
+  rageUntil?: number;
+  rageLevel?: number;
   megaHeading?: number;
+  /** A megalodon stays until this time: pushed out while enraged, so it only starts to leave a few seconds after it calms down. */
+  calmUntil?: number;
+  /** Leaving on its own (not driven off): swims out at an easy cruise instead of bolting. */
+  leaveCalm?: boolean;
   /** How hard a megalodon is thrashing (0 cruising → 1+ wrapped by the kraken or clamped on the whale): drives a bigger, faster body wave. */
   thrash?: number;
   /** A megalodon that just bit something waits until this time before biting again. */
@@ -152,6 +166,9 @@ export interface Shark {
   whaleAttack?: boolean;
   /** When the kraken's arms set on this shark: the arms take a moment to reach it before it is hauled in. */
   grabbedAt?: number;
+  /** Held by the kraken: seconds spent stretched past the arms' comfortable reach, and how tight the arms are (0 slack, 1 taut). */
+  stretch?: number;
+  taut?: number;
   /** Something that touched a megalodon's body: it turns to bite it and gives up after `until`. */
   biteTarget?: { shark?: Shark; fish?: Fish; until: number };
   born?: number;
@@ -181,6 +198,8 @@ export interface Kraken {
   inkAt: number;
   /** Smoothed turn rate (rad/s); the arms trail behind it. */
   bend: number;
+  /** Smoothed turn rate (rad/s), so heading changes ease in and out. */
+  angVel?: number;
   /** The megalodon it is wrapped around, and how long the fight lasts. */
   wrapping: Shark | null;
   wrapFor: number;
@@ -214,8 +233,28 @@ export interface Kraken {
   nextCatch: number;
   /** Hurt in a fight: flees faster and inks for longer. */
   wounded: boolean;
+  /** Until when it is enraged (set by a blast in its arms), and when it was last blown about. */
+  rageUntil?: number;
+  /** It stays until this time: pushed out while enraged, so it only starts to leave a few seconds after it calms down. */
+  calmUntil?: number;
+  /** Which flee (stateAt) the exit heading was picked for, and the heading itself. */
+  exitAt?: number;
+  exitHeading?: number;
+  blastAt?: number;
   /** Divers' sway on the tug of war: negative favours the megalodon, positive the kraken. */
   tilt: number;
+  /** Arms blooming out toward sharks, any number at once: each grab lands when its arm arrives, if the shark is still there. */
+  sharkStrikes?: { sh: Shark; at: number; dur: number }[];
+  /** The whale it is swimming across the tank to (it goes to the whale, never the other way round). */
+  hunt?: Whale;
+  huntAt?: number;
+  nextHunt?: number;
+  /** What it does to a whale it has reached: jab at it, or squeeze it. */
+  whaleMode?: "poke" | "squeeze";
+  whaleStart?: number;
+  nextJab?: number;
+  jabAt?: number;
+  jabU?: number;
 }
 
 export interface Jelly {
@@ -299,6 +338,10 @@ export interface Ufo {
   boarded: boolean;
   /** In the kraken's arms. */
   held: boolean;
+  /** When it next fires a laser or drops a bomb. */
+  nextShot?: number;
+  /** Bomber divers beamed aboard, each dropped later as a green bomb. */
+  ammo?: number;
 }
 
 export type SagaKind = "moon" | "clash" | "meteor" | "maelstrom" | "bloom" | "migration";
@@ -384,7 +427,7 @@ export type EventKind = "chase" | "mega" | "kraken" | "saga" | "bait" | "jelly" 
 
 /** Seconds a kind of random event rests after it fires. */
 const COOLDOWNS: Record<string, number> = {
-  current: 90, chase: 20, bait: 60, jelly: 60, whale: 100, whirl: 60, fight: 60, ufo: 70, diver: 30,
+  current: 90, chase: 20, bait: 60, jelly: 60, whale: 100, whirl: 60, fight: 60, ufo: 70, diver: 16,
   moon: 240, meteor: 150, maelstrom: 180, bloom: 150, migration: 180,
 };
 
@@ -501,6 +544,7 @@ export class World {
   private lastBoom = -99;
   /** Saucer wrecks about to blow a second time. */
   private ufoBlasts: { x: number; y: number; at: number }[] = [];
+  private bombQueue: { x: number; y: number; at: number; u: Ufo }[] = [];
   private lastQuip = "";
   private lastQuipAt = -99;
   private diverGoals = new WeakMap<Fish, { x: number; y: number; born: number }>();
@@ -513,7 +557,7 @@ export class World {
   /** Wrecks a tech diver is on his way to salvage: where the ufo fell and when he arrives. */
   private techQueue: { x: number; y: number; at: number }[] = [];
   /** Bomber explosions, for drawing: where, when, and how far the shockwave reaches. */
-  bombs: { x: number; y: number; born: number; r: number }[] = [];
+  bombs: { x: number; y: number; born: number; r: number; green?: boolean }[] = [];
   /** Blaster bolts in flight, for drawing. */
   bolts: { x0: number; y0: number; x1: number; y1: number; born: number }[] = [];
   private diverCap = 25;
@@ -724,29 +768,42 @@ export class World {
         if (nx > -60 && nx < this.width + 60 && ny > -60 && ny < this.height + 60) gone = false;
       }
       const age = time - (mega.born ?? 0);
-      // Past two and a half minutes it heads for the nearest edge and swims out, rather than blinking away mid-tank.
-      if (age > 150 && !mega.retreat && this.whaleFight?.mega !== mega && this.kraken?.wrapping !== mega) {
+      // Enraged (provoked, or under a blood moon) it stays until the fury ends, then calms down for a few seconds first.
+      if (this.megaRage(mega) > 0) mega.calmUntil = time + rand(7, 12);
+      const settled = time >= (mega.calmUntil ?? 0);
+      // Past two and a half minutes it heads for an edge and swims out, rather than blinking away mid-tank.
+      if (age > 150 && settled && !mega.retreat && this.whaleFight?.mega !== mega && this.kraken?.wrapping !== mega) {
         const cx = mega.nodes[0];
         const cy = mega.nodes[1];
+        // The edge it can reach with the least turning: a long body doesn't U-turn, it curves out the way it already faces.
         const edges: [number, number, number][] = [[cx, -1, 0], [this.width - cx, 1, 0], [cy, 0, -1], [this.height - cy, 0, 1]];
-        const [, ex, ey] = edges.sort((a, b) => a[0] - b[0])[0];
+        const cost = (e: [number, number, number]) => e[0] + Math.abs(angleDiff(mega.heading, Math.atan2(e[2], e[1]))) * 260;
+        const [, ex, ey] = edges.sort((a, b) => cost(a) - cost(b))[0];
         mega.retreat = true;
+        mega.leaveCalm = true;
         mega.megaHeading = Math.atan2(ey, ex);
       }
-      if ((gone && age > 4) || age > 400) {
+      if ((gone && age > 4) || (age > 400 && settled)) {
         if (this.whaleFight?.mega === mega) this.endWhaleFight();
         this.sharks = this.sharks.filter((sh) => sh !== mega);
       }
     }
+    for (const sh of this.sharks) if (sh.mega) sh.rageLevel = this.megaRage(sh);
     this.stepSharkDrift();
     this.stepKraken(dt);
     this.stepUfoBlasts();
+    this.stepBombQueue();
     this.stepSaga(dt);
     this.stepTitanContacts();
     this.stepWhaleFight(dt);
     this.stepKrakenQueue();
     this.stepCritters(dt);
     this.stepFight();
+    // Whenever the last titan leaves, however it came (by hand or by itself), neither one turns up on its own for a good
+    // while. Watched every step, so a short visit between two event ticks still resets the clock.
+    const titanNow = !!this.kraken || this.sharks.some((sh) => sh.mega);
+    if (this.titanWas && !titanNow) this.titanCooldownUntil = time + rand(180, 300);
+    this.titanWas = titanNow;
     if (time < this.nextEventAt || this.width === 0) return;
     // Irregular gaps: usually a minute or so, sometimes two events close together.
     const level = this.settings.events;
@@ -759,7 +816,7 @@ export class World {
     // appears during it; everything else can overlap, up to three minor events together.
     const pool: [string, number][] = [
       ["current", 0.12], ["chase", 0.22], ["saga", 0.11], ["kraken", 0.06], ["mega", 0.05], ["bait", 0.17],
-      ["moon", 0.035], ["meteor", 0.05], ["maelstrom", 0.04], ["bloom", 0.04], ["migration", 0.04], ["jelly", 0.15], ["whale", 0.07], ["whirl", 0.11], ["fight", 0.07], ["ufo", 0.17], ["diver", 0.2], ["yeat", 0.0025],
+      ["moon", 0.035], ["meteor", 0.05], ["maelstrom", 0.04], ["bloom", 0.04], ["migration", 0.04], ["jelly", 0.15], ["whale", 0.07], ["whirl", 0.11], ["fight", 0.07], ["ufo", 0.17], ["diver", 0.3], ["yeat", 0.0025],
     ];
     const majorKinds = ["saga", "kraken", "mega", "whale"];
     const calmOff = [...majorKinds, "fight", "diver"];
@@ -894,6 +951,7 @@ export class World {
     if (kind === "fight" && (combatActive || this.fight)) return this.fight ? "already" : "blocked";
     if ((kind === "bait" && this.whirl) || (kind === "whirl" && this.baitBall)) return "blocked";
     // Divers stack: every press brings more.
+    if (kind === "whale" && this.whales.length >= 2) return "already";
     if (kind !== "chase" && kind !== "night" && kind !== "diver" && kind !== "whale" && this.eventActive(kind)) return "already";
     if (kind === "chase") this.spawnRunner(randInt(1, 3));
     else if (kind === "kraken" || kind === "saga") {
@@ -1067,7 +1125,7 @@ export class World {
     this.ufos.push({
       x: side === 0 ? -90 : W + 90, y: -40, hy: H * rand(0.12, 0.2) + this.ufos.length * H * 0.1, tx, state: "enter",
       phase: 0, beamUntil: 0, beams: 0, maxBeams: this.invasion ? randInt(3, 4) : randInt(2, 3), beamX: 0, aim: null, waited: 0,
-      pilot: null, huntSharks: false, targetShark: null, hijackChecked: false, keep: false, got: 0, fast: false, boarded: false, held: false,
+      pilot: null, huntSharks: false, targetShark: null, hijackChecked: false, keep: false, got: 0, fast: false, boarded: false, held: false, ammo: Math.random() < 0.25 ? 1 : 0,
     });
     if (this.invasion) this.invasion.spawned++;
     else if (this.ufos.length >= 3) this.startInvasion();
@@ -1096,6 +1154,9 @@ export class World {
     const chased = this.fish.filter((f) => f.diver && f.alive && !f.riding && this.sharks.some((sh) => sh.target === f));
     if (chased.length && Math.random() < 0.85) return { x: chased[0].x, y: chased[0].y };
     const divers = this.fish.filter((f) => f.diver && f.alive && !f.riding);
+    // Saucers go looking for bomber divers: they are ammunition.
+    const bombers = divers.filter((f) => f.dkind === "bomber" && !f.seized);
+    if (bombers.length && Math.random() < 0.75) { const b = bombers[randInt(0, bombers.length - 1)]; return { x: b.x, y: b.y }; }
     const out = divers.filter((f) => (f.stunUntil ?? 0) > this.time && !f.seized);
     if (out.length && Math.random() < 0.8) return { x: out[0].x, y: out[0].y };
     const roll = Math.random();
@@ -1289,15 +1350,22 @@ export class World {
     if (kind === "moon") {
       this.nextMoonTech = time + 6;
       // The hungry sea sometimes brings its biggest hunter.
-      if (!this.kraken && !this.sharks.some((s) => s.mega) && Math.random() < 0.6) this.spawnMegalodon();
+      if (!this.kraken && !this.sharks.some((s) => s.mega) && time >= this.titanCooldownUntil && Math.random() < 0.6) {
+        if (Math.random() < 0.5) {
+          // Half the time the megalodon is not far behind, and the moon ends up staging a full titans clash.
+          const clash = Math.random() < 0.5;
+          this.spawnKraken(!clash);
+          this.notices.push(clash ? "the blood moon drives the kraken wild... and something huge is coming for it" : "the blood moon drives the kraken wild...");
+        } else this.spawnMegalodon();
+      }
     }
     if (kind === "maelstrom") {
-      const r = clamp(Math.min(W, H) * 0.13, 70, 170);
       const n = Math.min(3, Math.max(2, Math.floor(W * H / 1800000)));
       for (let tries = 0; tries < 60 && this.vortices.length < n; tries++) {
+        const r = clamp(Math.min(W, H) * 0.13 * rand(0.55, 1.6), 50, 260);
         const x = rand(W * 0.15, W * 0.85);
         const y = rand(H * 0.2, H * 0.8);
-        if (this.vortices.some((v) => Math.hypot(v.x - x, v.y - y) < Math.min(W, H) * 0.32)) continue;
+        if (this.vortices.some((v) => Math.hypot(v.x - x, v.y - y) < (v.r + r) * 1.3)) continue;
         this.vortices.push({ x, y, r, born: time, until: time + duration!, dir: (Math.random() < 0.5 ? 1 : -1) as 1 | -1, rippleAt: time });
       }
     }
@@ -1644,6 +1712,8 @@ export class World {
     }
     // In the kraken's arms the kraken moves it; the pilot (if any) rides along above.
     if (u.held) return;
+    if (u.state === "seek" || u.state === "beam" || (u.state === "leave" && u.ammo)) this.ufoFire(u);
+    if (!this.ufos.includes(u)) return;
     const move = (tx: number, ty: number, speed: number) => {
       const dx = tx - u.x;
       const dy = ty - u.y;
@@ -1742,6 +1812,14 @@ export class World {
           f.alive = false;
           f.respawnAt = f.diver ? Infinity : time + rand(6, 12);
           u.got++;
+          if (f.dkind === "bomber") {
+            // Now and then the bomber was carrying spares.
+            const spares = Math.random() < 0.15;
+            u.ammo = (u.ammo ?? 0) + (spares ? 3 : 1);
+            if (spares) this.notices.push("that bomber had a backpack full of bombs!");
+            u.nextShot = Math.min(u.nextShot ?? Infinity, time + 1.5);
+            this.callout(u.x, u.y - 40, "UFO LOADS A BOMBER", "130,255,110");
+          }
         }
       }
       for (const j of this.jellies) {
@@ -1784,6 +1862,210 @@ export class World {
         this.ufo = null;
       }
     }
+  }
+
+  /**
+   * Now and then a saucer shoots: a laser that provokes a titan in range, or a bomb dropped on whatever swims below, which
+   * shoves sharks, kills fish and kills divers.
+   */
+  private ufoFire(u: Ufo) {
+    const { time } = this;
+    u.nextShot ??= time + rand(3, 6);
+    if (time < u.nextShot || u.y < 0) return;
+    const kr = this.kraken;
+    const mg = this.sharks.find((s) => s.mega && !s.retreat);
+    const krNear = !!kr && Math.hypot(kr.x - u.x, kr.y - u.y) < kr.size * 1.4 + 700;
+    const mgNear = !!mg && Math.hypot(mg.nodes[0] - u.x, mg.nodes[1] - u.y) < 1300;
+    if ((krNear || mgNear) && Math.random() < 0.55) {
+      u.nextShot = time + rand(3, 6);
+      if (krNear && kr && (!mgNear || Math.random() < 0.5)) {
+        this.bolts.push({ x0: u.x, y0: u.y + 14, x1: kr.x, y1: kr.y, born: time });
+        if (time >= (kr.rageUntil ?? 0) - 8) this.callout(kr.x, kr.y - kr.size * 0.3, "KRAKEN PROVOKED", "255,110,100");
+        kr.rageUntil = Math.max(kr.rageUntil ?? 0, time + 12);
+        if (kr.state === "wrap") kr.tilt = clamp(kr.tilt - 0.1, -1, 1);
+      } else if (mg) {
+        this.bolts.push({ x0: u.x, y0: u.y + 14, x1: mg.nodes[0], y1: mg.nodes[1], born: time });
+        mg.rageUntil = Math.max(mg.rageUntil ?? 0, time + 12);
+        this.callout(mg.nodes[0], mg.nodes[1] - 60, "MEGALODON PROVOKED", "175,100,255");
+        if (kr?.state === "wrap") kr.tilt = clamp(kr.tilt + 0.1, -1, 1);
+      }
+      return;
+    }
+    // A green bomb is a bomber diver it has beamed aboard, dropped on anything below: fish, divers, sharks, whales, titans.
+    if (!u.ammo) { u.nextShot = time + rand(3, 6); return; }
+    let tx = 0;
+    let ty = 0;
+    let best = 800;
+    const consider = (x: number, y: number) => {
+      const d = Math.hypot(x - u.x, y - u.y);
+      if (y > u.y + 60 && d < best) { best = d; tx = x; ty = y; }
+    };
+    for (const f of this.fish) if (f.alive && !f.riding && f.y > 40) consider(f.x, f.y);
+    for (const sh of this.sharks) if (!sh.grabbed) consider(sh.nodes[0], sh.nodes[1]);
+    for (const w of this.whales) consider(w.x, w.y);
+    if (kr) consider(kr.x, kr.y);
+    if (best >= 800 || time - this.lastBoom < 0.6) { u.nextShot = time + 1.2; return; }
+    u.ammo--;
+    u.nextShot = time + rand(2.5, 5);
+    // Most drops are plain, but now and then something odd happens. Rare beats frequent: each oddity is its own little story.
+    if (Math.random() < 0.7) { this.explode(tx, ty, undefined, u); return; }
+    const others = this.ufos.filter((o) => o !== u && !o.held);
+    const odd: [string, number][] = [["carpet", 3], ["dud", 3], ["wild", 3], ["friendly", others.length ? 2 : 0], ["fumble", 1], ["spin", 2]];
+    let pick = Math.random() * odd.reduce((s, o) => s + o[1], 0);
+    const kind = odd.find((o) => (pick -= o[1]) < 0)![0];
+    if (kind === "carpet") {
+      // Everything aboard goes at once, in a line sweeping across the tank.
+      const n = 1 + (u.ammo ?? 0);
+      u.ammo = 0;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      this.callout(u.x, u.y - 40, "BOMBS AWAY!", "130,255,110");
+      this.notices.push(n > 1 ? "the ufo emptied the whole hold... carpet bombing!" : "the ufo sweeps its last bomb across the tank...");
+      for (let i = 0; i < Math.max(n, 3); i++) this.bombQueue.push({ x: clamp(tx + dir * (i - 1) * 170, 40, this.width - 40), y: ty, at: time + i * 0.4, u });
+    } else if (kind === "dud") {
+      this.splash(tx, ty, 0.8);
+      this.callout(tx, ty - 30, "DUD", "190,255,170");
+      this.notices.push("the bomb was a dud... the bomber would like a word.");
+    } else if (kind === "wild") {
+      const wx = rand(this.width * 0.1, this.width * 0.9);
+      const wy = rand(this.height * 0.4, this.height * 0.9);
+      this.notices.push("the ufo dropped it without looking...");
+      this.explode(wx, wy, undefined, u);
+    } else if (kind === "friendly") {
+      const o = others[randInt(0, others.length - 1)];
+      this.explode(o.x, o.y + 40, undefined, u);
+      this.callout(o.x, o.y - 40, "FRIENDLY FIRE", "255,110,100");
+      this.destroyUfo("blasted", o);
+      this.notices.push("a ufo bombed its own wingman... oops.");
+    } else if (kind === "fumble") {
+      this.explode(u.x, u.y + 30, undefined, u);
+      this.callout(u.x, u.y - 40, "DROPPED IT ON ITSELF", "255,110,100");
+      this.destroyUfo("blasted", u);
+      this.notices.push("the ufo fumbled the bomb... kaboom, right in its lap.");
+    } else {
+      // The bomber was not done: the saucer spins wildly and a stray bomb goes off wherever it points.
+      u.fast = true;
+      this.callout(u.x, u.y - 40, "BOMBER ON THE LOOSE", "130,255,110");
+      this.notices.push("the bomber woke up inside the ufo... it's spinning!");
+      for (let i = 0; i < 3; i++) this.bombQueue.push({ x: rand(this.width * 0.1, this.width * 0.9), y: rand(this.height * 0.3, this.height * 0.9), at: time + 0.5 + i * 0.7, u });
+    }
+  }
+
+  /** Delayed green blasts from a ufo's odd drops. */
+  private stepBombQueue() {
+    if (!this.bombQueue.length) return;
+    const due = this.bombQueue.filter((q) => this.time >= q.at);
+    if (!due.length) return;
+    this.bombQueue = this.bombQueue.filter((q) => this.time < q.at);
+    for (const q of due) this.explode(q.x, q.y, undefined, q.u);
+  }
+
+  /** The diver the pointer is holding, where it is being carried to, and how fast the hand is moving. */
+  heldDiver: Fish | null = null;
+  private holdTo = { x: 0, y: 0 };
+  private holdFrom = { x: 0, y: 0 };
+  private holdAt = 0;
+  private holdVel = { x: 0, y: 0 };
+  private holdLines = 0;
+  private lastHoldLine = "";
+
+  /** Pressing on a diver picks it up and carries it as the pointer moves. Returns true if one was grabbed. */
+  holdDiverAt(x: number, y: number): boolean {
+    if (this.heldDiver) return true;
+    let hit: Fish | null = null;
+    let best = 42;
+    for (const f of this.fish) {
+      if (!f.diver || !f.alive || f.riding || f.seized || f.dragger) continue;
+      const d = Math.hypot(f.x - x, f.y - y);
+      if (d < best) { best = d; hit = f; }
+    }
+    if (!hit) return false;
+    hit.held = true;
+    this.heldDiver = hit;
+    this.holdTo = { x, y };
+    this.holdFrom = { x, y };
+    this.holdAt = this.time;
+    this.holdVel = { x: 0, y: 0 };
+    this.holdLines = 0;
+    delete hit.stunUntil;
+    this.holdQuip("grab");
+    return true;
+  }
+
+  dragHeldTo(x: number, y: number) {
+    if (this.heldDiver) this.holdTo = { x, y };
+  }
+
+  /** Letting go: a quick tap pops the diver, a throw sends it flying limp, anything else just sets it down. */
+  releaseHeld(): boolean {
+    const f = this.heldDiver;
+    if (!f) return false;
+    this.heldDiver = null;
+    delete f.held;
+    const { time } = this;
+    if (time - this.holdAt < 0.25 && Math.hypot(this.holdTo.x - this.holdFrom.x, this.holdTo.y - this.holdFrom.y) < 12) {
+      this.popDiver(f);
+      return true;
+    }
+    const speed = Math.hypot(this.holdVel.x, this.holdVel.y);
+    if (speed > 260) {
+      const k = Math.min(1, 800 / speed);
+      f.vx = this.holdVel.x * k;
+      f.vy = this.holdVel.y * k;
+      f.stunUntil = time + 1.4;
+      this.callout(f.x, f.y - 30, speed > 700 ? "YEEEET" : "WHEEE!", "255,230,120");
+      this.holdQuip("throw", f);
+    } else {
+      f.vx = 0;
+      f.vy = 0;
+      this.holdQuip(this.holdLines > 4 ? "long" : "drop", f);
+    }
+    this.diverGoals.delete(f);
+    return true;
+  }
+
+  private stepHeldDiver(dt: number) {
+    const f = this.heldDiver;
+    if (!f) return;
+    if (!f.alive || f.seized || f.dragger || f.riding) { delete f.held; this.heldDiver = null; return; }
+    const nx = f.x + (this.holdTo.x - f.x) * Math.min(1, dt * 14);
+    const ny = f.y + (this.holdTo.y - f.y) * Math.min(1, dt * 14);
+    const k = Math.min(1, dt * 10);
+    this.holdVel.x += ((nx - f.x) / Math.max(dt, 1e-3) - this.holdVel.x) * k;
+    this.holdVel.y += ((ny - f.y) / Math.max(dt, 1e-3) - this.holdVel.y) * k;
+    f.x = nx;
+    f.y = ny;
+    f.vx = 0;
+    f.vy = 0;
+    f.phase += dt * 11;
+    // Held a while, he has things to say.
+    const held = this.time - this.holdAt;
+    if (held > 4 * (this.holdLines + 1) && this.holdLines < 6) { this.holdLines++; this.holdQuip("held"); }
+  }
+
+  /** Flair for a diver in the pointer's hand: a callout over his head and now and then a toast, never the same line twice running. */
+  private holdQuip(when: "grab" | "held" | "throw" | "drop" | "long", f: Fish | null = this.heldDiver) {
+    const POOL: Record<string, string[]> = {
+      grab: ["he did not consent to this.", "plucked from the sea like a prize fish.", "put me down, giant hand!", "he looks calm. he is not calm.", "a hand from above... a sign?", "he dangles, snorkel drooping."],
+      held: ["he has stopped struggling. he is thinking.", "his tank gurgles. he is reconsidering things.", "he has made peace with the hand.", "he is composing a strongly worded letter.", "somewhere a shark checks its watch.", "the diver is beginning to enjoy the view."],
+      throw: ["he is airborne. he regrets nothing.", "flight certified. landing: pending.", "the diver has seen the sky. briefly.", "that was not in the dive briefing.", "a perfect arc. judges give it a nine."],
+      drop: ["set down gently. he straightens his mask.", "he swims off, pretending that did not happen.", "back to the water, dignity mostly intact.", "he pats his tank. all there."],
+      long: ["he has seen things up there.", "released after a long hold. he is a changed diver.", "he swims away muttering about hands.", "finally. he forgot which way was down."],
+    };
+    const CALL: Record<string, string[]> = {
+      grab: ["EEK!", "GOT HIM", "HEY!"],
+      held: ["...", "hm.", "zzz"],
+      throw: ["WHEEE!"],
+      drop: ["phew"],
+      long: ["FREE!"],
+    };
+    const at = f ?? null;
+    const pool = POOL[when].filter((l) => l !== this.lastHoldLine);
+    // The toast is a treat, not a reflex; the little callout over his head is nearly always there.
+    if (when === "held" || Math.random() < 0.45) {
+      this.lastHoldLine = pool[randInt(0, pool.length - 1)];
+      this.notices.push(this.lastHoldLine);
+    }
+    if (at && Math.random() < 0.8) this.callout(at.x, at.y - 34, CALL[when][randInt(0, CALL[when].length - 1)], "255,230,120");
   }
 
   /** A click on a diver pops it. Returns true if one was hit. */
@@ -1891,11 +2173,10 @@ export class World {
   }
 
   private pickDiverKind(): DiverKind {
-    const kinds: [DiverKind, number][] = [["scuba", 0.3], ["photo", 0.15], ["treasure", 0.13], ["snorkel", 0.12], ["scooter", 0.2], ["bomber", 0.07]];
-    // Never more than two bombers in the water at once, so a blast stays an event rather than a chain of them.
-    const bombers = this.fish.filter((f) => f.dkind === "bomber" && f.alive).length;
-    let roll = Math.random();
-    for (const [kind, w] of kinds) { if (kind === "bomber" && bombers >= 2) continue; roll -= w; if (roll <= 0) return kind; }
+    const kinds: [DiverKind, number][] = [["scuba", 0.3], ["photo", 0.15], ["treasure", 0.13], ["snorkel", 0.12], ["scooter", 0.2], ["bomber", 0.12]];
+    // No cap on bombers: a crowd of them can chain blast after blast.
+    let roll = Math.random() * kinds.reduce((sum, [, w]) => sum + w, 0);
+    for (const [kind, w] of kinds) { roll -= w; if (roll <= 0) return kind; }
     return "scuba";
   }
 
@@ -1903,20 +2184,22 @@ export class World {
    * A bomber goes off: a fireball and shockwave that shoves sharks away, kills fish, stuns divers, frees whatever the
    * kraken is holding, blows up ufos, and shifts the tug of war against whichever titan is closer.
    */
-  private explode(x: number, y: number, src?: Fish) {
+  private explode(x: number, y: number, src?: Fish, fromUfo?: Ufo) {
     const { time } = this;
     const R = 300;
     this.lastBoom = time;
+    // A bomber that goes off in the kraken's arms blows the kraken apart rather than just shoving it.
+    const inArms = !!src?.seized && !!this.kraken?.caught.includes(src);
     if (src) this.diverQuip("blast");
     if (src) {
       src.alive = false;
       delete src.seized;
       if (src.dragger) { src.dragger.dragging = undefined; src.dragger = undefined; }
     }
-    this.bombs.push({ x, y, born: time, r: R });
+    this.bombs.push({ x, y, born: time, r: R, green: !!fromUfo });
     this.splash(x, y, 1.9, undefined, { max: 420 });
     this.events.push({ kind: "eat", x, y });
-    this.callout(x, y - 50, "BOOM!", "255,190,70");
+    this.callout(x, y - 50, "BOOM!", fromUfo ? "130,255,110" : "255,190,70");
     for (const sh of this.sharks) {
       if (sh.mega) continue;
       const d = Math.hypot(sh.nodes[0] - x, sh.nodes[1] - y);
@@ -1934,6 +2217,10 @@ export class World {
       o.alarm = 1;
       if (!o.diver) {
         if (d < R) { o.alive = false; o.respawnAt = time + rand(4, 9); }
+      } else if (fromUfo && !o.riding && d < R * 0.5) {
+        // A saucer's bomb is meant to kill: divers close to it do not survive.
+        this.callout(o.x, o.y - 30, "DIVER BOMBED", "255,150,110");
+        this.popDiver(o, "blast");
       } else if (o.dkind === "bomber" && o.fuseAt === undefined && d < R * 0.7) {
         o.fuseAt = time + rand(1.5, 3);
       } else if (o.dkind !== "tech" && d < R * 0.8) {
@@ -1945,7 +2232,7 @@ export class World {
         o.stunUntil = time + 2.5;
       }
     }
-    for (const u of [...this.ufos]) {
+    for (const u of fromUfo ? [] : [...this.ufos]) {
       if (Math.hypot(u.x - x, u.y - y) >= R + 120) continue;
       if (this.kraken && u === this.ufo) this.kraken.ufoHeld = false;
       u.held = false;
@@ -1957,21 +2244,58 @@ export class World {
       const kd = Math.hypot(k.x - x, k.y - y);
       if (kd < R + k.size * 0.6) {
         // Whatever it is holding is blown out of its arms, and it loses its grip on the next catch for a while.
-        for (const f of k.caught) {
+        // Set off inside the arms, the blast is much worse for the neighbours: flung hard, and some do not survive it.
+        for (const f of [...k.caught]) {
+          if (f === src) continue;
           delete f.seized;
+          if (inArms && Math.random() < 0.4) { this.callout(f.x, f.y - 30, "DIVER CAUGHT IN THE BLAST", "255,150,110"); this.popDiver(f, "blast"); continue; }
           const a = Math.atan2(f.y - y, f.x - x);
-          f.vx = Math.cos(a) * 240;
-          f.vy = Math.sin(a) * 240;
+          const kick = inArms ? 360 : 240;
+          f.vx = Math.cos(a) * kick;
+          f.vy = Math.sin(a) * kick;
+          if (inArms) f.stunUntil = time + 2.5;
         }
         k.caught = [];
-        for (const sh of k.grabbed) { sh.grabbed = false; sh.devourAt = undefined; }
+        for (const sh of [...k.grabbed]) {
+          sh.grabbed = false;
+          sh.devourAt = undefined;
+          if (!inArms) continue;
+          if (Math.random() < 0.3 && this.sharks.filter((o) => !o.mega).length > 2) {
+            this.sharks = this.sharks.filter((o) => o !== sh);
+            this.events.push({ kind: "eat", x: sh.nodes[0], y: sh.nodes[1] });
+            this.callout(sh.nodes[0], sh.nodes[1] - 30, "SHARK KILLED IN THE BLAST", "255,120,110");
+            this.nextSharkDrift = Math.min(this.nextSharkDrift, time + rand(10, 18));
+          } else {
+            sh.heading = Math.atan2(sh.nodes[1] - y, sh.nodes[0] - x);
+            sh.speed = 260;
+            sh.target = null;
+            sh.alertUntil = time + 2;
+          }
+        }
         k.grabbed = [];
         k.strike = null;
+        k.sharkStrikes = [];
         k.nextCatch = time + 4;
         k.nextGrab = time + 6;
         const a = Math.atan2(k.y - y, k.x - x);
-        k.x += Math.cos(a) * 50;
-        k.y += Math.sin(a) * 50;
+        k.x += Math.cos(a) * (inArms ? 120 : 50);
+        k.y += Math.sin(a) * (inArms ? 120 : 50);
+        if (inArms) {
+          k.blastAt = time;
+          k.rageUntil = time + 30;
+          k.hunt = undefined;
+          k.whaleUntil = 0;
+          k.ufoHeld = false;
+          k.wounded = true;
+          k.jet = Math.max(k.jet, 0.8);
+          this.callout(k.x, k.y - k.size * 0.25, "KRAKEN BLOWN APART", "255,190,70");
+          // Blown about, it either bolts or comes back angrier.
+          if (k.state === "grab" && Math.random() < 0.4) {
+            k.state = "flee";
+            k.stateAt = time;
+            this.notices.push("a bomber blew up in the kraken's arms... it's fleeing!");
+          } else this.notices.push("a bomber blew up in the kraken's arms... and it's furious!");
+        }
         if (k.state === "wrap") k.tilt = clamp(k.tilt - 0.22, -1, 1);
       }
     }
@@ -1985,12 +2309,19 @@ export class World {
    */
   private techVsKraken(f: Fish, k: Kraken) {
     const { time } = this;
-    const bolt = () => { this.bolts.push({ x0: f.x, y0: f.y, x1: k.x, y1: k.y, born: time }); f.flashAt = time; };
+    // A laser that lands on the kraken provokes it: it is enraged for a while, and if the shooter is within reach it lashes
+    // a tentacle straight back at him.
+    const bolt = () => {
+      this.bolts.push({ x0: f.x, y0: f.y, x1: k.x, y1: k.y, born: time });
+      f.flashAt = time;
+      if (time >= (k.rageUntil ?? 0) - 8) this.callout(k.x, k.y - k.size * 0.3, "KRAKEN PROVOKED", "255,110,100");
+      k.rageUntil = Math.max(k.rageUntil ?? 0, time + 12);
+      if (!k.strike && !f.seized && !f.riding && k.caught.length < 5 && Math.hypot(f.x - k.x, f.y - k.y) < k.size * 1.1) k.strike = { f, at: time };
+    };
     if (k.strike) {
       k.strike = null;
       k.nextCatch = time + 4;
       bolt();
-      this.callout(k.x, k.y - k.size * 0.3, "TENTACLE SHOT", "175,100,255");
       return true;
     }
     const held: ("diver" | "shark" | "ufo")[] = [];
@@ -2025,7 +2356,6 @@ export class World {
       // Shooting the kraken while it wrestles the megalodon tips the fight toward the megalodon.
       k.tilt = clamp(k.tilt - 0.1, -1, 1);
       bolt();
-      this.callout(k.x, k.y - k.size * 0.3, "KRAKEN HIT", "175,100,255");
       return true;
     }
     return false;
@@ -2051,6 +2381,7 @@ export class World {
       this.bolts.push({ x0: f.x, y0: f.y, x1: mg.nodes[0], y1: mg.nodes[1], born: time });
       f.flashAt = time;
       mg.biteTarget = { fish: f, until: time + 7 };
+      mg.rageUntil = Math.max(mg.rageUntil ?? 0, time + 12);
       this.callout(mg.nodes[0], mg.nodes[1] - 60, "MEGALODON PROVOKED", "175,100,255");
       if (kr?.state === "wrap") kr.tilt = clamp(kr.tilt + 0.1, -1, 1);
       return;
@@ -2159,13 +2490,14 @@ export class World {
         if (nearTarget || time >= f.hotAt) f.fuseAt = time + 2.2;
       }
       if (f.fuseAt !== undefined && time >= f.fuseAt) {
-        if (time - this.lastBoom < 2.5) f.fuseAt = this.lastBoom + 2.5 + rand(0, 1.5);
+        if (time - this.lastBoom < 0.35) f.fuseAt = this.lastBoom + 0.35 + rand(0, 0.5);
         else this.explode(f.x, f.y, f);
       }
     }
+    this.stepHeldDiver(dt);
     const show = this.spectacle();
     for (const f of this.fish) {
-      if (!f.diver || !f.alive || f.riding || f.dragger || f.seized) continue;
+      if (!f.diver || !f.alive || f.riding || f.dragger || f.seized || f.held) continue;
       if ((f.stunUntil ?? 0) > time) {
         // Out cold: drifts down, limp, carrying on whatever way it was thrown.
         f.vx *= Math.exp(-dt * 1.2);
@@ -2324,7 +2656,7 @@ export class World {
     const { width: W, height: H } = this;
     const length = clamp(Math.min(W, H) * 0.72, 260, 850);
     const { side, y } = this.entryPoint();
-    if (!this.isEventEnabled("whale") || (!manual && this.whales.length >= 2)) return;
+    if (!this.isEventEnabled("whale") || this.whales.length >= 2) return;
     this.whales.push({
       x: side === 0 ? -20 : W + 20, y, heading: (side === 0 ? 0 : Math.PI) + rand(-0.12, 0.12),
       speed: rand(22, 30), length, phase: 0, traveled: 0, rippleAt: 0,
@@ -2506,9 +2838,15 @@ export class World {
     if (wh) {
       wh.phase += dt * 0.45;
       if (wh.fleeing) {
-        wh.speed += (115 - wh.speed) * Math.min(1, dt * 0.8);
-        wh.heading += clamp(angleDiff(wh.heading, wh.fleeHeading ?? wh.heading), -0.5 * dt, 0.5 * dt);
-        wh.phase += dt * 0.9;
+        // It swims off only as fast as it has turned toward the way out: it curves away with its flukes beating, instead of
+        // driving off along whatever way it happened to face (or sliding away like a flat cutout).
+        const off = angleDiff(wh.heading, wh.fleeHeading ?? wh.heading);
+        const lined = Math.pow(Math.max(0, Math.cos(off)), 1.5);
+        // It gets away briskly (about three times its cruising pace once lined up, which is quick for something its size)
+        // instead of scooting off slowly from a standstill.
+        wh.speed += ((40 + 46 * lined) - wh.speed) * Math.min(1, dt * 2.4);
+        wh.heading += clamp(off, -(0.8 + 0.5 * (1 - lined)) * dt, (0.8 + 0.5 * (1 - lined)) * dt);
+        wh.phase += dt * 1.4;
       }
       // A whale never swims toward a predator: it veers off when a megalodon or kraken is bearing down.
       if (!wh.fleeing && this.whaleFight?.whale !== wh) {
@@ -2518,13 +2856,18 @@ export class World {
           const m = this.whaleMid(wh);
           if (Math.hypot(hp.x - m.x, hp.y - m.y) < wh.length * 0.9) {
             const away = Math.atan2(m.y - hp.y, m.x - hp.x);
-            wh.heading += clamp(angleDiff(wh.heading, away), -0.22 * dt, 0.22 * dt);
-          }
-        }
+            const diff = angleDiff(wh.heading, away);
+            // It turns the short way round, except when the threat is dead ahead, where it commits to one side for as long
+            // as the threat is near. Small differences are ignored, so a titan swimming past never makes it dither.
+            wh.veer ??= diff >= 0 ? 1 : -1;
+            if (Math.abs(diff) > 0.3) wh.heading += (Math.abs(diff) > 2.6 ? wh.veer : Math.sign(diff)) * Math.min(Math.abs(diff), 0.22 * dt);
+          } else wh.veer = undefined;
+        } else wh.veer = undefined;
       }
       wh.x += Math.cos(wh.heading) * wh.speed * dt;
       wh.y += Math.sin(wh.heading) * wh.speed * dt;
       wh.traveled += wh.speed * dt;
+      this.keepWhaleClear(wh, dt);
       const dx = Math.cos(wh.heading);
       const dy = Math.sin(wh.heading);
       const tx = wh.x - dx * wh.length;
@@ -2645,6 +2988,21 @@ export class World {
     }
   }
 
+  /** 0 calm → 1 furious: the blood moon keeps it at 1, and a blast in its arms leaves it angry for a while. */
+  /** The same for a megalodon: the blood moon keeps it furious, and a laser (or anything else that provokes it) angers it for a while. */
+  megaRage(sh: Shark) {
+    if (!sh.mega) return 0;
+    if (this.sagas.some((s) => s.kind === "moon")) return 1;
+    return clamp(((sh.rageUntil ?? 0) - this.time) / 4, 0, 1);
+  }
+
+  krakenRage() {
+    const k = this.kraken;
+    if (!k) return 0;
+    if (this.sagas.some((s) => s.kind === "moon")) return 1;
+    return clamp(((k.rageUntil ?? 0) - this.time) / 4, 0, 1);
+  }
+
   /** A kraken swims in, seizes sharks (and may eat one), and fights the megalodon that comes for it. */
   private spawnKraken(solo = false, megaHere = false) {
     // Only ever one kraken, whatever asked for it.
@@ -2675,10 +3033,26 @@ export class World {
     if (!k) return;
     const { time, width: W, height: H } = this;
     k.phase += dt * 0.9;
-    k.wave += dt * (0.75 + 1.0 * k.jet);
+    // Enraged (blown about by a bomber, or the sea is under a blood moon): it holds more, reaches further and strikes far
+    // more often, and takes sharks back almost as soon as it lets go of one.
+    const fury = this.krakenRage() > 0;
+    // It stays while furious, and only turns to leave a few seconds after it has calmed down.
+    if (fury) k.calmUntil = time + rand(7, 12);
+    const settled = time >= (k.calmUntil ?? 0);
+    const cap = fury ? 5 : 3;
+    if (fury) {
+      k.grabCount = Math.max(k.grabCount, 6);
+      if (k.nextGrab > time + 1.5) k.nextGrab = time + 1.5;
+    }
+    k.wave += dt * (0.75 + 1.0 * k.jet) * (fury ? 1.35 : 1);
     const mega = this.sharks.find((sh) => sh.mega);
     const move = (speed: number, heading: number, pulse = true, turnRate = 1.6) => {
-      const turn = clamp(angleDiff(k.heading, heading), -dt * turnRate, dt * turnRate);
+      speed *= 1 + 0.12 * this.krakenRage();
+      // The turn rate eases in and out (a smoothed angular velocity chasing the angle left to cover), so a new target or a
+      // change of mind swings the body round in one smooth arc instead of snapping to full speed and stopping dead.
+      const want = clamp(angleDiff(k.heading, heading) * 1.8, -turnRate, turnRate);
+      k.angVel = (k.angVel ?? 0) + (want - (k.angVel ?? 0)) * Math.min(1, dt * 6);
+      const turn = k.angVel * dt;
       k.heading += turn;
       k.bend += (turn / dt - k.bend) * Math.min(1, dt * 2);
       // Jet propulsion: it surges forward in pulses and glides between them.
@@ -2694,6 +3068,8 @@ export class World {
       }
     };
     const letGo = () => {
+      k.sharkStrikes = [];
+      k.hunt = undefined;
       this.dropCaught(k);
       for (const sh of k.grabbed) { sh.grabbed = false; sh.devourAt = undefined; }
       k.grabbed = [];
@@ -2755,42 +3131,59 @@ export class World {
       } else if (this.fish.some((f) => f.diver && f.alive && !f.seized && !f.riding && !f.dragger && Math.hypot(f.x - k.x, f.y - k.y) < k.size * 0.3)) {
         // A diver that blunders into the kraken itself is never ignored: a tentacle is set on it at once, or it is crushed outright if its arms are full.
         const f = this.fish.find((d) => d.diver && d.alive && !d.seized && !d.riding && !d.dragger && Math.hypot(d.x - k.x, d.y - k.y) < k.size * 0.3)!;
-        if (k.caught.length < 3) k.strike = { f, at: time };
+        if (k.caught.length < cap) k.strike = { f, at: time };
         else { this.callout(f.x, f.y - 30, "DIVER CRUSHED", "255,110,100"); this.popDiver(f); }
-      } else if (k.caught.length < 3 && time >= k.nextCatch) {
-        let best = Infinity;
-        let target: Fish | null = null;
+      } else if (k.caught.length < cap && time >= k.nextCatch) {
+        const options: Fish[] = [];
         for (const f of this.fish) {
           if (!f.diver || !f.alive || f.riding || f.dragger || f.seized) continue;
           const d = Math.hypot(f.x - rx, f.y - ry);
-          if (d > k.size * ((f.stunUntil ?? 0) > time ? 1.3 : 1.1) || Math.abs(angleDiff(back, Math.atan2(f.y - k.y, f.x - k.x))) > KRAKEN_ARC) continue;
-          if (d < best) { best = d; target = f; }
+          if (d > k.size * ((f.stunUntil ?? 0) > time ? 1.3 : 1.1) * (fury ? 1.35 : 1) || Math.abs(angleDiff(back, Math.atan2(f.y - k.y, f.x - k.x))) > KRAKEN_ARC) continue;
+          options.push(f);
         }
-        if (target) k.strike = { f: target, at: time };
+        // It picks one at random, and only sometimes bothers: the arms do not snap onto whatever comes near.
+        if (options.length) {
+          if (Math.random() < (fury ? 0.92 : 0.5)) k.strike = { f: options[randInt(0, options.length - 1)], at: time };
+          else k.nextCatch = time + rand(1.2, 3.5) * (fury ? 0.35 : 1);
+        }
       }
     }
     // Saucers are fair game too: a tentacle lashes out, then it is flung about and crushed (or breaks free).
     const sauc = this.ufo;
     if ((k.state === "enter" || k.state === "grab") && sauc && !sauc.held && sauc.y > 20 && time >= k.nextCatch) {
       const back = k.heading + Math.PI;
-      const near = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * 1.2 && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC;
-      if (k.ufoStrike === null && near) k.ufoStrike = time;
-      else if (k.ufoStrike !== null && !near) k.ufoStrike = null;
+      // Once it has set an arm on the saucer it keeps at it a good while longer, and follows it, so a saucer that drifts off
+      // is chased down rather than the grab just fizzling out.
+      const reaching = k.ufoStrike !== null;
+      const near = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * (reaching ? 1.7 : 1.2) * (fury ? 1.35 : 1) && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC + (reaching ? 0.3 : 0);
+      if (reaching && k.state === "grab") {
+        const gd = Math.hypot(sauc.x - k.x, sauc.y - k.y);
+        const sp = clamp((gd - k.size * 0.9) * 0.9, 0, 130);
+        k.x += ((sauc.x - k.x) / (gd || 1)) * sp * dt;
+        k.y += ((sauc.y - k.y) / (gd || 1)) * sp * dt;
+      }
+      if (k.ufoStrike === null && near) {
+        if (Math.random() < (fury ? 0.92 : 0.5)) k.ufoStrike = time;
+        else k.nextCatch = time + rand(1.5, 4) * (fury ? 0.35 : 1);
+      } else if (k.ufoStrike !== null && !near) k.ufoStrike = null;
       else if (k.ufoStrike !== null && time - k.ufoStrike > STRIKE_TIME) {
         k.ufoStrike = null;
-        k.ufoHeld = true;
-        k.ufoUntil = time + rand(5, 8);
-        sauc.held = true;
-        this.callout(sauc.x, sauc.y - 40, "UFO CAUGHT", "255,255,255");
+        if (Math.random() < 0.25) k.nextCatch = time + rand(3, 6);
+        else {
+          k.ufoHeld = true;
+          k.ufoUntil = time + rand(5, 8);
+          sauc.held = true;
+          this.callout(sauc.x, sauc.y - 40, "UFO CAUGHT", "255,255,255");
+        }
       }
     } else if (k.ufoStrike !== null) k.ufoStrike = null;
     if (k.ufoHeld) {
       const u = this.ufo;
       if (!u || !u.held) k.ufoHeld = false;
       else {
-        // Held out on long arms and swayed at the same slow pace as everything else it flings about.
-        const a = k.heading + Math.PI + Math.sin(time * 0.7) * 0.55;
-        const r = Math.min(k.size * (0.9 + 0.08 * Math.sin(time * 1.0)), Math.min(W, H) * 0.45);
+        // Held out on long arms and swayed more slowly than anything else it flings about: a saucer is the heaviest catch.
+        const a = k.heading + Math.PI + Math.sin(time * 0.3) * 0.55;
+        const r = Math.min(k.size * (0.9 + 0.08 * Math.sin(time * 0.45)), Math.min(W, H) * 0.45);
         const pull = Math.min(1, dt * 1.6);
         u.x += (k.x + Math.cos(a) * r - u.x) * pull;
         u.y += (k.y + Math.sin(a) * r - u.y) * pull;
@@ -2803,32 +3196,53 @@ export class World {
       }
     }
     // A whale in reach is wrapped for a few seconds, then tears free and bolts.
-    const whale = k.whaleUntil > 0 ? k.whaleTarget : this.nearestWhale(k.x, k.y);
+    const whale = k.whaleUntil > 0 ? k.whaleTarget : k.hunt ?? this.nearestWhale(k.x, k.y);
     if (k.state === "grab" && time - k.stateAt > 3 && whale && !whale.fleeing && k.whaleUntil === 0) {
       const wm = this.whaleMid(whale);
       if (Math.hypot(wm.x - k.x, wm.y - k.y) < k.size * 0.9) {
         k.whaleTarget = whale;
-        k.whaleUntil = time + rand(4, 5.5);
-        this.callout(wm.x, wm.y - 60, "KRAKEN WRAPS WHALE", "255,255,255");
+        k.hunt = undefined;
+        k.whaleStart = time;
+        k.whaleMode = Math.random() < 0.5 ? "poke" : "squeeze";
+        k.whaleUntil = time + (k.whaleMode === "poke" ? rand(3.5, 5) : rand(5, 7));
+        k.nextJab = time + 0.4;
+        this.callout(wm.x, wm.y - 60, k.whaleMode === "poke" ? "KRAKEN POKES WHALE" : "KRAKEN SQUEEZES WHALE", "255,255,255");
       }
     }
     if (k.whaleUntil > 0) {
       if (!whale || !this.whales.includes(whale) || whale.fleeing) { k.whaleUntil = 0; k.whaleTarget = undefined; }
       else {
+        const poke = k.whaleMode === "poke";
         whale.speed += (10 - whale.speed) * Math.min(1, dt * 1.5);
-        whale.phase += dt * 2;
+        whale.phase += dt * (poke ? 2 : 3.5);
+        // A squeezed whale writhes in the grip.
+        if (!poke) whale.heading += Math.sin(time * 7) * 0.14 * dt;
         // The kraken closes in on the whale and clamps on, not the other way round.
         const wm2 = this.whaleMid(whale);
         const dd = Math.hypot(wm2.x - k.x, wm2.y - k.y);
-        if (dd > k.size * 0.3) {
+        const stop = k.size * (poke ? 0.62 : 0.3);
+        if (dd > stop) {
           const sp = clamp(dd * 2.2, 90, 420);
           k.x += ((wm2.x - k.x) / dd) * sp * dt;
           k.y += ((wm2.y - k.y) / dd) * sp * dt;
         }
+        // Poking: the arms jab at the hide again and again.
+        if (poke && time >= (k.nextJab ?? 0)) {
+          k.nextJab = time + rand(0.9, 1.5);
+          k.jabAt = time;
+          k.jabU = rand(0.2, 0.7);
+          const jp = this.whaleBitePoint(whale, k.jabU);
+          this.splash(jp.x, jp.y, 0.9);
+          whale.phase += 0.7;
+        }
         if (time > k.whaleUntil) {
           k.whaleUntil = 0;
-          this.attackWhale(k.x, k.y, "WHALE BREAKS FREE", "the whale tore free of the kraken", whale);
+          k.nextHunt = time + rand(14, 28);
+          // A squeezed whale always bolts; a poked one only sometimes, otherwise the kraken just lets go.
+          if (!poke || Math.random() < 0.4) this.attackWhale(k.x, k.y, "WHALE BREAKS FREE", "the whale tore free of the kraken", whale);
+          else this.splash(wm2.x, wm2.y, 1.2);
           k.whaleTarget = undefined;
+          k.whaleMode = undefined;
         }
       }
     }
@@ -2852,10 +3266,10 @@ export class World {
       }
       // Held out at the end of long arms, swung about, rather than clutched against the body.
       // Held out at the far end of long arms and swayed slowly: heavy and menacing, not flailing.
-      // A caught diver is swung hard and fast, wider and faster still as the crush nears.
-      const frenzy = 1 + 0.6 * clamp(1 - ((f.crushAt ?? time) - time) / 6, 0, 1);
-      const a = k.heading + Math.PI + Math.sin(time * 1.7 * frenzy + i * 2.1) * 0.95;
-      const r = Math.min(k.size * (1.0 + 0.14 * Math.sin(time * 2.4 * frenzy + i)), Math.min(W, H) * 0.5);
+      // A caught diver is swung at 0.45 rad/s when heavy up to 0.65 when light (a held ufo is slower still).
+      const swingRate = 0.65 - 0.2 * DIVER_MASS[f.dkind ?? "scuba"];
+      const a = k.heading + Math.PI + Math.sin(time * swingRate + i * 2.1) * 0.95;
+      const r = Math.min(k.size * (1.0 + 0.14 * Math.sin(time * swingRate * 1.4 + i)), Math.min(W, H) * 0.5);
       // Hauled out to its swinging spot along the arm rather than snapped there, so a fresh catch never jumps.
       // It travels round the kraken (angle and distance eased separately), so it can never be dragged through the body.
       const pull = Math.min(1, dt * 3);
@@ -2891,6 +3305,17 @@ export class World {
           y: k.grabbed.reduce((sum, sh) => sum + sh.nodes[1], 0) / k.grabbed.length,
         };
       }
+      // A whale it has hold of keeps its arms turned toward it.
+      if (!goal && k.whaleUntil > 0 && k.whaleTarget) goal = this.whaleMid(k.whaleTarget);
+      if (!goal && k.ufoStrike !== null && this.ufo) goal = { x: this.ufo.x, y: this.ufo.y };
+      // Now and then it picks a whale and swims across the tank to it.
+      if (k.hunt && (!this.whales.includes(k.hunt) || k.hunt.fleeing || k.whaleUntil > 0 || time - (k.huntAt ?? 0) > 30)) k.hunt = undefined;
+      k.nextHunt ??= time + rand(3, 8);
+      if (!k.hunt && k.whaleUntil === 0 && time >= k.nextHunt && !k.grabbed.length && !k.caught.length && !k.strike && !k.sharkStrikes?.length && !k.ufoHeld) {
+        k.nextHunt = time + rand(10, 20);
+        const target = this.nearestWhale(k.x, k.y);
+        if (target && Math.random() < 0.9) { k.hunt = target; k.huntAt = time; }
+      }
       // On its own (or with nothing in its arms) it watches for divers, and the whale if that is all there is.
       if (!goal && k.grabbed.length < k.grabCount) {
         let sd = k.size * 3;
@@ -2900,7 +3325,7 @@ export class World {
           if (d < sd) { sd = d; goal = { x: sh.nodes[0], y: sh.nodes[1] }; }
         }
       }
-      if (!goal && k.caught.length < 3) {
+      if (!goal && k.caught.length < cap) {
         let pd = k.size * 3;
         for (const f of this.fish) {
           if (!f.diver || !f.alive || f.riding || f.dragger || f.seized || !this.onScreen(f)) continue;
@@ -2912,7 +3337,7 @@ export class World {
           const wm = this.whaleMid(nearbyWhale);
           if (Math.hypot(wm.x - k.x, wm.y - k.y) < k.size * 3.2) goal = wm;
         }
-        if (goal) {
+        if (goal && !k.hunt) {
           // Drifts in only until the target is within its long reach.
           const gd = Math.hypot(goal.x - k.x, goal.y - k.y);
           const sp = clamp((gd - k.size * 1.2) * 0.3, 0, 45);
@@ -2923,13 +3348,24 @@ export class World {
       }
       let want = k.heading;
       if (goal && Math.abs(angleDiff(behind, Math.atan2(goal.y - k.y, goal.x - k.x))) > KRAKEN_ARC - 0.15) want = Math.atan2(goal.y - k.y, goal.x - k.x) + Math.PI;
-      move(0, want, false, 0.7);
+      if (k.hunt) {
+        // Head first across the tank, then it swings round so the arms face the whale as it closes in.
+        const wm = this.whaleMid(k.hunt);
+        const gap = Math.hypot(wm.x - k.x, wm.y - k.y);
+        const toward = Math.atan2(wm.y - k.y, wm.x - k.x);
+        const turnIn = this.krakenTurnIn(gap, k.size);
+        move(0, toward + Math.PI * turnIn, false, 2.2);
+        const sp = clamp(gap * 0.9, 80, 360) * (1 - 0.75 * turnIn);
+        k.x += Math.cos(toward) * sp * dt;
+        k.y += Math.sin(toward) * sp * dt;
+        k.jet = Math.max(k.jet, 0.7 * (1 - turnIn));
+      } else move(0, want, false, 0.7);
       this.krakenFeed(k);
       if (!k.megaSent && !mega && time - k.stateAt > k.megaDelay) {
         k.megaSent = true;
         this.spawnMegalodon(k.side === 0 ? 1 : 0);
       }
-      if (!meetMega() && ((time - k.stateAt > k.holdFor && (!k.caught.length || time - k.stateAt > k.holdFor + 8)) || (k.solo && time - k.born > k.holdFor + 25))) {
+      if (!meetMega() && settled && ((time - k.stateAt > k.holdFor && (!k.caught.length || time - k.stateAt > k.holdFor + 8)) || (k.solo && time - k.born > k.holdFor + 25))) {
         runAway(false);
       }
     } else if (k.state === "wrap") {
@@ -2968,12 +3404,16 @@ export class World {
         const progress = clamp((time - k.stateAt) / k.wrapFor, 0, 1);
         // The divers can swing it: enough of a lean one way and the other titan takes over.
         k.tilt *= 1 - dt * 0.04;
-        if (k.tilt > 0.4 && k.winner === "mega") { k.winner = "kraken"; k.tilt = 0.1; this.callout(k.x, k.y - k.size * 0.3, "THE DIVERS TURN THE TIDE", "255,255,255"); }
-        else if (k.tilt < -0.4 && k.winner === "kraken") { k.winner = "mega"; k.tilt = -0.1; this.callout(k.x, k.y - k.size * 0.3, "THE DIVERS TURN THE TIDE", "130,175,235"); }
+        // If only one of the two is enraged, its fury tips the tug of war its way: a tie never holds.
+        const edge = this.krakenRage() - this.megaRage(m);
+        k.tilt = clamp(k.tilt + edge * dt * 0.25, -1, 1);
+        const turned = Math.abs(edge) > 0.3 ? "THE RAGE TURNS THE TIDE" : "THE DIVERS TURN THE TIDE";
+        if (k.tilt > 0.4 && k.winner === "mega") { k.winner = "kraken"; k.tilt = 0.1; this.callout(k.x, k.y - k.size * 0.3, turned, "255,255,255"); }
+        else if (k.tilt < -0.4 && k.winner === "kraken") { k.winner = "mega"; k.tilt = -0.1; this.callout(k.x, k.y - k.size * 0.3, turned, "130,175,235"); }
         // Every few seconds the megalodon whips its head and flings the kraken around it.
         if (time >= k.nextShake && time >= k.shakeUntil) {
           k.shakeUntil = time + 1.3;
-          k.nextShake = time + rand(2.5, 4) * (k.winner === "mega" ? 1 - 0.4 * progress : 1 + 0.6 * progress);
+          k.nextShake = time + rand(2.5, 4) * (k.winner === "mega" ? 1 - 0.4 * progress : 1 + 0.6 * progress) * (1 - 0.35 * this.krakenRage());
           this.splash(m.nodes[0], m.nodes[1], 1.6);
         }
         // As the megalodon tires, the other sharks come to its rescue; if two reach the kraken, it lets go.
@@ -2999,7 +3439,7 @@ export class World {
           return;
         }
         const shaking = time < k.shakeUntil;
-        const fling = shaking ? k.size * 0.09 : k.size * 0.025;
+        const fling = (shaking ? k.size * 0.09 : k.size * 0.025) * (1 + 0.5 * this.krakenRage());
         k.x += (m.nodes[8] + Math.sin(time * 3.6) * fling - k.x) * Math.min(1, dt * 5);
         k.y += (m.nodes[9] + Math.cos(time * 3.2) * fling - k.y) * Math.min(1, dt * 5);
         move(0, Math.atan2(m.nodes[25] - k.y, m.nodes[24] - k.x) + Math.PI, false, 3.5);
@@ -3057,8 +3497,22 @@ export class World {
         }
       }
     } else {
-      const away = mega ? Math.atan2(k.y - mega.nodes[1], k.x - mega.nodes[0]) : k.heading;
-      move(Math.min(k.wounded ? 190 : 130, 40 + (time - k.stateAt) * (k.wounded ? 70 : 50)), away);
+      // It picks one way out when the flight starts: the edge it can reach with the least turning, not through the
+      // megalodon, then curves round onto that line at a steady swim, so it never U-turns or is dragged off.
+      if (k.exitAt !== k.stateAt) {
+        k.exitAt = k.stateAt;
+        const edges: [number, number, number][] = [[k.x, -1, 0], [W - k.x, 1, 0], [k.y, 0, -1], [H - k.y, 0, 1]];
+        const cost = (e: [number, number, number]) => {
+          const a = Math.atan2(e[2], e[1]);
+          let c = e[0] + Math.abs(angleDiff(k.heading, a)) * k.size * 0.45;
+          if (mega) c += Math.max(0, Math.cos(a - Math.atan2(mega.nodes[1] - k.y, mega.nodes[0] - k.x))) * k.size * 1.5;
+          return c;
+        };
+        const [, ex, ey] = edges.sort((a, b) => cost(a) - cost(b))[0];
+        k.exitHeading = Math.atan2(ey, ex);
+      }
+      const cruise = k.wounded ? 150 : 95;
+      move(Math.min(cruise, 25 + (time - k.stateAt) * (k.wounded ? 40 : 18)), k.exitHeading ?? k.heading, true, 0.7);
       if (time - k.inkAt > 0.35 && time - k.stateAt < (k.wounded ? 6 : 3)) {
         k.inkAt = time;
         this.events.push({ kind: "splash", x: k.x, y: k.y, strength: 1.2 });
@@ -3068,7 +3522,7 @@ export class World {
         }
       }
       const gone = Math.max(-k.x, k.x - W, -k.y, k.y - H) > k.size * 0.9;
-      if ((gone && time - k.stateAt > 3) || time - k.stateAt > 40) { this.dropCaught(k); this.kraken = null; }
+      if ((gone && time - k.stateAt > 3) || time - k.stateAt > 70) { this.dropCaught(k); this.kraken = null; }
     }
   }
 
@@ -3246,6 +3700,51 @@ export class World {
     })[0] ?? null;
   }
 
+  /**
+   * A whale never passes through a titan: unless that titan is attacking it (the megalodon's bite, the kraken's
+   * grip) it is shoved clear of the kraken's mantle and head and of the megalodon's body, and turns off.
+   */
+  private keepWhaleClear(wh: Whale, dt: number) {
+    const attacked = this.whaleFight?.whale === wh || (this.kraken?.whaleTarget === wh && this.kraken.whaleUntil > 0);
+    if (attacked) return;
+    const blobs: { x: number; y: number; r: number }[] = [];
+    const k = this.kraken;
+    if (k) {
+      const dx = Math.cos(k.heading);
+      const dy = Math.sin(k.heading);
+      blobs.push({ x: k.x, y: k.y, r: k.size * 0.12 });
+      for (const u of [0.2, 0.4, 0.6]) blobs.push({ x: k.x + dx * k.size * u, y: k.y + dy * k.size * u, r: k.size * 0.13 });
+    }
+    for (const sh of this.sharks) {
+      if (!sh.mega) continue;
+      for (let n = 0; n < SHARK_NODES; n += 3) blobs.push({ x: sh.nodes[n * 2], y: sh.nodes[n * 2 + 1], r: sh.length * 0.05 + 14 });
+    }
+    if (!blobs.length) return;
+    const half = wh.length * 0.05;
+    let px = 0;
+    let py = 0;
+    for (let u = 0; u <= 1; u += 0.1) {
+      const bx = wh.x - Math.cos(wh.heading) * wh.length * u;
+      const by = wh.y - Math.sin(wh.heading) * wh.length * u;
+      for (const b of blobs) {
+        const d = Math.hypot(bx - b.x, by - b.y);
+        const over = half + b.r - d;
+        if (over <= 0 || d < 1e-3) continue;
+        px += ((bx - b.x) / d) * over;
+        py += ((by - b.y) / d) * over;
+      }
+    }
+    if (Math.hypot(px, py) < 1e-3) return;
+    // It is only ever eased sideways, across its own body: never along it and never by turning it, so a whale that
+    // brushes a titan slides clear and keeps swimming straight instead of spinning. The shove is capped and smooth.
+    const nx = -Math.sin(wh.heading);
+    const ny = Math.cos(wh.heading);
+    const side = px * nx + py * ny;
+    const shove = clamp(side * 4, -110, 110) * dt;
+    wh.x += nx * shove;
+    wh.y += ny * shove;
+  }
+
   private whaleMid(wh: Whale) {
     return { x: wh.x - Math.cos(wh.heading) * wh.length * 0.4, y: wh.y - Math.sin(wh.heading) * wh.length * 0.4 };
   }
@@ -3256,6 +3755,8 @@ export class World {
     const m = this.whaleMid(wh);
     wh.fleeing = true;
     wh.fleeHeading = Math.atan2(m.y - fromY, m.x - fromX);
+    // A hard kick of the flukes as it breaks away, so it never starts from a near standstill.
+    wh.speed = Math.max(wh.speed, 42);
     this.events.push({ kind: "eat", x: m.x, y: m.y });
     this.splash(m.x, m.y, 2.4);
     this.callout(m.x, m.y - 60, text, "255,255,255");
@@ -3278,14 +3779,16 @@ export class World {
   /** While it holds sharks the kraken may eat one, lets another slip away, and snatches a fresh one from nearby. */
   private krakenFeed(k: Kraken) {
     const { time } = this;
+    // Enraged, it is far readier to kill: it eats more, takes sharks sooner and reaches for them far more often.
+    const fury = this.krakenRage() > 0;
     for (const sh of [...k.grabbed]) {
-      sh.devourAt ??= time + rand(7, 15);
+      sh.devourAt ??= time + rand(7, 15) * (fury ? 0.5 : 1);
       if (time < sh.devourAt) continue;
       // Wait until the shark has been reeled in to the beak.
       if (Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y) > k.size * 0.4 + sh.length * 0.2 + 40) { sh.devourAt = time + 1; continue; }
       k.grabbed = k.grabbed.filter((o) => o !== sh);
       sh.devourAt = undefined;
-      if (k.meals < 1 && this.sharks.filter((o) => !o.mega).length > 2 && Math.random() < KRAKEN_EAT_CHANCE) {
+      if (k.meals < (fury ? 3 : 1) && this.sharks.filter((o) => !o.mega).length > 2 && Math.random() < (fury ? 0.6 : KRAKEN_EAT_CHANCE)) {
         k.meals++;
         this.sharks = this.sharks.filter((o) => o !== sh);
         this.events.push({ kind: "eat", x: sh.nodes[0], y: sh.nodes[1] });
@@ -3298,34 +3801,57 @@ export class World {
         sh.grabbed = false;
         this.splash(sh.nodes[0], sh.nodes[1], 1.6);
         this.notices.push("a shark wriggled free! phew!");
-        this.callout(sh.nodes[0], sh.nodes[1] - 30, "SHARK ESCAPES", "150,255,190");
       }
       k.nextGrab = time + rand(3, 6);
     }
-    if (k.grabbed.length < k.grabCount && k.regrabs < 12 && time >= k.nextGrab) {
-      k.nextGrab = time + rand(1.5, 4);
-      let pick: Shark | null = null;
-      let best = k.size * 1.25;
-      for (const sh of this.sharks) {
-        if (sh.mega || sh.grabbed || sh.lifted || sh.ufoCharge || sh.leaving || sh.cleaning || sh.dragging) continue;
-        if (this.fight && (sh === this.fight.a || sh === this.fight.b)) continue;
-        const d = Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y);
-        if (d < best) { best = d; pick = sh; }
+    const back = k.heading + Math.PI;
+    const free = (sh: Shark) => !sh.mega && !sh.grabbed && !sh.lifted && !sh.ufoCharge && !sh.leaving && !sh.cleaning && !sh.dragging
+      && !(this.fight && (sh === this.fight.a || sh === this.fight.b));
+    const inArc = (sh: Shark) => Math.abs(angleDiff(back, Math.atan2(sh.nodes[1] - k.y, sh.nodes[0] - k.x))) < KRAKEN_ARC - 0.15;
+    const strikes = (k.sharkStrikes ??= []);
+    for (const st of [...strikes]) {
+      // An arm is blooming toward its shark; if the shark swims off, or the arm is not quick enough, it comes to nothing.
+      const gone = !this.sharks.includes(st.sh) || !free(st.sh) || !inArc(st.sh) || Math.hypot(st.sh.nodes[0] - k.x, st.sh.nodes[1] - k.y) > k.size * (fury ? 1.7 : 1.2) || k.hunt;
+      if (gone) { k.sharkStrikes = k.sharkStrikes!.filter((o) => o !== st); k.nextGrab = Math.min(k.nextGrab, time + rand(1, 2.5)); }
+      else if (time - st.at > st.dur) {
+        k.sharkStrikes = k.sharkStrikes!.filter((o) => o !== st);
+        if (Math.random() < (fury ? 0.05 : 0.2)) k.nextGrab = Math.min(k.nextGrab, time + rand(1.5, 3));
+        else {
+          st.sh.grabbed = true;
+          st.sh.target = null;
+          // The arm has already reached it, so the coils close almost at once.
+          st.sh.grabbedAt = time - 1.0;
+          st.sh.devourAt = time + rand(6, 12) * (fury ? 0.5 : 1);
+          k.grabbed.push(st.sh);
+          k.regrabs++;
+        }
       }
-      if (pick) {
-        pick.grabbed = true;
-        pick.target = null;
-        pick.grabbedAt = time;
-        pick.devourAt = time + rand(6, 12);
-        k.grabbed.push(pick);
-        k.regrabs++;
+    }
+    // Any number of arms can be out at once, all round the 270 degrees it can reach, as long as it has limbs to spare
+    // (ten in all: six short arms and four long tentacles) and each goes its own way instead of crossing another.
+    const busy = k.grabbed.length + k.sharkStrikes!.length + k.caught.length + (k.strike ? 1 : 0) + (k.ufoHeld || k.ufoStrike !== null ? 1 : 0);
+    if (!k.hunt && k.grabbed.length + k.sharkStrikes!.length < k.grabCount && busy < (fury ? 9 : 8) && k.regrabs < (fury ? 60 : 30) && time >= k.nextGrab) {
+      k.nextGrab = time + rand(0.8, 3);
+      // Sometimes it just watches. When it does reach, it picks one of the sharks in range at random, favouring the closer ones.
+      if (Math.random() < (fury ? 0.95 : 0.65)) {
+        const dirOf = (sh: Shark) => Math.atan2(sh.nodes[1] - k.y, sh.nodes[0] - k.x);
+        const taken = [...k.grabbed, ...k.sharkStrikes!.map((o) => o.sh)];
+        const options = this.sharks.filter((sh) => free(sh) && inArc(sh) && !taken.includes(sh) && Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y) < k.size * (fury ? 1.45 : 1.0)
+          && taken.every((o) => Math.abs(angleDiff(dirOf(o), dirOf(sh))) > 0.4));
+        if (options.length) {
+          const weights = options.map((sh) => 1 / (60 + Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y)));
+          let roll = Math.random() * weights.reduce((x, y) => x + y, 0);
+          let pick = options[options.length - 1];
+          for (let i = 0; i < options.length; i++) { roll -= weights[i]; if (roll <= 0) { pick = options[i]; break; } }
+          k.sharkStrikes!.push({ sh: pick, at: time, dur: rand(1.4, 2.6) * (fury ? 0.6 : 1) });
+        }
       }
     }
   }
 
   /** strength: ~0.25 hover wake, ~0.55 drag trail, 2.5 click or finished task. */
   splash(x: number, y: number, strength = 1, hue?: 0 | 1, opts?: { dir?: number; weight?: number; max?: number; quiet?: boolean; song?: boolean }) {
-    if (this.ripples.length >= (strength < 1.2 ? 48 : 64)) return;
+    if (this.ripples.length >= (strength < 1.2 ? 28 : 36)) return;
     // Only a heavy splash gets the burst at its centre; a trail is just clean rings.
     if (strength >= 1.2 && !opts?.quiet) this.events.push({ kind: "splash", x, y, strength });
     const far = Math.max(x, this.width - x);
@@ -3841,9 +4367,43 @@ export class World {
         const jolt = Math.max(0, Math.sin(time * 2.6 + sh.id));
         // Nothing hauls it in until the arms have actually reached it.
         const reached = clamp((time - (sh.grabbedAt ?? -9) - 1.2) / 0.8, 0, 1);
-        const pull = (d > kraken.size * 0.4 + L * 0.2 ? 0.25 + 1.2 * jolt : 0.1) * reached;
-        dx = (ox / d) * pull + (-oy / d) * thrash;
-        dy = (oy / d) * pull + (ox / d) * thrash;
+        // The kraken is far stronger than what it holds: past a comfortable reach the arms haul it back in hard and its
+        // thrashing dies down, so it can be flung about but never drags the arms out across the tank. Now and then
+        // it is reeled right in, and a long stretch can make it lose its grip.
+        const maxReach = kraken.size * 0.7;
+        const over = d - maxReach;
+        sh.taut = clamp(over / (kraken.size * 0.2), 0, 1);
+        sh.stretch = over > 0 ? (sh.stretch ?? 0) + dt : Math.max(0, (sh.stretch ?? 0) - dt);
+        const reel = Math.max(0, Math.sin(time * 0.5 + sh.id * 1.7)) > 0.85 ? 1.6 : 0;
+        const pull = ((d > kraken.size * 0.4 + L * 0.2 ? 0.25 + 1.2 * jolt : 0.1) + 2.8 * sh.taut + reel) * reached;
+        const slack = 1 - 0.75 * sh.taut;
+        dx = (ox / d) * pull + (-oy / d) * thrash * slack;
+        dy = (oy / d) * pull + (ox / d) * thrash * slack;
+        // A shark that keeps straining at the end of the arms may wrench free; a sawshark can saw its way out, leaving
+        // scraps of squid behind.
+        if (reached >= 1) {
+          const sawFree = sh.kind === "sawshark" && Math.random() < dt * 0.12;
+          const slipFree = (sh.stretch ?? 0) > 2 && Math.random() < dt * 0.5;
+          if (sawFree || slipFree) {
+            sh.grabbed = false;
+            sh.devourAt = undefined;
+            sh.stretch = 0;
+            kraken.grabbed = kraken.grabbed.filter((o) => o !== sh);
+            kraken.nextGrab = Math.max(kraken.nextGrab, time + rand(2, 4));
+            this.splash(hx, hy, 1.6);
+            if (sawFree) {
+              this.callout(hx, hy - 40, "SAWSHARK CUTS FREE", "150,255,190");
+              this.notices.push("the sawshark sawed its way out of the kraken's arm!");
+              const bits: [string, string][] = [["@", "225,225,232"], ["8", "205,205,215"], ["o", "190,190,205"], ["%", "170,170,190"]];
+              for (let i = 0; i < 14; i++) {
+                const a = rand(0, TAU);
+                const sp = rand(10, 50);
+                const [glyph, rgb] = bits[i % bits.length];
+                this.mess.push({ x: hx + Math.cos(a) * rand(0, 30), y: hy + Math.sin(a) * rand(0, 20), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, born: time, glyph, rgb });
+              }
+            } else this.notices.push("a shark slipped the kraken's grip!");
+          }
+        }
         held = true;
         hunting = false;
         sh.target = null;
@@ -3927,8 +4487,9 @@ export class World {
         sh.target = null;
       } else {
         const threats = [
-          mega && { x: mega.nodes[0], y: mega.nodes[1], reach: Math.max(W, H) * 0.9, sprint: 0.5 },
-          kraken && { x: kraken.x, y: kraken.y, reach: kraken.size * 1.3, sprint: 1 },
+          mega && { x: mega.nodes[0], y: mega.nodes[1], reach: Math.max(W, H) * 0.9, sprint: 0.5, push: 11 },
+          // The kraken is a real threat: sharks give it a wide berth (wider and more urgent while it is enraged) and bolt when it is near.
+          kraken && { x: kraken.x, y: kraken.y, reach: kraken.size * (1.9 + 0.6 * this.krakenRage()), sprint: 0.6, push: 17 + 6 * this.krakenRage() },
         ];
         const ball = this.baitBall;
         if (ball) {
@@ -3947,7 +4508,7 @@ export class World {
           if (d < threat.reach) {
             // A gentle drift away from afar that firms up as it gets closer, so the titan always has open water
             // around it without every shark sprinting across the tank.
-            const w = 3 + 11 * Math.pow(1 - d / threat.reach, 1.5);
+            const w = 3 + threat.push * Math.pow(1 - d / threat.reach, 1.5);
             dx += (ox / d) * w;
             dy += (oy / d) * w;
             if (d < threat.reach * threat.sprint) fleeing = true;
@@ -3972,6 +4533,20 @@ export class World {
           }
         }
       }
+      // Nothing swims through the kraken's body: a shark that strays into it is shoved out and bolts.
+      if (kraken && !sh.mega && !sh.grabbed && !sh.lifted) {
+        const kr = kraken.size * 0.42;
+        const kox = hx - kraken.x;
+        const koy = hy - kraken.y;
+        const kd = Math.hypot(kox, koy) || 1;
+        if (kd < kr) {
+          const shove = (kr - kd) * dt * 6;
+          for (let n = 0; n < SHARK_NODES; n++) { sh.nodes[n * 2] += (kox / kd) * shove; sh.nodes[n * 2 + 1] += (koy / kd) * shove; }
+          dx += (kox / kd) * 20;
+          dy += (koy / kd) * 20;
+          fleeing = true;
+        }
+      }
       const desired = Math.atan2(dy, dx);
       // Sharks can't pivot on the spot: the turning circle grows with speed.
       const agility = Math.min(sh.mega ? (sh.retreat ? 0.6 : sh.biteTarget ? 0.7 : 0.3) : held ? 3 : fighting ? 1.8 : fleeing ? 2 : hunting ? 1.7 + closing : 0.8, sh.speed / (L * 0.22));
@@ -3981,8 +4556,12 @@ export class World {
       sh.turn += (turned / dt - sh.turn) * Math.min(1, dt * 3);
 
       const cruise = 30 + L * 0.04;
-      const targetSpeed = sh.mega ? (kraken?.state === "wrap" ? 12 : this.whaleFight?.mega === sh ? 62 : sh.retreat ? 140 : kraken ? 46 : whale && !whale.fleeing && !sh.retreat && sh.whaleAttack !== false ? 58 : 30 + L * 0.015) : held ? 30 : fighting ? cruise * (lunging ? 2.4 : 1.3) : fleeing ? cruise * 2.3 : hunting ? cruise * (1.45 + closing * 1.5) : cruise;
-      sh.speed += (targetSpeed - sh.speed) * Math.min(1, dt * (sh.mega && sh.retreat ? 1.7 : 1.1));
+      const targetSpeed = sh.mega ? (kraken?.state === "wrap" ? 12 : this.whaleFight?.mega === sh ? (this.whaleFight.locked ? 62 : 175) : sh.retreat ? (sh.leaveCalm ? 64 : 140) : kraken ? 46 : whale && !whale.fleeing && !sh.retreat && sh.whaleAttack !== false ? (Math.hypot(this.whaleMid(whale).x - nodes[0], this.whaleMid(whale).y - nodes[1]) < whale.length * 1.3 ? 120 : 75) : 30 + L * 0.015) : held ? 30 + 150 * (sh.taut ?? 0) : fighting ? cruise * (lunging ? 2.4 : 1.3) : fleeing ? cruise * 2.3 : hunting ? cruise * (1.45 + closing * 1.5) : cruise;
+      // A megalodon closing on a whale surges: it builds speed to chase and lunges the last stretch at its bite spot, instead of
+      // the whale being drawn in.
+      const surging = sh.mega && this.whaleFight?.mega === sh && !this.whaleFight.locked;
+      // An enraged megalodon swims a little faster, not so much that it looks wrong beside everything else.
+      sh.speed += (targetSpeed * (sh.mega ? 1 + 0.12 * (sh.rageLevel ?? 0) : 1) - sh.speed) * Math.min(1, dt * (sh.mega && sh.retreat ? (sh.leaveCalm ? 0.45 : 1.7) : surging ? 2.4 : 1.1));
       // A megalodon keeps a slow, heavy tail beat even when it surges (more push per stroke, not faster strokes), and only lashes quickly while thrashing.
       sh.phase += dt * (sh.mega ? 1.0 + Math.min(sh.speed, 200) / 120 + 2.2 * (sh.thrash ?? 0) : 2 + sh.speed / 24);
 
@@ -4040,7 +4619,7 @@ export class World {
           // A shark eats one diver at a time; once fed it leaves the rest alone. The megalodon eats them all.
           if (f.diver && !sh.mega && (sh.dragging || (sh.fedUntil ?? 0) > time || sh.target !== f)) continue;
           if ((f.x - mx) ** 2 + (f.y - my) ** 2 < mouthR * mouthR) {
-            if (f.dkind === "bomber" && f.fuseAt !== undefined && time - this.lastBoom >= 1.5) { this.explode(f.x, f.y, f); continue; }
+            if (f.dkind === "bomber" && f.fuseAt !== undefined && time - this.lastBoom >= 0.3) { this.explode(f.x, f.y, f); continue; }
             if (f.diver && !sh.mega && this.blasterEscape(f, 0.55, mx, my)) { sh.target = null; sh.fedUntil = time + 12; sh.alertUntil = 0; continue; }
             // Some sharks grab a diver and carry it about instead of swallowing it at once.
             if (f.diver && !sh.mega && Math.random() < ((f.stunUntil ?? 0) > time ? 0.7 : 0.4)) {

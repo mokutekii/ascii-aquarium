@@ -87,9 +87,31 @@ function megaFinFrame(sh: Shark, sp: ArrayLike<number>, N: number) {
 }
 
 /** The kraken's ivory, shared by its body and every arm that wraps something so they match exactly. */
+/** Which spine node an arm takes hold at: the body, and never the saw at a sawshark's snout. */
+function bodyNode(sh: Shark, a: number) {
+  return sh.kind === "sawshark" ? 8 + (a % 4) * 2 : 3 + (a % 5) * 3;
+}
+/** Arms that can hold one shark, and ones that can wrap a megalodon; each takes hold ARM_STAGGER seconds after the last. */
+const HOLD_ARMS = 3;
+/** A bigger shark needs more arms to hold it: one for a small one, up to HOLD_ARMS for the biggest. */
+const holdArmsFor = (sh: Shark) => Math.max(1, Math.min(HOLD_ARMS, Math.round(sh.length / 130)));
+/** Every limb takes hold of a wrapped megalodon (none left waving free); the coil bands are fewer so they stay readable. */
+const WRAP_ARMS = 10;
+const WRAP_BANDS = 7;
+const ARM_STAGGER = 0.45;
+/** How angry the kraken looks this frame (0 calm → 1 furious): its ivory flushes red. Set once per frame by render(). */
+let boneRage = 0;
 function krakenBone(v: number, tint = 0) {
   const c = Math.round(Math.max(90, Math.min(252, v)));
-  return `rgb(${c},${Math.round(c - 4 - tint * 0.2)},${Math.round(c - 10 - tint * 0.4)})`;
+  // Calm, the ivory carries a dark green cast.
+  const r0 = c * 0.84;
+  const g = c * 0.95 - tint * 0.2;
+  const b = c * 0.7 - tint * 0.4;
+  if (boneRage <= 0) return `rgb(${Math.round(r0)},${Math.round(g)},${Math.round(b)})`;
+  // Enraged, the hide sinks to a dark olive green shot with yellow, and the brightest parts (suckers, rim highlights) glow
+  // yellow instead of fading with the rest.
+  if (v >= 245) return `rgb(${Math.round(r0 + (255 - r0) * boneRage)},${Math.round(g + (228 - g) * boneRage)},${Math.round(b + (60 - b) * boneRage)})`;
+  return `rgb(${Math.round(r0 + (c * 0.62 - r0) * boneRage)},${Math.round(Math.max(g + (c * 0.8 - g) * boneRage, 105 * boneRage))},${Math.round(b + (c * 0.16 - b) * boneRage)})`;
 }
 
 function classicHalfWidth(s: number) {
@@ -372,6 +394,8 @@ export class AsciiRenderer {
   private sharkKind = new Uint8Array(0);
   /** Cells of a megalodon seen by x-ray (yeat mode): the skin is dimmed so the bones show through. */
   private sharkXray = new Uint8Array(0);
+  /** 0-255: how enraged the megalodon that owns this cell is (its hide deepens to crimson and glows amber). */
+  private sharkRage = new Uint8Array(0);
   /** Cells darkened by a shark's shadow on the seabed. */
   private sharkShadow = new Uint8Array(0);
   private spine = new Float32Array(SHARK_NODES * 2);
@@ -456,6 +480,7 @@ export class AsciiRenderer {
     this.sharkDepth = new Float32Array(n);
     this.sharkKind = new Uint8Array(n);
     this.sharkXray = new Uint8Array(n);
+    this.sharkRage = new Uint8Array(n);
     this.sharkShadow = new Uint8Array(n);
     this.fishStamp = new Uint32Array(n);
 
@@ -570,11 +595,16 @@ export class AsciiRenderer {
     this.drawAlerts(world);
     this.drawUfo(world);
     this.drawDebris(world);
-    this.drawKraken(world);
+    boneRage = world.krakenRage() * (0.88 + 0.12 * Math.sin(world.time * 5));
+    // A kraken wrapped round the megalodon is drawn over it, so its arms really lie across the body instead of vanishing beneath it.
+    const overShark = world.kraken?.state === "wrap" && !!world.kraken.wrapping;
+    if (!overShark) this.drawKraken(world);
     this.drawSharks(t);
+    if (overShark) this.drawKraken(world);
     this.drawWhaleBite(world);
     this.drawMegaSkeleton(world);
     this.drawWraps(world);
+    boneRage = 0;
     this.drawFightHud(world);
     // The announced events stack their banners one under another, the invasion first.
     let slot = 0;
@@ -705,11 +735,16 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     const wrapped = k.state === "wrap" && !!k.wrapping;
     const grip = k.state === "grab" || wrapped;
-    const shudder = wrapped ? (world.time < k.shakeUntil ? 9 : 5) : 3;
-    const hx = k.x + (grip ? Math.sin(k.phase * 3.6) * shudder : 0);
-    const hy = k.y + (grip ? Math.cos(k.phase * 4.4) * shudder : 0);
-    const dx = Math.cos(k.heading);
-    const dy = Math.sin(k.heading);
+    const shudder = (wrapped ? (world.time < k.shakeUntil ? 9 : 5) : 3) * (1 + 0.9 * world.krakenRage());
+    // Just after a blast the whole body is knocked about: the head jolts and the mantle lurches off its line, while the arms
+    // flail loose. An angry kraken (blast or blood moon) also thrashes its arms harder.
+    const hit = clamp(1 - (world.time - (k.blastAt ?? -99)) / 2.5, 0, 1);
+    const anger = world.krakenRage();
+    const hx = k.x + (grip ? Math.sin(k.phase * 3.6) * shudder : 0) + Math.sin(world.time * 31) * k.size * 0.014 * hit;
+    const hy = k.y + (grip ? Math.cos(k.phase * 4.4) * shudder : 0) + Math.cos(world.time * 27) * k.size * 0.014 * hit;
+    const skew = hit * (0.3 + Math.sin(world.time * 17) * 0.2);
+    const dx = Math.cos(k.heading + skew);
+    const dy = Math.sin(k.heading + skew);
     const px = -dy;
     const py = dx;
     const S = k.size;
@@ -719,6 +754,10 @@ export class AsciiRenderer {
     const held = wrapped ? [k.wrapping!] : k.grabbed;
     const holders = held.length;
     const bone = krakenBone;
+    // Charging a megalodon or a whale, the arms spread wide and then snap together as each jet stroke drives it forward.
+    const attack = k.lunging || k.hunt ? clamp(k.jet, 0, 1) : 0;
+    const open = (1 - Math.sin(k.phase * 1.1)) / 2;
+    const spreadMul = 1 + 1.1 * attack * open;
 
     // Six short arms and four long looping tentacles, reaching out from the front of the head.
     const shortArms = 6;
@@ -728,21 +767,31 @@ export class AsciiRenderer {
       const fi = a - shortArms;
       const psi = feeder ? [-0.75, -0.25, 0.25, 0.75][fi] : (a / (shortArms - 1) - 0.5) * 2.0;
       let rootAng = back + psi;
+      // Arms take hold one at a time: the first lands where the reach ended, the rest follow, up to what the kraken
+      // could really wrap with. The rest keep waving until their turn comes, so the count only ever climbs.
+      const sh0 = holders > 0 ? held[a % holders] : null;
+      const sinceG = !sh0 ? 0 : wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
+      const armSince = sinceG - Math.floor(a / Math.max(1, holders)) * ARM_STAGGER;
+      const attached = grip && !!sh0 && (!feeder || wrapped) && Math.floor(a / holders) < (wrapped ? WRAP_ARMS : holdArmsFor(sh0)) && armSince >= 0;
+      // An arm taking hold sweeps from where it was waving to its grip rather than jumping there: it always stays joined to the body.
+      const prog = attached ? clamp(armSince / (0.9 + (a % 3) * 0.2), 0, 1) : 0;
+      const ease = prog * prog * (3 - 2 * prog);
       // An arm that is holding something roots on the side of the head facing it, so it never has to cross the head.
-      if (grip && holders > 0 && (!feeder || wrapped)) {
+      if (attached) {
         const tgt = held[a % holders];
-        const tn = 3 + (a % 5) * 3;
-        rootAng = back + clamp(angleDiff(back, Math.atan2(tgt.nodes[tn * 2 + 1] - hy, tgt.nodes[tn * 2] - hx)), -1.3, 1.3);
+        const tn = bodyNode(tgt, a);
+        rootAng = back + psi + (clamp(angleDiff(back, Math.atan2(tgt.nodes[tn * 2 + 1] - hy, tgt.nodes[tn * 2] - hx)), -1.3, 1.3) - psi) * ease;
       }
       const rx = hx + Math.cos(rootAng) * R * 0.85;
       const ry = hy + Math.sin(rootAng) * R * 0.85;
       const N = 90;
       const pts: number[] = [];
       // Round a megalodon every limb holds on, the long tentacles too.
-      const holds = grip && holders > 0 && (!feeder || wrapped);
+      const holds = attached;
+      const hp: number[] = [];
       if (holds) {
         const sh = held[a % holders];
-        const n0 = 3 + (a % 5) * 3;
+        const n0 = bodyNode(sh, a);
         const x0 = sh.nodes[n0 * 2];
         const y0 = sh.nodes[n0 * 2 + 1];
         const vx = x0 - rx;
@@ -756,7 +805,7 @@ export class AsciiRenderer {
           const t = i / N;
           if (t < 0.5) {
             const u = t / 0.5;
-            pts.push((1 - u) * (1 - u) * rx + 2 * (1 - u) * u * bx + u * u * x0, (1 - u) * (1 - u) * ry + 2 * (1 - u) * u * by + u * u * y0);
+            hp.push((1 - u) * (1 - u) * rx + 2 * (1 - u) * u * bx + u * u * x0, (1 - u) * (1 - u) * ry + 2 * (1 - u) * u * by + u * u * y0);
           } else {
             // Coil around the shark's body, following its spine.
             // Then it spirals round the body for several turns, crossing it on both sides.
@@ -770,10 +819,11 @@ export class AsciiRenderer {
             const ty = sh.nodes[i0 * 2 + 3] - sh.nodes[i0 * 2 + 1];
             const tl = Math.hypot(tx, ty) || 1;
             const wrap = Math.sin(u * 20 + a + k.phase * 2) * Math.max(sh.length * 0.05, 14);
-            pts.push(sx + (-ty / tl) * wrap, sy + (tx / tl) * wrap);
+            hp.push(sx + (-ty / tl) * wrap, sy + (tx / tl) * wrap);
           }
         }
-      } else {
+      }
+      {
         // Arms fan out and wave; the long tentacles trail out and curl over into loops.
         // Jetting stretches the arms out behind it.
         const len = (feeder ? S * (1.2 + 0.18 * Math.abs(psi)) : S * (0.4 + 0.2 * Math.sin((a + 0.5) * 1.9) ** 2)) * (1 + 0.3 * k.jet);
@@ -785,35 +835,49 @@ export class AsciiRenderer {
           const t = i / N;
           pts.push(x, y);
           // Arms that aren't holding anything keep moving: a slow wave plus a lazy sway of their own, never frozen.
-        const wave = (Math.sin(k.wave - t * (5 + 4 * k.jet) + a * 0.9) * (feeder ? 0.6 : 0.45) + Math.sin(k.phase * 0.8 + a * 1.7 - t * 2) * (feeder ? 0.3 : 0.12) + Math.sin(k.wave * 1.6 - t * 9 + a * 2) * (feeder ? 0.55 : 0.3) * Math.pow(t, 2.4)) * (1 + 1.3 * k.jet) * (0.2 + 1.5 * Math.pow(t, 1.4));
+        const wave = (Math.sin(k.wave - t * (5 + 4 * k.jet) + a * 0.9) * (feeder ? 0.6 : 0.45) + Math.sin(k.phase * 0.8 + a * 1.7 - t * 2) * (feeder ? 0.3 : 0.12) + Math.sin(k.wave * 1.6 - t * 9 + a * 2) * (feeder ? 0.55 : 0.3) * Math.pow(t, 2.4)) * (1 + 1.3 * k.jet + 1.6 * hit + 1.1 * anger) * (0.2 + 1.5 * Math.pow(t, 1.4));
           // Whatever the curl, no limb bends past 135 degrees either side of the line behind the head.
-          const ang = back + clamp(psi * (feeder ? 0.7 : 0.9 - 0.4 * t) + curl * Math.pow(t, feeder ? 2.2 : 2) - k.bend * 0.4 * t + wave, -KRAKEN_ARC, KRAKEN_ARC);
+          const ang = back + clamp(psi * spreadMul * (feeder ? 0.7 : 0.9 - 0.4 * t) + curl * Math.pow(t, feeder ? 2.2 : 2) - k.bend * 0.4 * t + wave, -KRAKEN_ARC, KRAKEN_ARC);
           x += Math.cos(ang) * ds;
           y += Math.sin(ang) * ds;
         }
       }
-      // Arms set on something grow out from the head to it along their path, then coil, instead of appearing at full length.
-      let reach = N;
+      // The free arm is bent point by point onto its grip path as it takes hold, then coils.
+      const reach = N;
+      let girth = 1;
       if (holds) {
-        const sh0 = held[a % holders];
-        const since = wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
-        const prog = clamp(since / (1.0 + (a % 3) * 0.2), 0, 1);
-        reach = Math.round(N * (wrapped && k.lunging ? 0.3 : prog * prog * (3 - 2 * prog)));
+        for (let q = 0; q < pts.length; q++) pts[q] += (hp[q] - pts[q]) * ease;
+        // A holding arm also thickens gradually as it lands.
+        girth = 0.6 + 0.4 * ease;
       }
       for (let i = 0; i <= reach; i++) {
         const t = i / N;
         const j = Math.min(N - 1, i);
+        // An arm never passes over the face: points on the head, or on the mantle in front of it, are not drawn.
+        if (i > 2) {
+          const ox = pts[i * 2] - hx;
+          const oy = pts[i * 2 + 1] - hy;
+          const along = ox * dx + oy * dy;
+          if (Math.hypot(ox, oy) < R * 1.05 || (along > 0 && along < S * 0.62 && Math.abs(ox * px + oy * py) < R * 1.5)) continue;
+        }
         const tx = pts[(j + 1) * 2] - pts[j * 2];
         const ty = pts[(j + 1) * 2 + 1] - pts[j * 2 + 1];
         const tl = Math.hypot(tx, ty) || 1;
         const nx = -ty / tl;
         const ny = tx / tl;
         // Arms that hold something (and the ones hauling it toward a megalodon) are thick, heavy limbs, not threads.
-        const half = holds ? Math.max(2, Math.round((wrapped ? 4.2 : 3.2) * Math.pow(1 - t, 0.5))) : Math.round((feeder ? 1.4 : 1.9) * Math.pow(1 - t, 1.2));
+        const half = holds ? Math.max(1, Math.round((wrapped ? 2.4 : 1.6) * girth * Math.pow(1 - t, 0.8))) : Math.round((feeder ? 1.4 : 1.9) * Math.pow(1 - t, 1.2));
+        // Neighbouring limbs alternate bright and dim, each with a dark rim and a thin gap cut round it, and the later one
+        // sits on top, so where arms cross they read as separate arms instead of one glob.
+        const tone = a % 2 ? -42 : 0;
+        const apart = Math.hypot(pts[i * 2] - hx, pts[i * 2 + 1] - hy) > R * 1.6;
+        if (apart && half > 0) {
+          for (const o of [-half - 1, half + 1]) put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, " ", "#000", true);
+        }
         for (let o = -half; o <= half; o++) {
           const edge = Math.abs(o) === half && half > 0;
           const glyph = holds && t > 0.5 ? (i % 2 ? "@" : "8") : holds && t > 0.97 ? "@" : edge ? "o" : t < 0.2 ? "@" : t < 0.45 ? "8" : t < 0.75 ? "o" : ".";
-          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, bone(240 - 110 * t - (edge ? 25 : 0), 40 * t));
+          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, bone(240 - 110 * t + tone - (edge ? 70 : 0), 40 * t), apart);
         }
       }
     }
@@ -856,7 +920,7 @@ export class AsciiRenderer {
       for (let x = ex - re; x <= ex + re; x += cw * 0.7) {
         const e = Math.hypot(x - ex, y - ey) / re;
         if (e > 1) continue;
-        if (e > 0.62) put(x, y, "O", "rgb(255,255,255)", true);
+        if (e > 0.62) put(x, y, "O", boneRage > 0 ? `rgb(255,${Math.round(255 - 50 * boneRage)},${Math.round(255 - 195 * boneRage)})` : "rgb(255,255,255)", true);
         else if (e < 0.18 && x < ex && y < ey) put(x, y, ".", "rgb(255,255,255)", true);
         else put(x, y, " ", "rgb(0,0,0)", true);
       }
@@ -1092,6 +1156,9 @@ export class AsciiRenderer {
    * to the other with a row of suckers down each, like a squid clamped round a shark. They squeeze
    * in and out, harder when the kraken is winning.
    */
+  /** Where each held diver was last frame, smoothed into a velocity, so its arm can trail behind a swing. */
+  private heldTrack = new Map<object, { x: number; y: number; t: number; vx: number; vy: number }>();
+
   private drawWraps(world: World) {
     const k = world.kraken;
     // The kraken seizes divers as it swims in too, so its arms are drawn from the moment it arrives.
@@ -1102,7 +1169,7 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     // Tentacles on divers: one lashes out to a diver it is after, then holds on and coils round it.
     const back = k.heading + Math.PI;
-    const arm = (x1: number, y1: number, seed: number, thick: number, whip = 0) => {
+    const arm = (x1: number, y1: number, seed: number, thick: number, whip = 0, trail?: { x: number; y: number }) => {
       // Rooted in the fan of arms on the side facing the diver, never across the head or eye.
       // Arms only reach out from the arm side of the head, 270 degrees in all: it has to turn to face anything beyond.
       if (Math.abs(angleDiff(back, Math.atan2(y1 - k.y, x1 - k.x))) > KRAKEN_ARC + 0.1 && Math.hypot(x1 - k.x, y1 - k.y) > k.size * 0.35) return;
@@ -1116,52 +1183,77 @@ export class AsciiRenderer {
       for (let s = 0; s <= steps; s++) {
         const u = s / steps;
         // A lashing arm snakes hard from side to side while it is still reaching, then settles.
-        const bow = Math.sin(u * Math.PI) * Math.sin(world.time * (2.5 + 10 * whip) + seed - u * 5 * whip) * cw * (3 + 9 * whip);
+        // A steady travelling wave (one fixed rate, running out toward the tip) whose swing eases away as the arm straightens:
+        // it cracks out like a whip instead of shivering. Nothing about its timing changes from frame to frame.
+        const bow = Math.sin(u * Math.PI) * Math.sin(world.time * 3.2 + seed - u * 4.5) * cw * (trail ? 0.6 : 2 + 9 * whip);
         // The arm leaves the head straight outward before curving toward its target, so it never cuts across the head.
         const outX = Math.cos(back + psi);
         const outY = Math.sin(back + psi);
-        const cx = rootX + outX * len * 0.3 + dx * 0.3;
-        const cy = rootY + outY * len * 0.3 + dy * 0.3;
-        const x = (1 - u) * (1 - u) * rootX + 2 * (1 - u) * u * cx + u * u * x1 - (dy / len) * bow;
-        const y = (1 - u) * (1 - u) * rootY + 2 * (1 - u) * u * cy + u * u * y1 + (dx / len) * bow;
+        // A swung arm leaves the head only slightly outward and then runs nearly straight, so at the ends of the swing,
+        // where the diver sits far off to one side, it never hooks sharply near the tip.
+        const lead = trail ? 0.1 : 0.3;
+        const cx = rootX + outX * len * lead + dx * (trail ? 0.45 : 0.3);
+        const cy = rootY + outY * len * lead + dy * (trail ? 0.45 : 0.3);
+        // A swung arm flows like an idle one: the same slow travelling wave, growing toward the tip, with only a gentle lean
+        // back against the swing. Never a hard S or a hook.
+        const side = trail ? clamp((trail.x * -dy + trail.y * dx) / len, -len * 0.14, len * 0.14) : 0;
+        const env = Math.sin(u * Math.PI) * (0.3 + 0.7 * u);
+        const s2 = trail ? side * 0.6 * env - len * 0.06 * env * (Math.sin(k.wave - u * 3.4 + seed) + 0.5 * Math.sin(k.phase * 0.8 + seed * 1.7 - u * 2)) : 0;
+        const x = (1 - u) * (1 - u) * rootX + 2 * (1 - u) * u * cx + u * u * x1 - (dy / len) * (bow - s2);
+        const y = (1 - u) * (1 - u) * rootY + 2 * (1 - u) * u * cy + u * u * y1 + (dx / len) * (bow - s2);
         if (Math.hypot(x - k.x, y - k.y) < k.size * 0.115) continue;
-        const th = Math.max(0, Math.round(thick * (1 - 0.5 * u)));
+        {
+          const fx = Math.cos(k.heading);
+          const fy = Math.sin(k.heading);
+          const along = (x - k.x) * fx + (y - k.y) * fy;
+          if (along > 0 && along < k.size * 0.62 && Math.abs((x - k.x) * -fy + (y - k.y) * fx) < k.size * 0.15) continue;
+        }
+        // One cell slimmer than the nominal thickness, so an arm that has hold of anything never swells to twice its size.
+        const th = Math.max(0, Math.round((thick - 1) * (1 - 0.5 * u)));
+        // A thin gap round each arm and an alternating tone keep crossing arms apart.
+        const tone = Math.round(seed * 7) % 2 ? -40 : 0;
+        if (u > 0.08 && th > 0) {
+          for (const o of [-th - 1, th + 1]) put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, " ", "#000", true);
+        }
         for (let o = -th; o <= th; o++) {
-          put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, o !== 0 && Math.abs(o) === th ? "O" : (s + o) % 2 ? "8" : "@", o !== 0 && Math.abs(o) === th ? krakenBone(95) : krakenBone(232), true);
+          put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, o !== 0 && Math.abs(o) === th ? "O" : (s + o) % 2 ? "8" : "@", o !== 0 && Math.abs(o) === th ? krakenBone(70) : krakenBone(232 + tone), true);
         }
         if (s % 2 === 0) put(x, y, "o", krakenBone(250), true);
       }
     };
     // The reach: the lead arm grows out from the body to its target along a whipping curve while a pair of shorter
     // arms flares out around it, so the whole mass of tentacles seems to blossom toward the prey.
-    const bloom = (tx: number, ty: number, p: number, seed: number, thick: number) => {
+    const bloom = (tx: number, ty: number, p: number, seed: number, thick: number, strands = 3) => {
       const e = p * p * (3 - 2 * p);
-      const whip = 1 - e;
       const rx = k.x + Math.cos(back) * k.size * 0.085;
       const ry = k.y + Math.sin(back) * k.size * 0.085;
       const toX = tx - rx;
       const toY = ty - ry;
       const dist = Math.hypot(toX, toY) || 1;
-      const ang = Math.atan2(toY, toX);
-      for (const [j, spread] of [-0.3, 0.3].entries()) {
-        // The outer arms reach less far and flare wider the more the lead arm has extended.
-        const len = dist * e * 0.5 * (0.85 + 0.15 * Math.sin(world.time * 5 + j));
-        const a = back + clamp(angleDiff(back, ang + spread * Math.min(1, 0.4 + p)), -(KRAKEN_ARC - 0.1), KRAKEN_ARC - 0.1);
-        arm(rx + Math.cos(a) * len, ry + Math.sin(a) * len, seed + j * 1.7 + 1, Math.max(1, thick - 1), whip);
+      // One long tentacle grows straight out to the target, snaking a little as it goes.
+      const whip = (1 - e) * 0.5;
+      // Thinner arms run along behind it, a little to each side and never quite as far out, so the reach reads as a single
+      // rope of strands, not a spray. How many go out fits the target: a lone arm for a diver, two for a shark, three for a saucer.
+      for (const [j, side] of (strands >= 3 ? [-1, 1] : strands === 2 ? [seed % 2 < 1 ? -1 : 1] : []).entries()) {
+        const ee = e * (0.7 + 0.08 * j);
+        const off = side * Math.min(k.size * 0.05, dist * 0.08) * (1 - 0.5 * e);
+        arm(rx + toX * ee - (toY / dist) * off, ry + toY * ee + (toX / dist) * off, seed + j * 1.7 + 1, Math.max(1, thick - 2), whip);
       }
       arm(rx + toX * e, ry + toY * e, seed, thick, whip);
-      // A dark hooked tip on the leading arm.
-      const hx = rx + toX * e;
-      const hy = ry + toY * e;
-      for (const o of [-1, 1]) put(hx + Math.cos(ang + o * 0.9) * cw * 1.3, hy + Math.sin(ang + o * 0.9) * cw * 1.3, "V", krakenBone(95), true);
     };
     if (k.strike && k.strike.f.alive) {
       const f = k.strike.f;
-      bloom(f.x, f.y, Math.min(1, (world.time - k.strike.at) / STRIKE_TIME), f.x * 0.01, 2);
+      bloom(f.x, f.y, Math.min(1, (world.time - k.strike.at) / STRIKE_TIME), f.x * 0.01, 2, 1);
+    }
+    for (const ss of k.sharkStrikes ?? []) {
+      const sh = ss.sh;
+      const bx = sh.nodes[12];
+      const by = sh.nodes[13];
+      bloom(bx, by, Math.min(1, (world.time - ss.at) / ss.dur), sh.length * 0.01, 3, sh.length > 330 ? 3 : 2);
     }
     const uf = world.ufo;
     if (uf && k.ufoStrike !== null) {
-      bloom(uf.x, uf.y, Math.min(1, (world.time - k.ufoStrike) / STRIKE_TIME), 3, 3);
+      bloom(uf.x, uf.y, Math.min(1, (world.time - k.ufoStrike) / STRIKE_TIME), 3, 3, 3);
     }
     if (uf && k.ufoHeld) {
       arm(uf.x, uf.y, 3, 3);
@@ -1179,9 +1271,28 @@ export class AsciiRenderer {
       const wy = Math.sin(whaleHeld.heading);
       const hw = whaleHeld.length * 0.095;
       // Several arms reach out from the kraken to clamp the whale, with dark-edged bands so they stand out on its pale hide.
-      for (const [i, u] of [0.3, 0.42, 0.54, 0.64].entries()) arm(whaleHeld.x - wx * whaleHeld.length * u, whaleHeld.y - wy * whaleHeld.length * u, 5 + i, 3);
-      const squeeze = 1 + 0.08 * Math.sin(world.time * 6);
-      for (const u of [0.2, 0.28, 0.36, 0.44, 0.52, 0.6, 0.68]) {
+      const poke = k.whaleMode === "poke";
+      const since = world.time - (k.whaleStart ?? world.time);
+      const prog = clamp(since / Math.max(0.1, k.whaleUntil - (k.whaleStart ?? 0)), 0, 1);
+      if (poke) {
+        // Two arms stab at the hide in turn and draw back; the rest hang loose, waving.
+        const rx = k.x + Math.cos(back) * k.size * 0.085;
+        const ry = k.y + Math.sin(back) * k.size * 0.085;
+        const jabP = clamp((world.time - (k.jabAt ?? -9)) / 0.7, 0, 1);
+        const jab = Math.sin(Math.PI * jabP);
+        for (const [i, off] of [0, 0.22].entries()) {
+          const u = clamp((k.jabU ?? 0.4) + (i ? (Math.sin(world.time * 1.3) > 0 ? off : -off) : 0), 0.12, 0.8);
+          const px = whaleHeld.x - wx * whaleHeld.length * u;
+          const py = whaleHeld.y - wy * whaleHeld.length * u;
+          const ext = Math.min(1, since / 0.8) * (0.35 + 0.65 * (i ? 1 - jab : jab));
+          arm(rx + (px - rx) * ext, ry + (py - ry) * ext, 5 + i, 3, 0.25);
+        }
+      } else {
+        for (const [i, u] of [0.3, 0.42, 0.54, 0.64].entries()) arm(whaleHeld.x - wx * whaleHeld.length * u, whaleHeld.y - wy * whaleHeld.length * u, 5 + i, 3, Math.max(0.3, 1 - since / 0.9));
+      }
+      // The squeeze tightens as it goes on.
+      const squeeze = (1 - 0.3 * prog * Math.min(1, since / 1.2)) * (1 + 0.07 * Math.sin(world.time * (6 + 8 * prog)));
+      for (const u of poke ? [] : [0.2, 0.28, 0.36, 0.44, 0.52, 0.6, 0.68]) {
         const cx = whaleHeld.x - wx * whaleHeld.length * u;
         const cy = whaleHeld.y - wy * whaleHeld.length * u;
         for (let s = -12; s <= 12; s++) {
@@ -1195,22 +1306,51 @@ export class AsciiRenderer {
     }
     for (const f of k.caught) {
       const left = Math.max(0, (f.crushAt ?? 0) - world.time);
-      arm(f.x, f.y, f.x * 0.01, 2, 0.05);
-      // Coils tighten round the diver as the crush nears.
-      for (const [rad0, dir] of [[1.9, 1], [1.2, -1]] as const) {
-        const rad = cw * (rad0 - 0.5 * Math.min(1, 1 - left / 7));
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2 * dir + world.time * 5 * dir;
-          put(f.x + Math.cos(a) * rad, f.y + Math.sin(a) * rad * 0.8, i % 2 ? "@" : "8", krakenBone(232), true);
+      // The arm lags the diver's swing: how far it bows back follows the diver's own velocity.
+      const prev = this.heldTrack.get(f);
+      const dtF = prev ? world.time - prev.t : 0;
+      let vx = prev?.vx ?? 0;
+      let vy = prev?.vy ?? 0;
+      if (prev && dtF > 0.001 && dtF < 0.25) {
+        const m = Math.min(1, dtF * 8);
+        vx += ((f.x - prev.x) / dtF - vx) * m;
+        vy += ((f.y - prev.y) / dtF - vy) * m;
+      }
+      this.heldTrack.set(f, { x: f.x, y: f.y, t: world.time, vx, vy });
+      const reachLen = Math.hypot(f.x - k.x, f.y - k.y);
+      const cap = reachLen * 0.45;
+      const vm = Math.hypot(vx, vy) || 1;
+      const bowBack = Math.min(vm * 0.6, cap);
+      // The arm ends on the near side of the diver and carries on as a coil: one continuous winding round the body
+      // (a turn and a half, spiralling in), so the grip is a complete wrap, not a hook that stops at the diver.
+      const toK = Math.atan2(k.y - f.y, k.x - f.x);
+      const tight = Math.min(1, 1 - left / 7);
+      const rOut = cw * (3.4 - 0.9 * tight);
+      const rIn = cw * (1.3 - 0.3 * tight);
+      arm(f.x + Math.cos(toK) * rOut, f.y + Math.sin(toK) * rOut * 0.8, f.x * 0.01, 2, 0.12, { x: (vx / vm) * bowBack, y: (vy / vm) * bowBack });
+      const TURNS = 1.5;
+      const COIL = 44;
+      for (let i = 0; i <= COIL; i++) {
+        const v = i / COIL;
+        const a = toK + v * TURNS * Math.PI * 2 + Math.sin(world.time * 2 + v * 3) * 0.12;
+        const rad = rOut + (rIn - rOut) * v * (2 - v);
+        for (const o of [-0.45, 0, 0.45]) {
+          const rr = rad + o * cw;
+          put(f.x + Math.cos(a) * rr, f.y + Math.sin(a) * rr * 0.8, o !== 0 ? "O" : i % 2 ? "@" : "8", o !== 0 ? krakenBone(95) : krakenBone(232), true);
         }
       }
     }
     if (!held.length) { flush(); return; }
-    for (const sh of held) {
-      // The bands only close round a shark once the arms have reached it.
-      if (!wrapped && world.time - (sh.grabbedAt ?? -99) < 1.6) continue;
+    for (const [hi, sh] of held.entries()) {
+      // One band closes for each arm that has actually arrived (the first once its arm has landed), so the number of
+      // coils always matches the number of arms visibly holding on.
+      const since = wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh.grabbedAt ?? -99);
+      let bands = 0;
+      for (let rk = 0, a = hi; rk < (wrapped ? WRAP_BANDS : holdArmsFor(sh)) && a < (wrapped ? 10 : 6); rk++, a += held.length) {
+        if (since - rk * ARM_STAGGER >= 1.0) bands++;
+      }
+      if (bands === 0) continue;
       const L = sh.length;
-      const bands = Math.max(3, Math.min(8, Math.round(L / 70)));
       const half = (n: number) => Math.max(9, L * 0.055) * Math.pow(Math.sin(Math.PI * Math.max(0.08, Math.min(0.92, n / (SHARK_NODES - 1)))), 0.7);
       const at = (n: number): [number, number, number, number] => {
         const i = Math.max(0, Math.min(SHARK_NODES - 2, Math.floor(n)));
@@ -1231,10 +1371,10 @@ export class AsciiRenderer {
           const u = (s / STEPS) * 2 - 1;
           const n = centre + u * slant;
           const [x, y, nx, ny] = at(n);
-          const across = u * (half(n) * 1.2 + ch * 0.4) * squeeze;
+          const across = u * (half(n) * 1.0 + ch * 0.2) * squeeze;
           const px = x + nx * across;
           const py = y + ny * across;
-          const thick = Math.max(1, Math.round((L * 0.016 + 1.5) * (1 - 0.35 * Math.abs(u)) / (cw * 0.8)));
+          const thick = Math.max(1, Math.round((L * 0.011 + 1.2) * (1 - 0.35 * Math.abs(u)) / (cw * 0.8)));
           for (let oy = -thick; oy <= thick; oy++) {
             for (let ox = -thick; ox <= thick; ox++) {
               if (ox * ox + oy * oy > thick * thick + 0.5) continue;
@@ -1613,7 +1753,7 @@ export class AsciiRenderer {
         const f = i / rings;
         const rad = coreR * f;
         const count = Math.max(6, Math.min(70, Math.round((2 * Math.PI * rad) / (cw * 0.8))));
-        const rgb = f < 0.4 ? "255,240,130" : f < 0.75 ? "255,160,40" : "230,60,30";
+        const rgb = b.green ? (f < 0.4 ? "225,255,170" : f < 0.75 ? "110,235,90" : "30,150,60") : f < 0.4 ? "255,240,130" : f < 0.75 ? "255,160,40" : "230,60,30";
         const glyphs = f < 0.4 ? "@%#" : f < 0.75 ? "%#*" : "*o:";
         for (let j = 0; j < count; j++) {
           const a = (j / count) * Math.PI * 2 + i * 0.7;
@@ -1745,7 +1885,7 @@ export class AsciiRenderer {
           const x = rp.x + Math.cos(a - Math.PI) * r0 * wob;
           const y = rp.y + Math.sin(a - Math.PI) * r0 * wob;
           const amount = rp.song ? 0.5 * fade : thick === 0 ? (soft ? 0.9 : 0.8) * fade : Math.min(0.5, 0.2 * fade * rp.strength);
-          this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, amount * amp * weight / Math.sqrt(Math.max(1, world.ripples.length / 8)));
+          this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, 0.6 * amount * amp * weight / Math.sqrt(Math.max(1, world.ripples.length / 5)));
           const ci = this.cellIndex(x, y);
           if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], Math.max(0.01, 1 - fade + 0.01 - p * 0.1) + (rp.hue ? 10 : 0));
         }
@@ -2058,6 +2198,7 @@ export class AsciiRenderer {
           sharkKind[i] = kindIndex;
           const xray = sh.mega && this.yeat > 0.5;
           this.sharkXray[i] = xray ? (centerHit && coverage >= 0.6 ? 1 : 2) : 0;
+          this.sharkRage[i] = sh.mega ? Math.round(255 * clamp((sh.rageLevel ?? 0) * (0.9 + 0.1 * Math.sin(t * 5)), 0, 1)) : 0;
 
           if (centerHit && coverage >= 0.6) {
             sharkFlag[i] = flag;
@@ -2250,7 +2391,16 @@ export class AsciiRenderer {
       const xr = this.sharkXray[i];
       // In x-ray the skin sinks back so the bones show through, but its outline stays bright so the shark still reads.
       const dim = (0.7 + 0.3 * sharkDepth[i]) * (xr === 1 ? 0.55 : xr === 2 ? 1.5 : 1);
-      const [tr, tg, tb] = SHAPES[KINDS[sharkKind[i]]].tint;
+      let [tr, tg, tb] = SHAPES[KINDS[sharkKind[i]]].tint;
+      // An enraged megalodon's hide deepens: darker, and the cool grey tint swings to a deep crimson.
+      const rg = this.sharkRage[i] / 255;
+      let deep = 1;
+      if (rg > 0) {
+        tr = tr + (1.15 - tr) * rg;
+        tg = tg * (1 - 0.82 * rg);
+        tb = tb * (1 - 0.85 * rg);
+        deep = 1 - 0.3 * rg;
+      }
 
       // Colours re-roll on a staggered clock so the hide shimmers.
       const tick = Math.floor(t * 2.4 + (key % 997) / 97);
@@ -2259,7 +2409,7 @@ export class AsciiRenderer {
       if (flag === FLAG_EDGE) {
         // Soft, anti-aliased silhouette: no block, just a light glyph.
         const set = shade >= 0.5 || xr === 2 ? EDGE_HEAVY : EDGE_LIGHT;
-        const g = (70 + shade * 80) * dim;
+        const g = (70 + shade * 80) * dim * deep;
         ctx.fillStyle =
           roll < 0.07
             ? ACCENTS[key % ACCENTS.length]
@@ -2287,14 +2437,15 @@ export class AsciiRenderer {
         const jitter = ((key >>> 4) % 3) - 1;
         glyph = SKIN_RAMP[clamp(Math.floor((1 - shade) * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
       }
-      level *= dim;
+      level *= dim * deep;
       // Tinted per species; the classic tint is a cool blue-grey, like a back seen through deep water.
       ctx.fillStyle = `rgb(${Math.min(255, Math.round(level * tr))},${Math.min(255, Math.round(level * tg))},${Math.min(255, Math.round(level * tb + 4))})`;
       ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
 
       let color: string;
-      if (flag === FLAG_EYE) color = "#9aa0ad";
+      if (flag === FLAG_EYE) color = rg > 0.15 ? "#ffcc33" : "#9aa0ad";
       else if (flag === FLAG_MARK) color = `rgb(${Math.round(70 * tr)},${Math.round(70 * tg)},${Math.round(70 * tb)})`;
+      else if (rg > 0.15 && roll < 0.11) color = "#ffc53a";
       else if (roll < 0.09) color = ACCENTS[key % ACCENTS.length];
       else if (roll < 0.13) color = "#ffffff";
       else color = shade > 0.55 ? "#0e0f13" : "#1b1d24";
