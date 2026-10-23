@@ -21,7 +21,10 @@ export class OceanEngine {
   private resizeObserver: ResizeObserver;
   private intersectionObserver: IntersectionObserver;
   private disposed = false;
-  private activitySpeed = 0.65;
+  private activitySpeed = 0.85;
+  /** The speed actually in use: it eases toward activitySpeed, so an assistant closing never slams the sea to a crawl. */
+  private liveSpeed = 0.85;
+  private speed = 1;
   private trail: { x: number; y: number } | null = null;
   private f = 1;
 
@@ -31,10 +34,13 @@ export class OceanEngine {
   eventStatus(kind: Parameters<World["triggerEvent"]>[0]) { return this.world.eventStatus(kind); }
 
   setWorking(working: boolean) {
-    this.activitySpeed = working ? 1.55 : 0.65;
+    this.activitySpeed = working ? 1.55 : 0.85;
   }
 
   setFps(fps: number) { this.fps = fps; }
+
+  /** Simulation speed multiplier (1, 2 or 4): the world just runs more fixed steps per frame. */
+  setSpeed(speed: number) { this.speed = speed; }
 
   /** How many saucers or whales are out right now. */
   count(kind: "ufo" | "whale") { return kind === "ufo" ? this.world.ufos.length : this.world.whales.length; }
@@ -142,20 +148,23 @@ export class OceanEngine {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
-    // Cap the frame rate: 30 fps in focus, 15 fps when another window has focus.
-    const interval = 1000 / (document.hasFocus() ? this.fps : Math.min(this.fps, 15));
+    // Cap the frame rate. An unfocused window only drops to 20 fps (not 15): closing an assistant hands focus away, and a sudden
+    // drop to a slideshow looks like the tank froze.
+    const interval = 1000 / (document.hasFocus() ? this.fps : Math.min(this.fps, 20));
     if (now - this.lastDraw < interval - 3) return;
     this.lastDraw = now;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    this.acc += dt * this.activitySpeed;
+    this.liveSpeed += (this.activitySpeed - this.liveSpeed) * Math.min(1, dt * 1.2);
+    this.acc += dt * this.liveSpeed * this.speed;
     let steps = 0;
-    while (this.acc >= STEP && steps < MAX_STEPS) {
+    const maxSteps = MAX_STEPS * this.speed;
+    while (this.acc >= STEP && steps < maxSteps) {
       this.world.step(STEP);
       this.acc -= STEP;
       steps++;
     }
-    if (steps === MAX_STEPS) this.acc = 0;
+    if (steps === maxSteps) this.acc = 0;
     this.renderer.render(this.world, dt);
   };
 

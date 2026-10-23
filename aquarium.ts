@@ -1,4 +1,5 @@
 import { OceanEngine } from './src';
+import { flavor, isBoss, isClash } from './src/lines';
 
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
@@ -106,7 +107,7 @@ void refresh();
 // Keys (any casing, all optional: every event also runs on its own): S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   l: ['current', 'living light drifts through the deep...'],
-  k: ['kraken', 'the kraken rises from the deep...'], m: ['mega', 'a megalodon approaches... brace yourselves!'], c: ['saga', 'something stirs below... something HUGE!'],
+  k: ['kraken', "you feel like you're being watched..."], m: ['mega', 'something stirs from below...'], c: ['saga', 'the deep has awoken...'],
   r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
   w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
   f: ['fight', 'a fight breaks out! teeth out!'], o: ['moon', 'the sky darkens...'], s: ['maelstrom', 'the sea begins to turn...'], g: ['bloom', 'a faint glow rises from below...'], p: ['migration', 'the whole sea starts to move...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
@@ -168,7 +169,7 @@ const TONES: [RegExp, string, string][] = [
   [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
   [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd/i, 'event', '>>> '],
 ];
-const SPECIAL: Record<string, string> = { rainbow: '*~ ', insist: '(-_-) ' };
+const SPECIAL: Record<string, string> = {};
 // Notices stack up bottom-left like a game log: the newest at the bottom, at most five at once, each holding for a while and
 // then fading away slowly. The oldest is dropped when a sixth arrives.
 const log = document.createElement('div');
@@ -176,10 +177,16 @@ log.id = 'toasts';
 document.body.append(log);
 const LOG_MAX = 5;
 const lives = new WeakMap<HTMLElement, Animation>();
-function showToast(text: string, forced?: string) {
-  // The same line never shows twice: repeating it (say, "already happening!") just refreshes the one on screen.
-  const same = [...log.children].find((c) => (c as HTMLElement).dataset.text === text) as HTMLElement | undefined;
+function showToast(text: string, forced?: string, key = text) {
+  // The same line never shows twice: a repeat (say, "already happening!" or a third whale knocking) refreshes the one on
+  // screen and bumps its count, so spamming a key adds a "×n" to one line instead of bloating the log.
+  const same = [...log.children].find((c) => (c as HTMLElement).dataset.key === key) as HTMLElement | undefined;
   if (same) {
+    const n = Number(same.dataset.count ?? 1) + 1;
+    same.dataset.count = String(n);
+    let badge = same.querySelector('b');
+    if (!badge) { badge = document.createElement('b'); same.append(badge); }
+    badge.textContent = ' ×' + n;
     try {
       lives.get(same)?.cancel();
       const life = same.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
@@ -190,11 +197,13 @@ function showToast(text: string, forced?: string) {
     log.append(same);
     return;
   }
-  const [, tone, glyph] = forced ? [0, forced, SPECIAL[forced] ?? ''] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  const [, tone] = forced ? [0, forced, SPECIAL[forced] ?? ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
   const el = document.createElement('div');
   el.className = 'toast t-' + tone;
-  el.textContent = glyph + text;
-  el.dataset.text = text;
+  // Boss and clash lines are bare: no leading marks and no exclamation marks (ellipses stay), like an announcement in Terraria.
+  el.textContent = tone === 'boss' || tone === 'clash' ? text.replace(/!+/g, '').trim() : tone === 'whale' ? text.replace(/[.!~\s]+$/, '') + '~' : text;
+  el.dataset.key = key;
+  el.dataset.count = '1';
   log.append(el);
   while (log.children.length > LOG_MAX) log.firstElementChild!.remove();
   try {
@@ -209,7 +218,7 @@ function showToast(text: string, forced?: string) {
     lives.set(el, life);
   } catch { setTimeout(() => el.remove(), 9000); }
 }
-setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) showToast(n); }, 400);
+setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) showToast(flavor(n), undefined, n); }, 400);
 // The window is a fixed little tank: no browser zoom and no find bar. F11 and the window buttons are untouched.
 addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (['+', '-', '=', '_', '0', 'f', 'F'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract' || e.code === 'Numpad0')) e.preventDefault();
@@ -229,10 +238,14 @@ addEventListener('keydown', e => {
   if ((entry[0] === 'ufo' || entry[0] === 'whale') && (result === 'started' || result === 'already' || result === 'full')) {
     const n = engine.count(entry[0]);
     const cap = entry[0] === 'ufo' ? 3 : 2;
-    showToast(countLine(result === 'started' ? entry[0] + Math.max(1, Math.min(n, cap)) : entry[0] + 'Cap'));
+    // Keyed by the count, so repeat presses at the cap collapse into one line with a count, whichever line it first showed.
+    const kind = result === 'started' ? entry[0] + Math.max(1, Math.min(n, cap)) : entry[0] + 'Cap';
+    showToast(countLine(kind), undefined, kind);
     return;
   }
-  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up... it comes next!' : result === 'full' ? 'no more divers... :(' : result === 'started' ? entry[1] : result === 'already' ? (entry[0] === 'whale' ? ['two whales is the limit...', 'the tank cannot fit a third whale!', 'two whales already. that is plenty.'][Math.floor(Math.random() * 3)] : 'already happening!') : result === 'off' ? 'turned off in opts...' : 'this event needs more room right now...');
+  // The kraken, the megalodon and the clash announce themselves from the world, so the key adds no line of its own.
+  if (result === 'started' && ['kraken', 'mega', 'saga'].includes(entry[0])) return;
+  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up... it comes next!' : result === 'full' ? 'no more divers... :(' : result === 'started' ? flavor(entry[1]) : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'this event needs more room right now...');
 });
 
 // Options panel: a few cycling toggles, plus an events list where each event can be ticked on or off. Remembered between runs.
@@ -243,8 +256,8 @@ const eventCatalog: [EventKind, string][] = [
   ['mega', 'megalodon'], ['saga', 'titans clash'], ['ufo', 'flying saucers'], ['diver', 'divers'], ['chase', 'chases'],
   ['bait', 'bait balls'], ['fight', 'shark duels'], ['night', 'nightfall'], ['yeat', 'yeat mode'],
 ];
-const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], night: ['on', 'off'], motion: ['smooth', 'saver'] };
-const chosen: Record<string, string> = { events: 'normal', night: 'on', motion: 'smooth' };
+const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], night: ['on', 'off'], motion: ['smooth', 'saver'], speed: ['1x', '2x', '4x'] };
+const chosen: Record<string, string> = { events: 'normal', night: 'on', motion: 'smooth', speed: '1x' };
 const enabled: Record<string, boolean> = {};
 try {
   const saved = JSON.parse(localStorage.getItem('aq-options') || '{}');
@@ -276,6 +289,7 @@ function applyOptions() {
   engine.setEventLevel(chosen.events as 'off' | 'calm' | 'normal' | 'busy');
   engine.setNightEnabled(chosen.night === 'on');
   engine.setFps(chosen.motion === 'saver' ? 15 : 30);
+  engine.setSpeed(parseInt(chosen.speed, 10) || 1);
   panel.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach(button => { button.querySelector('b')!.textContent = chosen[button.dataset.opt!]; });
   try { localStorage.setItem('aq-options', JSON.stringify(chosen)); } catch {}
 }
