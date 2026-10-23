@@ -340,6 +340,8 @@ export class AsciiRenderer {
   private width = 0;
   private height = 0;
   private yeat = 0;
+  /** Event bars waiting to be drawn on top of everything else this frame. */
+  private hud: (() => void)[] = [];
   private lastShake = "";
   private reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   private lastYeat = 0;
@@ -578,6 +580,17 @@ export class AsciiRenderer {
     let slot = 0;
     if (world.invasion) this.drawInvasion(world, slot++);
     for (const sg of world.sagas) this.drawSagaBanner(world, sg, slot++);
+    // Only three bars are ever drawn; the rest fold into one line.
+    if (slot > 3) {
+      const extra = slot - 3;
+      this.hud.push(() => {
+        const { put, flush } = this.painter();
+        const more = `+${extra} more`;
+        const cx = (this.cols * this.cw) / 2;
+        for (let i = 0; i < more.length; i++) put(cx + (i - more.length / 2) * this.cw, this.ch * (3.2 + 3 * 4.2 + 0.2), more[i], this.yeat > 0.05 ? "rgb(200,205,220)" : "rgb(170,175,185)", true);
+        flush(this.yeat * 8);
+      });
+    }
     this.drawMeteors(world);
     this.drawSawBlade(world);
     this.drawSlices(world);
@@ -596,6 +609,7 @@ export class AsciiRenderer {
       ctx.fillStyle = `rgba(0,8,26,${(0.2 * this.night).toFixed(3)})`;
       ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
     }
+    this.drawHud();
   }
 
 
@@ -667,11 +681,13 @@ export class AsciiRenderer {
       const key = row * cols + col;
       if (force || !cells.has(key)) cells.set(key, [glyph, color]);
     };
-    const flush = () => {
+    const flush = (glow = 0) => {
       for (const [key, [glyph, color]] of cells) {
         ctx.fillStyle = color;
+        if (glow > 0) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
         ctx.fillText(glyph, (key % cols) * cw + cw / 2, Math.floor(key / cols) * ch + ch / 2 + 1);
       }
+      if (glow > 0) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; }
     };
     return { put, flush };
   }
@@ -1207,7 +1223,7 @@ export class AsciiRenderer {
         return [x, y, -ty / tl, tx / tl];
       };
       for (let b = 0; b < bands; b++) {
-        const centre = 3.5 + (b / Math.max(1, bands - 1)) * 12.5;
+        const centre = sh.kind === "sawshark" ? 8 + (b / Math.max(1, bands - 1)) * 7 : 3.5 + (b / Math.max(1, bands - 1)) * 12.5;
         const squeeze = 1 + 0.12 * Math.sin(world.time * (wrapped ? 5 : 3) + b * 1.4);
         const slant = 1.5 * (b % 2 ? 1 : -1);
         const STEPS = 22;
@@ -1488,10 +1504,34 @@ export class AsciiRenderer {
     flush();
   }
 
-  /**
-   * The alien invasion banner, Terraria style: a title, a progress bar of saucers down, and a red pulse at the screen
-   * edges while it lasts. A big callout announces its start and its end.
-   */
+  /** One event bar: the title in the event's colour, a progress bar, and a short counter to the right of the bar. */
+  private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1) {
+    if (slot >= 3) return;
+    // Bars are drawn after everything else (see drawHud), so the yeat void, the vignette and the night tint never dim them.
+    this.hud.push(() => {
+    const { cw, ch } = this;
+    const t = world.time;
+    const cx = (this.cols * cw) / 2;
+    const y = ch * (3.2 + slot * 4.2);
+    const width = 26;
+    const filled = Math.round(Math.max(0, Math.min(1, progress)) * width);
+    const { put, flush } = this.painter();
+    const dark = this.yeat > 0.05;
+    for (let i = 0; i < title.length; i++) put(cx + (i - title.length / 2) * cw, y, title[i], `rgba(${rgb},${((t % 1 < 0.5 ? 1 : 0.8) * Math.max(0.3, fade)).toFixed(2)})`, true);
+    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? `rgb(${rgb})` : dark ? "rgb(135,135,155)" : "rgb(80,80,90)", true);
+    for (let i = 0; i < counter.length; i++) put(cx + (width / 2 + 2 + i) * cw, y + ch * 1.4, counter[i], "rgb(235,235,240)", true);
+    // In yeat mode the bar glows in its own colour against the black, breathing a little; at night it gets a soft halo.
+    flush(Math.max(this.yeat * (12 + 6 * Math.sin(t * 2.4)), this.night * 5));
+    });
+  }
+
+  /** The HUD layer: event bars, drawn on top of every wash and tint. */
+  private drawHud() {
+    for (const draw of this.hud) draw();
+    this.hud.length = 0;
+  }
+
+  /** The alien invasion bar, with a slow alarm pulse round the screen edges while it lasts. */
   private drawInvasion(world: World, slot: number) {
     const inv = world.invasion;
     if (!inv) return;
@@ -1499,7 +1539,6 @@ export class AsciiRenderer {
     const t = world.time;
     const w = this.cols * cw;
     const h = this.rows * ch;
-    // A slow green-red alarm pulse round the edges.
     const pulse = 0.5 + 0.5 * Math.sin(t * 3);
     const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
     g.addColorStop(0, "rgba(0,0,0,0)");
@@ -1507,23 +1546,10 @@ export class AsciiRenderer {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     const done = inv.killed + inv.escaped;
-    const { put, flush } = this.painter();
-    const title = "ALIEN INVASION";
-    const width = 26;
-    const filled = Math.round((done / inv.total) * width);
-    const cx = w / 2;
-    const y = ch * (3.2 + slot * 5.6);
-    for (let i = 0; i < title.length; i++) put(cx + (i - title.length / 2) * cw, y, title[i], t % 1 < 0.5 ? "rgb(150,255,170)" : "rgb(110,235,140)", true);
-    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? "rgb(150,255,170)" : "rgb(70,110,80)", true);
-    const label = `${inv.killed} DOWN   ${inv.total - done} TO GO`;
-    for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(210,235,215)", true);
-    flush();
+    this.drawEventBar(world, "ALIEN INVASION", "150,255,170", done / inv.total, `${done} of ${inv.total}`, slot);
   }
 
-  /**
-   * The banner for the other big events (blood moon, titans clash, meteor shower): a title, a progress bar and a
-   * line of detail, plus the blood moon's red wash.
-   */
+  /** The bar for the other big events (blood moon, titans clash, meteor shower, ...), plus the blood moon's red wash. */
   private drawSagaBanner(world: World, sg: World["sagas"][number], slot: number) {
     const { ctx, cw, ch } = this;
     const t = world.time;
@@ -1538,7 +1564,6 @@ export class AsciiRenderer {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
     }
-    const { put, flush } = this.painter();
     const k = world.kraken;
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
     const left = Math.max(0, Math.ceil(sg.until - t));
@@ -1546,23 +1571,12 @@ export class AsciiRenderer {
       : sg.kind === "migration" ? clamp01(sg.count / Math.max(1, sg.total))
       : sg.kind === "bloom" ? clamp01(sg.count / Math.max(1, sg.peak))
       : clamp01((t - sg.born) / (sg.until - sg.born));
-    const label = sg.kind === "moon" ? `THE MOON SETS IN ${left}s`
-      : sg.kind === "meteor" ? `${sg.count} STRIKES   ${left}s LEFT`
-      : sg.kind === "maelstrom" ? `${sg.lost} LOST   ${left}s LEFT`
-      : sg.kind === "bloom" ? `${sg.count}/${Math.max(sg.peak, sg.count)} DIVERS SAFE   ${left}s`
-      : sg.kind === "migration" ? `${sg.count}/${sg.total} ACROSS   ${sg.lost} LOST`
-      : k && k.state === "wrap" ? "KRAKEN vs MEGALODON" : "THE TITANS GATHER...";
-    const cx = w / 2;
-    const y = ch * (3.2 + slot * 5.6);
-    const width = 26;
-    const filled = Math.round(progress * width);
-    const rgb = sg.rgb;
-    for (let i = 0; i < sg.title.length; i++) put(cx + (i - sg.title.length / 2) * cw, y, sg.title[i], `rgba(${rgb},${((t % 1 < 0.5 ? 1 : 0.8) * Math.max(0.3, fade)).toFixed(2)})`, true);
-    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? `rgb(${rgb})` : "rgb(80,80,90)", true);
-    for (let i = 0; i < label.length; i++) put(cx + (i - label.length / 2) * cw, y + ch * 2.8, label[i], "rgb(225,225,230)", true);
-    flush();
+    const counter = sg.kind === "migration" ? `${sg.count} of ${sg.total}`
+      : sg.kind === "bloom" ? `${sg.count} of ${Math.max(sg.peak, sg.count)}`
+      : sg.kind === "clash" ? ""
+      : `${left}s`;
+    this.drawEventBar(world, sg.title, sg.rgb, progress, counter, slot, fade);
   }
-
 
   /** Meteors: a white-hot head with a long orange tail streaking down through the water. */
   private drawMeteors(world: World) {
