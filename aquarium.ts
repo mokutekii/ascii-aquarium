@@ -63,8 +63,6 @@ async function refresh() {
       celebrationUntil = Date.now() + 4500;
       engine.celebrate();
     }
-    const notice = engine.takeNotice();
-    if (notice) showToast(notice);
     // A plan was just presented: the whale glides through.
     const plan = Math.max(state.claude.planAt, state.codex.planAt);
     if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started') showToast('a plan is ready!');

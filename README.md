@@ -13,7 +13,7 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | L | living light: a quiet bioluminescent current drifts behind the animals |
 | K | a kraken rises, grabs sharks and divers, and squeezes (it can even grab a ufo) |
 | M | a megalodon crosses the tank and every shark bolts (with a kraken out, it comes for the kraken: press it when you want the fight) |
-| C | TITANS CLASH, the full story with its own banner: the kraken grabs sharks, then the megalodon comes for it and they fight |
+| C | TITANS CLASH, the full story with its own bar: the kraken grabs sharks, then the megalodon comes for it and they fight |
 | O | BLOOD MOON: the sea turns red, the sharks are always hungry and armed divers keep arriving (sometimes the megalodon too) |
 | E | METEOR SHOWER: burning rocks slam into the water (a rock that meets a saucer, diver or shark on the way down hits it on the spot), and a tech diver salvages the scrap |
 | S | THE MAELSTROM: two or three whirlpools tear across the tank, sling sharks about and swallow anything that reaches the middle; the bar counts down and keeps score of who was lost |
@@ -26,7 +26,7 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers (up to three at once) |
-| D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once) |
+| D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once; they also arrive by themselves in groups) |
 | (click) | clicking a diver pops it, and a shark swims over to clean up |
 | Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it; it very rarely shows up on its own, about 1% of the time or less) |
 | N | nightfall (the tank also slowly turns to night and back by itself) |
@@ -48,8 +48,8 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 - Some sharks grab a diver in their jaws and carry it around before eating it (or letting go). Divers come in five kinds: scuba, photographer (flashes at fights), treasure hunter, snorkeler and scooter.
 - When a ufo goes down, a purple tech diver swims in, salvages the scrap into a laser blaster and starts shooting fish and ufos. His shots can cut a kraken's grab short, free whatever it is holding, or provoke the megalodon into coming for him, and they lean the kraken and megalodon tug of war. He often blasts himself free when something grabs him.
 - Yellow bomber divers swim at a ufo, a titan or a shark, light a fuse (a red ! shows over their head) and blow up: the shockwave shoves sharks away, kills fish, stuns divers, frees what the kraken holds, destroys ufos and can swing the titan fight.
-- The big announced events (blood moon, meteor shower, titans clash and the alien invasion) each get a banner and a bar that report how it is going, and they stack one under another, as many as you like when you start them by hand (the sandbox has no caps). On their own, each kind of event rests on its own cooldown after it fires, so repeats are spaced out while different events overlap at random intervals. The two titans together (C, or M and K) are the exception: while they are clashing, nothing else begins. Ask for an announced event that is already running and it queues up and starts when that one ends.
-- When a third ufo arrives, the aliens are invading: a green banner and progress bar appear, and seven saucers come in waves (never more than three at once, and never on top of each other). The sea's own defenders (tech divers, bombers, the megalodon) take them down on their own, and if enough fall the invasion is repelled. The invasion never begins during a titans clash.
+- The big announced events (blood moon, meteor shower, titans clash and the alien invasion) each get a bar (a coloured title, a progress bar and an "X of X" counter; the bars glow in yeat mode) that reports how it is going, and they stack one under another (three at most, the rest fold into "+N more"), with the notes going to a toast log at the bottom left (five at a time, fading slowly, same line never twice), as many as you like when you start them by hand (the sandbox has no caps). On their own, each kind of event rests on its own cooldown after it fires, so repeats are spaced out while different events overlap at random intervals. The two titans together (C, or M and K) are the exception: while they are clashing, nothing else begins. Ask for an announced event that is already running and it queues up and starts when that one ends.
+- When a third ufo arrives, the aliens are invading: a green bar appears, and anywhere from three to fifteen saucers come in waves (never more than three at once, and never on top of each other). The sea's own defenders (tech divers, bombers, the megalodon) take them down on their own, and if enough fall the invasion is repelled. The invasion never begins during a titans clash.
 - The kraken and megalodon tug of war is wild: white fills the bar as the kraken wins, blue as the megalodon does, and it lurches around while they thrash.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.
 - The tank is simulated twice as big as the window and drawn scaled down. Fewer background sharks and smaller Titans give encounters more open water. The number of sharks wanders up and down instead of staying fixed.
