@@ -220,6 +220,7 @@ export const titanMethods: TitanMethods = {
           k.ambush = true;
           k.fatal = false;
           k.maul = true;
+          k.biteAt = undefined;
           k.lunging = false;
           k.coiled = true;
           k.landAt = time;
@@ -270,9 +271,13 @@ export const titanMethods: TitanMethods = {
           this.callout(k.x, k.y - k.size * 0.3, "DRAGGED BACK INTO THE FIGHT", "255,200,90");
         } else if (t > 5) k.harpoon = undefined;
       }
-    } else if (k.state === "grab" && mega && mega.retreat && !mega.leaving && time >= (k.harpoonAt ?? 0)) {
-      k.harpoonAt = time + rand(9, 15);
-      if (Math.hypot(mega.nodes[0] - k.x, mega.nodes[1] - k.y) < k.size * 3 && Math.random() < 0.4) {
+    } else if (k.state === "grab" && mega && mega.retreat && !mega.leaving && k.harpoonFor !== mega) {
+      // Each escape is decided once: most of the time the kraken lets it go; now and then it throws an arm after a short beat.
+      k.harpoonFor = mega;
+      k.harpoonAt = Math.random() < 0.3 ? time + rand(0.8, 4) : Infinity;
+    } else if (k.state === "grab" && mega && mega.retreat && !mega.leaving && time >= (k.harpoonAt ?? Infinity)) {
+      k.harpoonAt = Infinity;
+      if (Math.hypot(mega.nodes[0] - k.x, mega.nodes[1] - k.y) < k.size * 3) {
         k.harpoon = { target: mega, at: time };
         k.doom = Math.random() < 0.2;
         mega.chaseUntil = 0;
@@ -673,7 +678,7 @@ export const titanMethods: TitanMethods = {
           this.events.push({ kind: "eat", x: (k.x + m.nodes[0]) / 2, y: (k.y + m.nodes[1]) / 2 });
         }
         // Only once the arms have actually closed round it is it wrapped: that is when the fight (and its bar) begins.
-        if (!k.coiled && time - k.stateAt > 2.4) {
+        if (!k.coiled && time - k.stateAt > 1.4) {
           k.coiled = true;
           this.callout(k.x, k.y - k.size * 0.3, "KRAKEN WRAPS MEGALODON", "230,230,235");
           this.notices.push("the kraken has the megalodon wrapped");
@@ -705,7 +710,7 @@ export const titanMethods: TitanMethods = {
             .slice(0, 4);
           for (const s of helpers) { s.rallying = true; s.target = null; }
           if (helpers.length) {
-            this.notices.push("the sharks rally to the megalodon... all together now!");
+            this.notices.push("the sharks rally to the megalodon!");
           }
         }
         if (k.rally && this.sharks.filter((s) => s.rallying && Math.hypot(s.nodes[0] - k.x, s.nodes[1] - k.y) < k.size * 0.6).length >= 2) {
@@ -730,19 +735,33 @@ export const titanMethods: TitanMethods = {
         if (k.maul) {
           // Its head is in the jaws: the kraken is carried at the snout and whipped from side to side, mantle and arms flying.
           const t = time - k.stateAt;
-          const grip = Math.min(1, dt * (3 + 14 * Math.min(1, t / 0.45)));
-          const swing = Math.sin(t * 7.2) * (0.7 + 0.5 * Math.sin(t * 2.1));
           const hd = Math.atan2(m.nodes[1] - m.nodes[3], m.nodes[0] - m.nodes[2]);
-          const gx = m.nodes[0] + Math.cos(hd) * k.size * 0.03 - Math.sin(hd) * swing * k.size * 0.2;
-          const gy = m.nodes[1] + Math.sin(hd) * k.size * 0.03 + Math.cos(hd) * swing * k.size * 0.2;
-          k.x += (gx - k.x) * grip;
-          k.y += (gy - k.y) * grip;
-          // Face the jaws, flung round by each swing; the mantle trails away from the megalodon.
-          k.heading += angleDiff(k.heading, hd + Math.PI + swing * 1.1) * Math.min(1, dt * 9);
+          let swing = 0;
+          if (k.biteAt === undefined) {
+            // The megalodon swims in at a hurried pace while the kraken hangs there rigid with shock; the bite lands when the jaws arrive.
+            k.angVel = 0;
+            if (Math.hypot(k.x - m.nodes[0], k.y - m.nodes[1]) < k.size * 0.1 || t > 4) {
+              k.biteAt = time;
+              k.wrapFor += t;
+              this.splash(k.x, k.y, 2);
+            }
+          } else {
+            // Clamped: the kraken rides the jaws and is whipped from side to side, building up from a gentle sway.
+            const bt = time - k.biteAt;
+            const sway = Math.min(1, bt / 0.8);
+            swing = Math.sin(bt * 4.6) * (0.45 + 0.3 * Math.sin(t * 1.7)) * sway;
+            const grip = Math.min(1, dt * 6);
+            const gx = m.nodes[0] + Math.cos(hd) * k.size * 0.03 - Math.sin(hd) * swing * k.size * 0.2;
+            const gy = m.nodes[1] + Math.sin(hd) * k.size * 0.03 + Math.cos(hd) * swing * k.size * 0.2;
+            k.x += (gx - k.x) * grip;
+            k.y += (gy - k.y) * grip;
+            // Face the jaws, flung round by each swing; the mantle trails away from the megalodon.
+            k.heading += angleDiff(k.heading, hd + Math.PI + swing * 0.8) * Math.min(1, dt * 5);
+          }
           k.angVel = 0;
           k.jet = 1;
           k.wave += dt * 6;
-          if (time - k.inkAt > 0.35) {
+          if (k.biteAt !== undefined && time - k.inkAt > 0.35) {
             k.inkAt = time;
             this.events.push({ kind: "eat", x: k.x, y: k.y });
             this.splash(k.x, k.y, 1.3);
@@ -843,7 +862,7 @@ export const titanMethods: TitanMethods = {
               .slice(0, 7)
               .forEach((sh) => { sh.cleaning = true; sh.target = null; sh.alertUntil = time + 1.2; });
             this.notices.push(k.fatal ? "the chase is over... the kraken never stood a chance." : "the megalodon ate the kraken... what a feast!");
-            this.callout(k.x, k.y - k.size * 0.3, k.fatal ? "CHOMP. ...SILENCE." : "MEGALODON WINS - KRAKEN EATEN", k.fatal ? "190,200,225" : "255,120,110");
+            this.callout(k.x, k.y - k.size * 0.3, "MEGALODON WINS - KRAKEN EATEN", "255,120,110");
             this.kraken = null;
           } else {
             this.events.push({ kind: "eat", x: k.x, y: k.y });
@@ -891,6 +910,7 @@ export const titanMethods: TitanMethods = {
             k.winner = "mega";
             // Run down, it is bitten across the head and shaken to death.
             k.maul = true;
+            k.biteAt = undefined;
             k.lunging = false;
             k.coiled = true;
             k.landAt = time;
@@ -903,7 +923,6 @@ export const titanMethods: TitanMethods = {
             k.pushAt = undefined;
             mega.pounceUntil = 0;
             this.splash(k.x, k.y, 2.4);
-            this.callout(k.x, k.y - k.size * 0.3, "DUN DUN DUN DUN DUN DUN", "190,200,225");
             return;
           }
         }

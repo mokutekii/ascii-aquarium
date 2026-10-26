@@ -25,6 +25,8 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | W | a whale glides through, fish parting around it (up to two at once, and fine to call while one titan is out) |
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
+| H | another shark swims in from an edge, of a random kind (one in five is a ghost shark: pale cyan, slow, creeps up on divers and lunges in one hard burst). Capped a little above the usual shark count |
+| / | holds the last 15 major events in the toast spot, same style and size, until you press it again (or Esc) |
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers (up to three at once; the first, second and third each get their own toast, and a fourth press says the sky is full) |
 | D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once; they also arrive by themselves in groups) |
 | (click) | tapping a diver pops it, and a shark swims over to clean up; press and hold one to carry it around with the mouse, and fling it by letting go mid-swing (it has opinions) |
@@ -42,7 +44,11 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 - Kraken fights run in order: it turns, thrusts in arms first, lands, and is only "wrapped" once the arms have closed.
 - The megalodon can start a fight: it charges (a "dun dun" beat quickens as it closes), bites the kraken's head and whips it about. A fleeing kraken is sometimes chased: its ink loses the megalodon, or it is run down. A megalodon getting away can be hooked by an arm and dragged back ("GET OVER HERE!").
 - A kraken that reaches a whale pokes or squeezes it, then chooses: let go, crush or eat. Nothing dies on contact.
-- Sharks have species roles, moods and stamina, rally to a kill and frenzy around blood.
+- Sharks have species roles, moods and stamina, rally to a kill and frenzy around blood. They give each other more room now, steering clear of whole bodies, not just noses.
+- Shark toasts are coral, fire and bomb toasts orange, and glowing things lavender. Every toast trails off in an ellipsis, and the long ones are cut to one short line.
+- Big bold callouts are only for outcomes and turning points, with no box (a dark outline instead); everything else is a toast.
+- The megalodon swims in (1.5x its pace) to maul the kraken and the bite lands when the jaws arrive, instead of the kraken snapping to its head. A kraken being mauled has no arms wrapped round the megalodon. Wraps take hold in about 1.4s.
+- When the megalodon tears away or runs, the kraken decides once per escape: usually it lets go, sometimes it harpoons it with one of its own arms and drags it back.
 - Boss toasts are one short line: red for the kraken or megalodon, purple for a clash. Other toasts lose their symbols and use color instead (amber for danger, green for good, a trailing ~ for whales), and most have several wordings.
 - A key press starts any event whatever else is running, apart from one kraken, one megalodon, two whales and the diver cap. Random events still follow the usual rules.
 - The code is split into world, titans, sharks, types and lines.

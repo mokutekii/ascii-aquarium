@@ -40,6 +40,8 @@ export const TRAITS: Record<SharkKind, SharkTraits> = {
   tiger: { ...classic, speed: 0.95, stamina: 1.3, stalk: 0.6, diver: 0.8, fear: 0.7, scavenger: 1 },
   nurse: { ...classic, speed: 0.65, burst: 0.8, turn: 0.8, stamina: 2, tail: 0.7, stalk: 0.9, diver: 0.45, fear: 0.6, scavenger: 1 },
   zebra: { ...classic, speed: 0.8, burst: 0.9, stamina: 1.2, tail: 0.8, stalk: 0.4, diver: 0.7, fear: 0.9 },
+  // The silent stalker: drifts slowly, creeps right up on divers it picks out, then lunges in one hard burst.
+  ghost: { ...classic, speed: 0.7, burst: 1.9, turn: 1.1, stamina: 0.8, tail: 0.6, stalk: 1, diver: 1.7, fear: 0.4 },
   sawshark: { ...classic, speed: 0.95, burst: 1.15, turn: 1.1, stamina: 0.9, stalk: 0.5 },
 };
 
