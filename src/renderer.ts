@@ -99,6 +99,7 @@ const holdArmsFor = (sh: Shark) => Math.max(1, Math.min(HOLD_ARMS, Math.round(sh
 const WRAP_ARMS = 10;
 const WRAP_BANDS = 7;
 const ARM_STAGGER = 0.45;
+const WRAP_STAGGER = 0.15;
 /** How angry the kraken looks this frame (0 calm → 1 furious): its ivory flushes red. Set once per frame by render(). */
 let boneRage = 0;
 function krakenBone(v: number, tint = 0) {
@@ -147,7 +148,7 @@ interface SharkShape {
   tint: [number, number, number];
 }
 
-const SHAPES: Record<SharkKind, SharkShape> = {
+const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   classic: {
     halfWidth: classicHalfWidth,
     pectoral: [0.15, 0.43, 0.55, 0.26],
@@ -319,6 +320,9 @@ const SHAPES: Record<SharkKind, SharkShape> = {
     tint: [1.04, 0.96, 0.86],
   },
 };
+
+// A pale spectral cousin of the classic shark: same body, drained of colour and washed with cold cyan.
+const SHAPES: Record<SharkKind, SharkShape> = { ...BASE_SHAPES, ghost: { ...BASE_SHAPES.classic, tint: [0.72, 1.18, 1.3] } };
 
 const KINDS = Object.keys(SHAPES) as SharkKind[];
 
@@ -791,7 +795,7 @@ export class AsciiRenderer {
       const sh0 = wp || holders === 0 ? null : held[a % holders];
       const sinceG = wp ? world.time - (k.whaleStart ?? world.time) : !sh0 ? 0 : wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
       // A whale grip is taken by all the limbs together, a hair apart, not one after another.
-      const armSince = wp ? sinceG - (a % 4) * 0.05 : sinceG - Math.floor(a / Math.max(1, holders)) * ARM_STAGGER;
+      const armSince = wp ? sinceG - (a % 4) * 0.05 : sinceG - Math.floor(a / Math.max(1, holders)) * (wrapped ? WRAP_STAGGER : ARM_STAGGER);
       const attached = wp ? armSince >= 0 : grip && !!sh0 && (!feeder || wrapped) && Math.floor(a / holders) < (wrapped ? WRAP_ARMS : holdArmsFor(sh0)) && armSince >= 0;
       // An arm taking hold sweeps from where it was waving to its grip rather than jumping there: it always stays joined to the body.
       const prog = attached ? clamp(armSince / (0.9 + (a % 3) * 0.2), 0, 1) : 0;
@@ -1197,7 +1201,7 @@ export class AsciiRenderer {
     const k = world.kraken;
     // The kraken seizes divers as it swims in too, so its arms are drawn from the moment it arrives.
     if (!k || k.state === "flee") return;
-    const wrapped = k.state === "wrap" && !!k.wrapping;
+    const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
     const held = wrapped ? [k.wrapping!] : k.grabbed;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
@@ -1285,6 +1289,11 @@ export class AsciiRenderer {
       const by = sh.nodes[13];
       bloom(bx, by, Math.min(1, (world.time - ss.at) / ss.dur), sh.length * 0.01, 3, sh.length > 330 ? 3 : 2);
     }
+    if (k.harpoon && world.sharks.includes(k.harpoon.target)) {
+      // The harpoon: one of the kraken's own arms shoots out to the megalodon's head and stays hooked while it is hauled in.
+      const m = k.harpoon.target;
+      bloom(m.nodes[0], m.nodes[1], Math.min(1, (world.time - k.harpoon.at) / 0.5), 5.3, 3, 1);
+    }
     const uf = world.ufo;
     if (uf && k.ufoStrike !== null) {
       bloom(uf.x, uf.y, Math.min(1, (world.time - k.ufoStrike) / STRIKE_TIME), 3, 3, 3);
@@ -1370,7 +1379,7 @@ export class AsciiRenderer {
       const since = wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh.grabbedAt ?? -99);
       let bands = 0;
       for (let rk = 0, a = hi; rk < (wrapped ? WRAP_BANDS : holdArmsFor(sh)) && a < (wrapped ? 10 : 6); rk++, a += held.length) {
-        if (since - rk * ARM_STAGGER >= 1.0) bands++;
+        if (since - rk * (wrapped ? WRAP_STAGGER : ARM_STAGGER) >= (wrapped ? 0.6 : 1.0)) bands++;
       }
       if (bands === 0) continue;
       const L = sh.length;
@@ -1444,42 +1453,8 @@ export class AsciiRenderer {
       text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
       for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y, bar[i], i === mark ? "rgb(255,255,255)" : i < mark ? "rgb(235,235,240)" : "rgb(110,150,225)", true);
     }
-    // Jaws: while the megalodon surges at a kraken the "dun dun... dun dun..." beat quickens and swells as the gap closes.
-    const stalker = world.sharks.find((s) => s.mega && !s.retreat && (s.pounceUntil ?? 0) > world.time);
-    if (stalker && k && k.state !== "wrap") {
-      const gap = Math.hypot(stalker.nodes[0] - k.x, stalker.nodes[1] - k.y);
-      const near = 1 - Math.max(0, Math.min(1, gap / (Math.min(world.width, world.height) * 1.1)));
-      const cycle = 2.4 - 1.6 * near;
-      const p = (world.time % cycle) / cycle;
-      const beat = p < 0.12 ? "dun" : p >= 0.24 && p < 0.36 ? "dun" : p >= 0.5 && p < 0.62 ? "dun" : p >= 0.74 && p < 0.86 ? "dun" : "";
-      if (beat) {
-        const { ctx } = this;
-        ctx.save();
-        ctx.font = `italic 800 ${Math.round(ch * (1.1 + 1.1 * near))}px ${this.fontFamily}`;
-        ctx.textAlign = "center";
-        ctx.fillStyle = `rgba(190,205,235,${(0.55 + 0.4 * near).toFixed(2)})`;
-        ctx.fillText(beat + (p < 0.12 || (p >= 0.5 && p < 0.62) ? " ..." : ""), Math.max(60, Math.min(world.width - 60, stalker.nodes[0])), Math.max(ch * 2, stalker.nodes[1] - ch * 2.2));
-        ctx.restore();
-      }
-    }
-    if (k && k.harpoon && world.sharks.includes(k.harpoon.target)) {
-      // The hooked arm: a line of suckered links from the kraken to the megalodon's head, shot out in the first half second.
-      const m = k.harpoon.target;
-      const reach = Math.min(1, (world.time - k.harpoon.at) / 0.5);
-      const hx = k.x + (m.nodes[0] - k.x) * reach;
-      const hy = k.y + (m.nodes[1] - k.y) * reach;
-      const len = Math.hypot(hx - k.x, hy - k.y);
-      const steps = Math.max(2, Math.floor(len / (cw * 0.9)));
-      for (let i = 0; i <= steps; i++) {
-        const f = i / steps;
-        const wob = Math.sin(f * 9 - world.time * 14) * 5 * Math.sin(f * Math.PI);
-        const nx = -(hy - k.y) / (len || 1);
-        const ny = (hx - k.x) / (len || 1);
-        put(k.x + (hx - k.x) * f + nx * wob, k.y + (hy - k.y) * f + ny * wob, i === steps ? "@" : i % 2 ? "o" : "8", "rgb(235,228,240)", true);
-      }
-    }
     flush();
-    // Event labels: big bold text on a dark plate with a coloured edge, so they read against any background.
+    // Event labels: big bold coloured text with a dark outline, so they read against any background.
     if (world.callouts.length) {
       const { ctx } = this;
       ctx.save();
@@ -1492,11 +1467,11 @@ export class AsciiRenderer {
         const tw = ctx.measureText(c.text).width;
         const x = Math.max(tw / 2 + 12, Math.min(world.width - tw / 2 - 12, c.x));
         const y = Math.max(ch * 1.2, c.y - age * 8);
-        ctx.fillStyle = `rgba(0,0,0,${(0.78 * alpha).toFixed(2)})`;
-        ctx.fillRect(x - tw / 2 - 8, y - ch * 0.75, tw + 16, ch * 1.5);
-        ctx.strokeStyle = `rgba(${c.rgb},${(0.8 * alpha).toFixed(2)})`;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x - tw / 2 - 8, y - ch * 0.75, tw + 16, ch * 1.5);
+        // No plate: a dark outline round the bold text keeps it readable on any background.
+        ctx.lineJoin = "round";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = `rgba(0,0,0,${(0.85 * alpha).toFixed(2)})`;
+        ctx.strokeText(c.text, x, y + 1);
         ctx.fillStyle = `rgba(${c.rgb},${alpha.toFixed(2)})`;
         ctx.fillText(c.text, x, y + 1);
       }

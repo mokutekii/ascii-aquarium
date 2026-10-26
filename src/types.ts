@@ -4,7 +4,7 @@ import type { SharkMood } from "./sharks";
 
 export const SHARK_NODES = 20;
 
-export type SharkKind = "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse" | "sawshark";
+export type SharkKind = "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse" | "sawshark" | "ghost";
 
 /** Which sharks to put in the water; size is relative to the biggest. */
 export type SharkSpec = { kind: SharkKind; size: number };
@@ -232,6 +232,8 @@ export interface Kraken {
   /** An arm shot at a megalodon that is getting away, to drag it back; harpoonAt is when it may next try, doom that this drag ends with the kraken winning. */
   harpoon?: { target: Shark; at: number };
   harpoonAt?: number;
+  /** The retreating megalodon the harpoon chance has already been rolled for. */
+  harpoonFor?: Shark;
   doom?: boolean;
   /** The megalodon caught it from behind (a pounce or a chase): a short, violent clamp rather than a lunge; fatal if the chase ran it down. */
   ambush?: boolean;
@@ -239,6 +241,8 @@ export interface Kraken {
   coiled?: boolean;
   /** The megalodon has the kraken's head in its jaws and is whipping it about (a pounce or a run-down), with its arms flailing loose. */
   maul?: boolean;
+  /** When the jaws actually closed on the kraken; until then the megalodon is still swimming in. */
+  biteAt?: number;
   fatal?: boolean;
   /** Fleeing: whether its ink throws the megalodon off, and whether that has been announced. */
   inkEscape?: boolean;

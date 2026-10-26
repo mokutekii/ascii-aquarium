@@ -24,6 +24,7 @@ import { DEFAULT_SHARKS, SHARK_NODES, SharkKind, SharkSpec, DiverKind, DIVER_MAS
 export * from "./types";
 
 
+const BIG_CALLOUT = /WINS|KILLS THE|BLOWN APART|CRUSHES WHALE|EATS WHALE|SEIZES WHALE|SAVE THE|TEARS LOOSE|DRAGGED BACK|GET OVER HERE|TURNS THE TIDE/;
 const FISH_SEPARATION_K = 420;
 const FISH_ALIGN_K = 1.4;
 const FISH_COHESION_K = 1;
@@ -796,7 +797,7 @@ export class World {
     // It breaks into two halves that drift apart, whatever did it (a smashed one is flung harder).
     const kick = how === "smashed" ? 90 : 38;
     this.debris.push({ x: u.x, y: u.y, vx: -kick, vy: 12, side: -1, born: this.time }, { x: u.x, y: u.y, vx: kick, vy: 12, side: 1, born: this.time });
-    this.notices.push(how === "smashed" ? "the megalodon smashed the ufo... scrap everywhere!" : how === "crushed" ? "the kraken crushed the ufo... crunch!" : how === "shot" ? "a diver shot the ufo down... pew pew!" : how === "blasted" ? "a bomber blew up the ufo... kaboom!" : "the sawshark cut the ufo in half... zzzip!");
+    this.notices.push(how === "smashed" ? "the megalodon smashed the ufo... scrap" : how === "crushed" ? "the kraken crushed the ufo... crunch!" : how === "shot" ? "a diver shot the ufo down... pew pew!" : how === "blasted" ? "a bomber blew up the ufo... kaboom!" : "the sawshark cut the ufo in half... zzzip!");
     // Whatever brought it down, the wreck leaves scrap drifting in the water.
     const scrap: [string, string][] = [["=", "190,200,215"], ["#", "150,160,180"], ["%", "210,215,225"], ["+", "120,235,255"], ["o", "230,235,240"], ["|", "170,180,200"]];
     for (let i = 0; i < 26; i++) {
@@ -1099,16 +1100,16 @@ export class World {
     const say = (_text: string, _rgb: string, notice: string) => { this.notices.push(notice); };
     if (sg.kind === "maelstrom") {
       this.vortices = [];
-      if (sg.lost === 0) say("THE STORM PASSES... NO ONE WAS LOST!", "150,255,190", "the maelstrom is gone... and nobody was swallowed!!!");
-      else say("THE STORM PASSES...", "170,215,255", `the maelstrom is gone... ${sg.lost} did not come back...`);
+      if (sg.lost === 0) say("THE STORM PASSES... NO ONE WAS LOST!", "150,255,190", "the maelstrom is gone... everyone made it back");
+      else say("THE STORM PASSES...", "170,215,255", `the maelstrom is gone... ${sg.lost} did not return`);
     } else if (sg.kind === "bloom") {
       this.bloomSeen.clear();
-      if (sg.lost === 0) say("THE BLOOM FADES... EVERYONE IS SAFE!", "200,170,255", "the glow fades... every diver made it through!!!");
-      else say("THE BLOOM FADES...", "200,170,255", `the glow fades... ${sg.lost} divers were lost...`);
+      if (sg.lost === 0) say("THE BLOOM FADES... EVERYONE IS SAFE!", "200,170,255", "the glow fades... everyone made it back");
+      else say("THE BLOOM FADES...", "200,170,255", `the glow fades... ${sg.lost} did not return`);
     } else if (sg.kind === "migration") {
       for (const f of this.migrants) delete f.migrate;
       this.migrants = [];
-      say(`THE HERD HAS CROSSED! ${sg.count} OF ${sg.total}`, "150,240,200", `the great migration is over... ${sg.count} of ${sg.total} made it across!!!`);
+      say(`THE HERD HAS CROSSED! ${sg.count} OF ${sg.total}`, "150,240,200", `the herd has crossed... ${sg.count} of ${sg.total} made it`);
     }
   }
 
@@ -1260,7 +1261,7 @@ export class World {
     // Saucers may turn up during a titans clash, but the invasion never begins in the middle of one.
     if (this.titanPair() || this.sagas.some((s) => s.kind === "clash")) return;
     this.invasion = { total: randInt(3, 15), spawned: this.ufos.length, killed: 0, escaped: 0, nextAt: this.time + rand(7, 11), born: this.time, banner: this.time };
-        this.notices.push("the aliens are invading!!! hold the line...");
+        this.notices.push("the aliens are invading!");
   }
 
   stepInvasion() {
@@ -1297,9 +1298,9 @@ export class World {
     if (inv.spawned >= inv.total && this.ufos.length === 0) {
       this.invasion = null;
       if (inv.killed >= Math.ceil(inv.total / 2)) {
-                this.notices.push("the invasion has been repelled!!! the sea is safe... for now");
+                this.notices.push("the invasion is repelled... for now");
       } else {
-                this.notices.push("the aliens slipped away... they will be back...");
+                this.notices.push("the aliens retreat... they'll be back");
       }
     } else if (time - inv.born > 360) this.invasion = null;
   }
@@ -1537,7 +1538,7 @@ export class World {
       u.ammo = 0;
       const dir = Math.random() < 0.5 ? -1 : 1;
       this.callout(u.x, u.y - 40, "BOMBS AWAY!", "130,255,110");
-      this.notices.push(n > 1 ? "the ufo emptied the whole hold... carpet bombing!" : "the ufo sweeps its last bomb across the tank...");
+      this.notices.push(n > 1 ? "the ufo carpet-bombs the tank!" : "the ufo drops its last bomb");
       for (let i = 0; i < Math.max(n, 3); i++) this.bombQueue.push({ x: clamp(tx + dir * (i - 1) * 170, 40, this.width - 40), y: ty, at: time + i * 0.4, u });
     } else if (kind === "dud") {
       this.splash(tx, ty, 0.8);
@@ -1558,12 +1559,12 @@ export class World {
       this.explode(u.x, u.y + 30, undefined, u);
       this.callout(u.x, u.y - 40, "DROPPED IT ON ITSELF", "255,110,100");
       this.destroyUfo("blasted", u);
-      this.notices.push("the ufo fumbled the bomb... kaboom, right in its lap.");
+      this.notices.push("the ufo fumbled a bomb... kaboom");
     } else {
       // The bomber was not done: the saucer spins wildly and a stray bomb goes off wherever it points.
       u.fast = true;
       this.callout(u.x, u.y - 40, "BOMBER ON THE LOOSE", "130,255,110");
-      this.notices.push("the bomber woke up inside the ufo... it's spinning!");
+      this.notices.push("the bomber woke up inside the ufo!");
       for (let i = 0; i < 3; i++) this.bombQueue.push({ x: rand(this.width * 0.1, this.width * 0.9), y: rand(this.height * 0.3, this.height * 0.9), at: time + 0.5 + i * 0.7, u });
     }
   }
@@ -1796,7 +1797,11 @@ export class World {
   }
 
   callout(x: number, y: number, text: string, rgb = "255,255,255") {
+    // Boxes are for turning points and outcomes; the rest of the story is told by the toast log, so it never piles up here.
+    if (!BIG_CALLOUT.test(text)) return;
     if (this.callouts.some(c => c.text === text && this.time - c.born < 2)) return;
+    // A new box replaces any that are still fresh, so two never render over each other.
+    this.callouts = this.callouts.filter((c) => this.time - c.born > 1.8);
     this.callouts.push({ x, y, text, rgb, born: this.time });
     if (this.callouts.length > 6) this.callouts.shift();
   }
@@ -1922,8 +1927,8 @@ export class World {
           if (k.state === "grab" && Math.random() < 0.4) {
             k.state = "flee";
             k.stateAt = time;
-            this.notices.push("a bomber blew up in the kraken's arms... it's fleeing!");
-          } else this.notices.push("a bomber blew up in the kraken's arms... and it's furious!");
+            this.notices.push("a bomber blew up in the kraken's arms... it flees");
+          } else this.notices.push("a bomber blew up in the kraken's arms... now it's furious");
         }
         if (k.state === "wrap") k.tilt = clamp(k.tilt - 0.22, -1, 1);
       }
@@ -2336,7 +2341,7 @@ export class World {
     }
     this.splash(x, y, 3);
     this.callout(x, y - 60, by === "mega" ? "MEGALODON SEIZES WHALE" : how === "crush" ? "KRAKEN CRUSHES WHALE" : how === "eat" ? "KRAKEN EATS WHALE" : "KRAKEN SEIZES WHALE", "255,120,110");
-    this.notices.push(by === "mega" ? "a whale swam into the megalodon... gone in a single bite!" : how === "crush" ? "the kraken crushed the whale... the sharks move in!" : how === "eat" ? "the kraken dragged the whale under... and ate it!" : "a whale swam into the kraken... and was dragged under!");
+    this.notices.push(by === "mega" ? "the megalodon swallowed a whale whole" : how === "crush" ? "the kraken crushed the whale" : how === "eat" ? "the kraken ate the whale" : "the kraken dragged a whale under");
     const bits: [string, string][] = [["#", "205,220,240"], ["%", "170,190,225"], ["@", "235,240,250"], ["*", "200,70,80"], [":", "190,60,70"], ["o", "245,245,240"]];
     for (let i = 0; i < 60; i++) {
       const p = this.whalePoint(wh, rand(0.05, 0.95));
@@ -3155,13 +3160,13 @@ export class World {
       // Give other sharks room.
       for (const other of sharks) {
         if (other === sh) continue;
-        for (let k = 0; k < SHARK_NODES; k += 4) {
+        for (let k = 0; k < SHARK_NODES; k += 2) {
           const ox = hx - other.nodes[k * 2];
           const oy = hy - other.nodes[k * 2 + 1];
           const d = Math.hypot(ox, oy);
-          const range = (L + other.length) * 0.45;
+          const range = (L + other.length) * 0.6;
           if (d < range && d > 1e-3) {
-            const w = (1 - d / range) * 3;
+            const w = (1 - d / range) * 3.2;
             dx += (ox / d) * w;
             dy += (oy / d) * w;
           }
@@ -3215,7 +3220,8 @@ export class World {
         // Wrapped by the kraken it whips its head about; a winning megalodon thrashes harder as the fight goes on.
         let wobble = 0;
         if (kraken?.state === "wrap" && kraken.wrapping === sh && kraken.maul) {
-          wobble = Math.sin((time - kraken.stateAt) * 7.2) * 0.55;
+          const mt = kraken.biteAt === undefined ? 0 : time - kraken.biteAt;
+          wobble = Math.sin(mt * 4.6) * 0.4 * clamp(mt / 0.8, 0, 1);
         } else if (kraken?.state === "wrap" && kraken.wrapping === sh && kraken.coiled) {
           const progress = clamp((time - kraken.stateAt) / kraken.wrapFor, 0, 1);
           const power = kraken.winner === "mega" ? 0.6 + 0.6 * progress : 0.7 * (1 - 0.8 * progress);
@@ -3302,7 +3308,7 @@ export class World {
             this.splash(hx, hy, 1.6);
             if (sawFree) {
               this.callout(hx, hy - 40, "SAWSHARK CUTS FREE", "150,255,190");
-              this.notices.push("the sawshark sawed its way out of the kraken's arm!");
+              this.notices.push("the sawshark sawed itself free!");
               const bits: [string, string][] = [["@", "225,225,232"], ["8", "205,205,215"], ["o", "190,190,205"], ["%", "170,170,190"]];
               for (let i = 0; i < 14; i++) {
                 const a = rand(0, TAU);
@@ -3486,7 +3492,7 @@ export class World {
       // the whale being drawn in.
       const surging = sh.mega && this.whaleFight?.mega === sh && !this.whaleFight.locked;
       // An enraged megalodon swims a little faster, not so much that it looks wrong beside everything else.
-      sh.speed += (targetSpeed * (sh.mega ? (1 + 0.12 * (sh.rageLevel ?? 0)) * ((sh.pounceUntil ?? 0) > time ? 1.7 : 1) : 1) - sh.speed) * Math.min(1, dt * (sh.mega && sh.retreat ? (sh.leaveCalm ? 0.45 : 1.7) : surging ? 2.4 : 1.1));
+      sh.speed += (targetSpeed * (sh.mega ? (1 + 0.12 * (sh.rageLevel ?? 0)) * ((sh.pounceUntil ?? 0) > time ? 1.7 : kraken?.state === "wrap" && kraken.wrapping === sh && kraken.maul && kraken.biteAt === undefined ? 1.5 : 1) : 1) - sh.speed) * Math.min(1, dt * (sh.mega && sh.retreat ? (sh.leaveCalm ? 0.45 : 1.7) : surging ? 2.4 : 1.1));
       // A megalodon keeps a slow, heavy tail beat even when it surges (more push per stroke, not faster strokes), and only lashes quickly while thrashing.
       sh.phase += dt * (sh.mega ? 1.0 + Math.min(sh.speed, 200) / 120 + 2.2 * (sh.thrash ?? 0) : (2 + sh.speed / 24) * tr.tail * (sh.mood === "stalk" ? 0.7 : 1));
 
@@ -3595,7 +3601,7 @@ export class World {
   }
 
   /** A new shark swims in from just off an edge. */
-  addShark() {
+  addShark(kind?: SharkKind) {
     const { width: W, height: H } = this;
     const minSide = Math.min(W, H);
     const spec = this.sharkSpecs[randInt(0, this.sharkSpecs.length - 1)];
@@ -3613,11 +3619,30 @@ export class World {
       nodes[n * 2 + 1] = y - Math.sin(heading) * seg * n;
     }
     this.sharks.push({
-      id: this.sharkId++, kind: spec.kind, length, nodes, heading, speed: 40, phase: rand(0, TAU), turn: 0,
+      id: this.sharkId++, kind: kind ?? spec.kind, length, nodes, heading, speed: 40, phase: rand(0, TAU), turn: 0,
       hunger: rand(0.25, 0.75), wander: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, orbitRadius: minSide * rand(0.28, 0.4),
       target: null, retargetAt: 0, depth: size,
     });
     this.sharks.sort((a, b) => a.length - b.length);
+  }
+
+  /** The spawn key: a shark of a random kind swims in from an edge (and now and then a ghost). */
+  spawnRandomShark(): "started" | "full" {
+    if (this.sharks.filter((sh) => !sh.mega && !sh.leaving).length >= this.sharkCap + 6) return "full";
+    const kinds = Object.keys(TRAITS) as SharkKind[];
+    const kind = Math.random() < 0.2 ? "ghost" : kinds[randInt(0, kinds.length - 1)];
+    this.addShark(kind);
+    const lines: Record<string, string[]> = {
+      ghost: ["a ghost shark appears...", "something pale slips in..."],
+      hammerhead: ["a hammerhead arrives..."], greathammer: ["a great hammerhead looms..."],
+      mako: ["a mako blurs in..."], thresher: ["a thresher snaps in..."],
+      tiger: ["a tiger shark prowls in..."], nurse: ["a nurse shark drifts in..."],
+      zebra: ["a zebra shark glides in..."], sawshark: ["a sawshark swims in..."],
+      classic: ["another shark joins the pack..."],
+    };
+    const pool = lines[kind] ?? lines.classic;
+    this.notices.push(pool[randInt(0, pool.length - 1)]);
+    return "started";
   }
 
   /** The carry is over: the shark swallows the diver, or lets it go to bolt away. */

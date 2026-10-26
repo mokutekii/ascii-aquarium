@@ -59,6 +59,9 @@ export class OceanEngine {
     return this.world.triggerEvent(kind);
   }
 
+  /** The shark key: one more shark, random kind. */
+  spawnShark() { return this.world.spawnRandomShark(); }
+
   celebrate() {
     if (this.reducedMotion.matches) return;
     const rect = this.canvas.getBoundingClientRect();

@@ -55,11 +55,11 @@ const VARIANTS: Record<string, string[]> = {
   "the kraken scared the megalodon off... for now!": ["the megalodon backs away, tail low... for now", "the kraken holds its ground... the megalodon blinks first", "the beast retreats... it will be back"],
   "the megalodon tore free!": ["the megalodon ripped itself loose!", "arms snap... the megalodon is free!", "a thrash, a tear... free!"],
   "the sharks drove the kraken off!": ["the pack swarms in... the kraken lets go!", "teeth from every side... the kraken bolts!", "the little ones came through!"],
-  "the sharks rally to the megalodon... all together now!": ["the pack circles in... for the megalodon!", "every shark in the tank turns toward the fight...", "they are coming to help... all of them!"],
+  "the sharks rally to the megalodon!": ["the pack circles in... for the megalodon!", "every shark in the tank turns toward the fight...", "they are coming to help... all of them!"],
   "the ufo abducted a shark and bolted!": ["a shark vanishes up a beam of light...", "the saucer snatches a shark and runs!", "abducted! one shark, gone skyward"],
   "the shark broke free!": ["the shark wrenched itself loose!", "free! the shark tumbles away", "the beam lets go... the shark escapes!"],
-  "the aliens are invading!!! hold the line...": ["saucers on the horizon... hold the line!", "the invasion begins!!!", "they are all coming at once... brace!"],
-  "the invasion has been repelled!!! the sea is safe... for now": ["the last saucer limps off... we held!", "the sky is quiet again... for now", "invasion repelled! the sea cheers"],
+  "the aliens are invading!": ["saucers on the horizon... hold the line!", "the invasion begins!!!", "they are all coming at once... brace!"],
+  "the invasion is repelled... for now": ["the last saucer limps off... we held!", "the sky is quiet again... for now", "invasion repelled! the sea cheers"],
   "a diver cut a shark free of the kraken!": ["a diver sawed a shark loose... brave!", "snip... a shark is free of the arms!", "a diver went in with a knife... and won!"],
   "a shark slipped the kraken's grip!": ["a shark twisted out of the arm!", "slippery... a shark escaped the kraken", "the arm lost its prize!"],
   "a shark wriggled free! phew!": ["wriggle, wriggle... free!", "the shark got away! phew", "somebody is going to remember that"],
@@ -119,4 +119,11 @@ export function isBoss(text: string) {
 
 export function pickLine(lines: string[]) {
   return lines[Math.floor(Math.random() * lines.length)];
+}
+
+/** Every toast trails off: a closing full stop becomes "..." and a bare ending gets one; "!" and "?" stay as they are. */
+export function dramatic(text: string): string {
+  const t = text.trimEnd();
+  if (/(\.\.\.|[!?])$/.test(t)) return t;
+  return t.replace(/[.,;:]+$/, "") + "...";
 }

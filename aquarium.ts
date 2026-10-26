@@ -1,5 +1,5 @@
 import { OceanEngine } from './src';
-import { flavor, isBoss, isClash } from './src/lines';
+import { dramatic, flavor, isBoss, isClash } from './src/lines';
 
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
@@ -104,7 +104,7 @@ async function refresh() {
 document.addEventListener('visibilitychange', () => { clearTimeout(timer); void refresh(); });
 void refresh();
 
-// Keys (any casing, all optional: every event also runs on its own): S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
+// Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / the last 15 events, S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
   l: ['current', 'living light drifts through the deep...'],
   k: ['kraken', "you feel like you're being watched..."], m: ['mega', 'something stirs from below...'], c: ['saga', 'the deep has awoken...'],
@@ -122,6 +122,12 @@ const DIVER_LINES = [
   'the diver doubles his tip to the boat captain. a good sign?', 'he pats a shark. the shark allows it. for now.', 'a diver in a very bright suit. subtle.', 'he forgot something on the boat. his sense, probably.',
   'a diver rolls in backwards, as is tradition.', 'he is "just popping down for a minute."', 'the diver gives a thumbs up. to the megalodon.', 'one more for the logbook... if he returns.',
   'a diver drifts in, eyes shut, vibes high.', 'he brought a tiny flag to plant on the seabed.', 'a diver arrives and immediately loses a flipper.', 'he is here to find himself. at the bottom.', 'a diver waves at the camera. there is no camera.', 'he read half the safety manual. the fun half.', 'he came for the coral. the coral is not the issue.',
+  'he tapped the glass. wrong side...', 'a diver descends, whistling. the sharks recognise the tune...', 'he has a spare tank. he does not have a spare plan...', 'a diver arrives with a selfie stick. bold...',
+  'he is certain the big one is a dolphin...', 'a diver takes the long way down. the long way is toward the megalodon...', 'he gives the kraken a friendly wave. it waves back. that is the problem...', 'a diver hums the jaws theme. unprompted...',
+  'he promised his mother he would be careful...', 'a diver checks his watch. the sharks check him...', 'he brought a sandwich. the sharks have noticed...', 'a diver glides in like he owns the place. the sharks disagree...',
+  'he left a note on the boat. it says "back soon"...', 'a diver counts the sharks. he runs out of fingers...', 'he is here for the vibes. the vibes are hungry...', 'a diver pets a jellyfish. a lesson, delivered...',
+  'his flippers are on the wrong feet. he has not noticed...', 'a diver takes a bow for no one...', 'he saw a documentary once. that is the whole résumé...', 'a diver dives in to "check on something"...',
+  'he is humming. the whale is humming back. this is fine...', 'a diver arrives and the fish quietly leave...', 'he whispers a goodbye to the surface...', 'a diver cannonballs in. subtle...',
 ];
 const DIVER_SPAM = ['more divers...?', 'the boat is just throwing them in now.', 'is anyone counting these?', 'the sharks have started taking numbers.', 'at this point it is a buffet.', 'the horror of man!', 'please. stop. they have families.'];
 const DIVER_FULL = ['no more divers... :(', 'the water is full of divers!', 'there is no room left to drown in...', 'the divers are going to need a bigger tank.'];
@@ -162,11 +168,14 @@ function diverToast(result: string) {
 }
 // Each toast gets a tone, a small glyph and its own entrance, so a quick run of them does not read as one grey line.
 const TONES: [RegExp, string, string][] = [
+  [/meteor|fire|burn|falling|streaks|make a wish|bomb|boom|kaboom|blast|dud|blew up|fumbled/i, 'fire', '*** '],
+  [/^(?!.*diver).*(shark|hammerhead|mako|thresher|nurse|zebra|tiger|pack)/i, 'shark', '>< '],
   [/eaten|crushed|swallowed|lost|horror|ow. just|gone. just|boom|squeezed|ate /i, 'danger', '(!) '],
   [/really...|wow|oh come on|well. that|bold of him|nobody saw|did he really|he was warned|he lit it|counting|buffet|taking numbers|brave|warn him|plan is not/i, 'quip', '(?) '],
   [/invad|aliens|ufo|saucer|diver/i, 'alien', '<o> '],
   [/whale|song/i, 'whale', '~o~ '],
   [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
+  [/light|glow|jelly|ribbon|luminous|shimmer/i, 'glow', '*~ '],
   [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd/i, 'event', '>>> '],
 ];
 const SPECIAL: Record<string, string> = {};
@@ -177,6 +186,29 @@ log.id = 'toasts';
 document.body.append(log);
 const LOG_MAX = 5;
 const lives = new WeakMap<HTMLElement, Animation>();
+// The last 15 major moments, kept for the "/" panel (diver quips and plain chatter stay out of it).
+const HISTORY_MAX = 15;
+const history: { text: string; tone: string; at: number }[] = [];
+const historyPanel = document.createElement('div');
+historyPanel.id = 'history';
+document.body.append(historyPanel);
+function recordHistory(text: string, tone: string) {
+  const last = history[history.length - 1];
+  if (last && last.text === text && Date.now() - last.at < 4000) return;
+  history.push({ text, tone, at: Date.now() });
+  if (history.length > HISTORY_MAX) history.shift();
+  if (historyPanel.classList.contains('open')) renderHistory();
+}
+function renderHistory() {
+  // The same lines, in the same spot and size as the live toasts, just held in place with no fade, header or ages.
+  historyPanel.replaceChildren();
+  for (const h of history) {
+    const row = document.createElement('div');
+    row.className = 'toast t-' + h.tone;
+    row.textContent = h.tone === 'boss' || h.tone === 'clash' ? h.text.replace(/!+/g, '').trim() : h.tone === 'whale' ? h.text.replace(/[.!~\s]+$/, '') + '~' : h.text;
+    historyPanel.append(row);
+  }
+}
 function showToast(text: string, forced?: string, key = text) {
   // The same line never shows twice: a repeat (say, "already happening!" or a third whale knocking) refreshes the one on
   // screen and bumps its count, so spamming a key adds a "×n" to one line instead of bloating the log.
@@ -198,6 +230,7 @@ function showToast(text: string, forced?: string, key = text) {
     return;
   }
   const [, tone] = forced ? [0, forced, SPECIAL[forced] ?? ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  if (tone !== 'quip' && tone !== 'plain' && !forced) recordHistory(text, tone);
   const el = document.createElement('div');
   el.className = 'toast t-' + tone;
   // Boss and clash lines are bare: no leading marks and no exclamation marks (ellipses stay), like an announcement in Terraria.
@@ -218,13 +251,22 @@ function showToast(text: string, forced?: string, key = text) {
     lives.set(el, life);
   } catch { setTimeout(() => el.remove(), 9000); }
 }
-setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) showToast(flavor(n), undefined, n); }, 400);
+setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) showToast(dramatic(flavor(n)), undefined, n); }, 400);
 // The window is a fixed little tank: no browser zoom and no find bar. F11 and the window buttons are untouched.
 addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (['+', '-', '=', '_', '0', 'f', 'F'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract' || e.code === 'Numpad0')) e.preventDefault();
 }, { capture: true });
 addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
 for (const g of ['gesturestart', 'gesturechange', 'gestureend']) addEventListener(g, e => e.preventDefault());
+addEventListener('keydown', e => {
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLElement && e.target.closest('input,select,textarea'))) {
+    e.preventDefault();
+    if (historyPanel.classList.toggle('open')) renderHistory();
+  } else if (e.key === 'Escape') historyPanel.classList.remove('open');
+  else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !(e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) {
+    if (engine.spawnShark() === 'full') showToast('the tank is wall to wall with sharks...', 'shark');
+  }
+});
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || (e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) return;
   const entry = keyEvents[e.key.toLowerCase()];
