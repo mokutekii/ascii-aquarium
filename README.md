@@ -149,3 +149,5 @@ This adds a small command to your Claude Code and Codex settings. Your existing 
 ## Credits
 
 The shark and fish engine in `src/` comes from the ascii-sharks project. No license file was published with it, so this is shared as a hobby project. If you are its author and want something changed, please open an issue. The activity helper, ripples, events and installer were added on top.
+
+The cat icon is by Chanut-is-Industries, from [Flaticon](https://www.flaticon.com/free-icons/black-cat) ("black cat icons").
