@@ -738,12 +738,33 @@ export const titanMethods: TitanMethods = {
           const hd = Math.atan2(m.nodes[1] - m.nodes[3], m.nodes[0] - m.nodes[2]);
           let swing = 0;
           if (k.biteAt === undefined) {
-            // The megalodon swims in at a hurried pace while the kraken hangs there rigid with shock; the bite lands when the jaws arrive.
-            k.angVel = 0;
-            if (Math.hypot(k.x - m.nodes[0], k.y - m.nodes[1]) < k.size * 0.1 || t > 4) {
+            // The kraken swims on as it pleases, jetting away with its arms trailing, while the megalodon runs it down; the bite lands when the jaws arrive.
+            const away = Math.atan2(k.y - m.nodes[1], k.x - m.nodes[0]);
+            const edge = k.x < k.size * 0.4 || k.x > W - k.size * 0.4 || k.y < k.size * 0.4 || k.y > H - k.size * 0.4;
+            move(105, edge ? Math.atan2(H / 2 - k.y, W / 2 - k.x) : away, true, 1.1);
+            const gap = Math.hypot(k.x - m.nodes[0], k.y - m.nodes[1]);
+            if (m.retreat || gap > k.size * 2.5) {
+              // The megalodon is not coming (it turned away, or was knocked off): the kraken is simply away, never left waiting.
+              k.maul = false;
+              k.ambush = false;
+              runAway(false);
+              return;
+            }
+            if (gap < k.size * 0.1) {
               k.biteAt = time;
               k.wrapFor += t;
               this.splash(k.x, k.y, 2);
+            } else if (t > 10) {
+              // It never got there: no bite from across the tank, the kraken just meets it as an ordinary wrap.
+              k.maul = false;
+              k.ambush = false;
+              k.fatal = false;
+              k.lunging = true;
+              k.coiled = false;
+              k.pushAt = undefined;
+              k.stateAt = time;
+              k.wrapFor = rand(8, 11);
+              return;
             }
           } else {
             // Clamped: the kraken rides the jaws and is whipped from side to side, building up from a gentle sway.
@@ -758,8 +779,7 @@ export const titanMethods: TitanMethods = {
             // Face the jaws, flung round by each swing; the mantle trails away from the megalodon.
             k.heading += angleDiff(k.heading, hd + Math.PI + swing * 0.8) * Math.min(1, dt * 5);
           }
-          k.angVel = 0;
-          k.jet = 1;
+          if (k.biteAt !== undefined) { k.angVel = 0; k.jet = 1; }
           k.wave += dt * 6;
           if (k.biteAt !== undefined && time - k.inkAt > 0.35) {
             k.inkAt = time;

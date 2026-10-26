@@ -744,7 +744,7 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
     const grip = k.state === "grab" || wrapped;
-    const shudder = k.maul ? 16 : (wrapped ? (world.time < k.shakeUntil ? 9 : 5) * (k.ambush ? 1.5 : 1) : 3) * (1 + 0.9 * world.krakenRage());
+    const shudder = k.maul && k.biteAt !== undefined ? 16 : (wrapped ? (world.time < k.shakeUntil ? 9 : 5) * (k.ambush ? 1.5 : 1) : 3) * (1 + 0.9 * world.krakenRage());
     // Just after a blast the whole body is knocked about: the head jolts and the mantle lurches off its line, while the arms
     // flail loose. An angry kraken (blast or blood moon) also thrashes its arms harder.
     const hit = clamp(1 - (world.time - (k.blastAt ?? -99)) / 2.5, 0, 1);
@@ -1447,7 +1447,7 @@ export class AsciiRenderer {
       const mark = Math.round(((1 + pos) / 2) * (width - 1));
       let bar = "";
       for (let i = 0; i < width; i++) bar += i === mark ? "|" : i < mark ? "#" : "=";
-      text(cx, y - ch * 1.1, k.maul ? "MAULED!!" : shaking ? "THRASHING!!" : "WRAPPED", "255,255,255", 0.9);
+      text(cx, y - ch * 1.1, k.maul ? (k.biteAt !== undefined ? "MAULED!!" : "CLOSING IN") : shaking ? "THRASHING!!" : "WRAPPED", "255,255,255", 0.9);
       // The kraken's share is on the left, the megalodon's on the right.
       text(cx - (width / 2 + 5) * cw, y, "KRAKEN", "235,235,240");
       text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
@@ -1634,7 +1634,14 @@ export class AsciiRenderer {
       else if (kind === "scooter") { put(...at(-1.1), "=", "rgb(190,198,210)", true); put(...at(-2), ">", "rgb(255,236,120)", true); }
       else if (kind === "bomber") {
         // A pack of explosives on his back; once the fuse is lit a red ! flashes over his head.
-        put(...at(1.5), "@", "rgb(255,120,40)", true);
+        // The pack pulses hot orange to yellow, and a ring of sparks swells out and back, so a bomber stands out from every other diver.
+        const pulse = (Math.sin(world.time * 5 + f.x * 0.01) + 1) / 2;
+        put(...at(1.5), "@", `rgb(255,${Math.round(90 + 150 * pulse)},${Math.round(30 + 60 * pulse)})`, true);
+        const ringR = cw * (2.6 + 1.6 * pulse);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + world.time * 0.8;
+          put(f.x + Math.cos(a) * ringR, f.y + Math.sin(a) * ringR * 0.7, pulse > 0.5 ? "*" : ".", `rgb(255,${Math.round(110 + 100 * pulse)},60)`, true);
+        }
         put(...at(1.7, cw * 0.9), "*", f.fuseAt !== undefined && Math.sin(world.time * 25) > 0 ? "rgb(255,240,150)" : "rgb(190,90,40)", true);
         if (f.fuseAt !== undefined) {
           const red = Math.sin(world.time * 18) > -0.2;

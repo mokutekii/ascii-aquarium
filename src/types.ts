@@ -302,6 +302,9 @@ export interface Jelly {
   phase: number;
   drift: number;
   hue: number;
+  /** Velocity from being knocked about (decays away). */
+  vx?: number;
+  vy?: number;
   /** Last zap, and who it hit (drawn as a bolt for a moment). */
   zapAt?: number;
   zapTarget?: Fish;
