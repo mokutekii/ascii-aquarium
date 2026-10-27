@@ -4,7 +4,7 @@ import { World, type SharkSpec } from "./world";
 const STEP = 1 / 60;
 const MAX_STEPS = 4;
 /** How much bigger the simulated tank is than the window; everything is drawn this much smaller. */
-const ZOOM_OUT = 2;
+const ZOOM_OUT = 3;
 
 /**
  * Wires World + AsciiRenderer to a canvas: fixed-timestep loop, resize,
@@ -36,6 +36,9 @@ export class OceanEngine {
   setWorking(working: boolean) {
     this.activitySpeed = working ? 1.55 : 0.85;
   }
+
+  /** Which assistants are working right now: each keeps a crewed submarine down in the tank. */
+  setWorkers(claude: boolean, codex: boolean) { this.world.setWorkers(claude, codex); }
 
   setFps(fps: number) { this.fps = fps; }
 

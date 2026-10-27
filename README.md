@@ -4,6 +4,14 @@ A little window of ASCII sharks and schooling fish that swim on your screen. Cli
 
 It runs only on your own computer. No account, no sign-in, no API key, and nothing is sent anywhere.
 
+## v1.4
+
+One release with the updates collected below; the full notes are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+- **v1.4.0 — kraken overhaul:** ordered attacks and wraps, megalodon fights, whale encounters, and shark species with moods and stamina.
+- **v1.4.1 — encounters and polish:** harpoon escapes, swimming mauls, faster wraps, event history, ghost sharks, and clearer toasts.
+- **v1.4.2 — submarines and the deep:** research and activity-crewed submarines, a majestic Ghost Leviathan in ordinary water, translucent blue skin, visible ribs and orange markings, and a stronger glow in Yeat mode. A wider tank gives the titans more space. The Ghost drifts peacefully until provoked, then warns and charges humans or submarines. Its entrance toast glows blue.
+
 ## Events
 
 Everything here happens on its own: leave the window alone and the sea keeps putting on shows, with no input needed. The keys are just there if you want to call one up yourself.
@@ -31,10 +39,18 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once; they also arrive by themselves in groups) |
 | (click) | tapping a diver pops it, and a shark swims over to clean up; press and hold one to carry it around with the mouse, and fling it by letting go mid-swing (it has opinions) |
 | Y | yeat mode, 5 minutes of black void, white fog and glowing grayscale (press again to end it; it very rarely shows up on its own, about 1% of the time or less) |
-| N | nightfall (the tank also slowly turns to night and back by itself) |
+| N | nightfall: a clear fade into indigo water, brighter living light and jellyfish halos. Fish slow and school more closely while sharks prowl faster. The tank also slowly turns to night and back by itself |
+| T | the GHOST LEVIATHAN: an immense, translucent blue titan with a broad, gently swaying hammerhead, a full ribbed body, orange markings and a shimmering membrane. It drifts peacefully until shots, blasts or a submarine striking its head provoke it; then it warns and charges divers or subs. Yeat mode intensifies its glow |
+| X | a SUBMARINE with a conning tower and periscope, a nose lamp that throws the searchlight, and a pitch as it dives and climbs; it pings, steers clear of everything, and only fires in self-defence |
 
 ### When things meet
 
+- The Ghost Leviathan appears in normal mode as well as Yeat mode. Its broad, glassy blue body reveals inner muscle ribbons, curved ribs and orange nerve lights; long fins trail behind its gently swaying hammerhead as a soft blue halo and a slow shimmer travel over its skin. It drifts in wide, unhurried arcs and sings quietly. The same creature keeps its shape, scale and temperament when Yeat mode begins or ends; its light intensifies. It stays 75 to 110 seconds before swimming away.
+- Ordinary wildlife flees the Ghost's whole body and hammerhead. Divers startle, submarines flee, and whales and other titans give it room. The Ghost never hunts fish, sharks, whales or titans. Torpedoes, blaster shots, nearby explosions or a fast submarine colliding with its head can agitate it for about 22 seconds. It gives a 2.5-second warning before a charge, targets humans and submarines, and only hurts them when its jaws reach them. A charge can kill a diver or take one of a sub's three hull points; it then recovers before trying again and returns to drifting when calm. Only its entrance toast, "a blue shadow approaches...", gets the special blue glow; warnings and outcomes stay ordinary one-line messages. On its own it never arrives during a kraken or megalodon encounter, but a key press can run them together.
+- Things avoid each other, so collisions are rare. When one does happen, whatever got hit is agitated: a shark that bumps or is hit by a torpedo either goes after the sub (it takes three bites to sink one) or bolts, and the sub runs and, if it is being attacked, fires back.
+- A sparse seabed of kelp and coral sways along the floor.
+- Small floating text drifts up from things now and then (a shark's "hm.", a jellyfish's "bloop", a sub's "ping!", the ghost's quiet song), alongside the big bold callouts, which are still kept for outcomes and turning points.
+- Jellyfish are squishy: when something shoves a bell it squashes against the push and wobbles back, the tentacles trail behind the way it is carried and flare when squeezed, and bubbles stream off the top.
 - Sharks fear the kraken: they steer well clear of it (wider and harder while it is enraged), bolt when it comes close, and are shoved out if they stray into its body, so none swim through it. An enraged kraken is far deadlier: it reaches for sharks nearly every time and from further off, takes them sooner, eats up to three, and thrashes harder, in the tug of war too.
 - A whale that breaks free of the kraken or escapes the megalodon kicks off hard and swims out briskly (about three times its cruising pace, turning faster), instead of scooting away from a standstill.
 - In the kraken and megalodon tug of war, if only one of the two is enraged, its fury tips the bar its way ("THE RAGE TURNS THE TIDE"); if both are enraged they cancel out.
@@ -58,7 +74,7 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 - A ufo will steal a diver a shark is chasing. Sharks steer clear of the saucer and its beam.
 - A small red ! appears over the one shark chasing a diver. Some divers pass unnoticed, and other sharks leave a claimed diver alone. Click a diver to pop it, and the nearest shark swims over to clean up.
 - A whirlpool sweeps divers and jellyfish round and drags sharks a little. A diver showing up breaks off a shark fight.
-- Jellyfish glow at night, and now and then one zaps a diver that drifts too close. A zapped diver goes limp, which makes it easy for a shark to grab, the kraken to throw, or a ufo to snatch.
+- At night the water and grid darken, fish become quieter and school more closely, and sharks prowl a little faster. Cyan plankton and living-light ribbons become visible, jellyfish develop bright halos, and the Ghost's blue glow stands out. L calls a denser current of living light in either daylight or darkness. Jellyfish glow at night, and now and then one zaps a diver that drifts too close. A zapped diver goes limp, which makes it easy for a shark to grab, the kraken to throw, or a ufo to snatch.
 - The kraken lashes a tentacle out at any diver in reach, swings it slowly and heavily (a heavier diver swings slower, from 0.65 rad/s for a snorkeler down to 0.45 for the treasure hunter, and a saucer is the slowest of all), its arm trailing and whipping behind the swing, and crushes it. It chooses its targets at random and only sometimes bothers: one long tentacle whips out (smoothly, like a whip) with thinner arms running alongside, one arm for a diver, two or three for a shark or a saucer, any number at once around its 270 degree arc, up to its ten limbs. Arms take hold one at a time, so the coils you see match the arms holding on, and a bigger shark takes more of them (one for a small shark, up to three for the biggest). Held arms are slimmer, and the arm to a swung diver flows with the same slow wave as an idle one. It is far stronger than what it holds: a victim is kept close and hauled back in if it strains away, though a shark can sometimes wrench free, and a sawshark is held by the body, never the saw, and can saw its way out (leaving scraps of squid). Fast scooter divers race in to cut sharks free, and the kraken tries to grab them first.
 - When the megalodon meets the kraken they really fight: the kraken wraps it, the megalodon thrashes it around, and either one can win. A tiring megalodon gets help from the other sharks, a megalodon beaten by the kraken drives off with long, heavy strokes, and a kraken the megalodon eats leaves scraps for the sharks to clean up. The kraken very rarely eats a shark. Floating labels and a tug of war bar say who is winning.
 - The kraken swims head first and swings its arms round to face whatever it is after. Alone, it reaches wide and holds up to five divers at once. A kraken swims across the tank to a whale (the whale is never dragged in), then pokes it with jabbing arms or squeezes it until it bolts, and it stays two to three minutes. A megalodon attacking a whale surges after it, lunges at its bite spot and clamps its jaws on the flank, with teeth and blood.
@@ -71,7 +87,7 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 - When a third ufo arrives, the aliens are invading: a green bar appears, and anywhere from three to fifteen saucers come in waves (never more than three at once, and never on top of each other). The sea's own defenders (tech divers, bombers, the megalodon) take them down on their own, and if enough fall the invasion is repelled. The invasion never begins during a titans clash.
 - The kraken and megalodon tug of war is wild: white fills the bar as the kraken wins, blue as the megalodon does, and it lurches around while they thrash.
 - A hijacked ufo flashes red with a beacon, and sometimes grabs a shark and bolts. After a catch it will often just run for it.
-- The tank is simulated twice as big as the window and drawn scaled down. Fewer background sharks and smaller Titans give encounters more open water. The number of sharks wanders up and down instead of staying fixed.
+- The tank is simulated three times as wide and tall as the window and drawn scaled down. The Ghost is the largest creature; smaller sharks, divers and submarines show its scale while the titans have more open water to turn. The number of sharks wanders up and down instead of staying fixed.
 
 ## Options
 
@@ -115,7 +131,7 @@ You need Microsoft Edge or Google Chrome for the nicest window. Without them it 
 
 ## Optional: react to Claude Code or Codex
 
-Skip this unless you use them. The fish swim faster and a glowing dot appears in the corner (orange for Claude Code, purple for Codex) while they work, with a splash when they finish.
+Skip this unless you use them. The fish swim faster and a glowing dot appears in the corner (orange for Claude Code, purple for Codex) while they work, with a splash when they finish. Each assistant that is working also keeps its own crewed submarine down in the tank (an orange tag for Claude Code, purple for Codex), working a slow lap with a wide searchlight; when the work ends the sub surfaces and leaves, scattering a little treasure.
 
 1. Open a terminal in the folder and run:
 

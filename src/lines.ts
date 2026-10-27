@@ -16,7 +16,7 @@ const BOSS: Record<string, string[]> = {
   "the kraken has awoken!": ["the kraken has awoken!", "an ancient terror has awoken!", "the kraken has come for you!", "the kraken uncoils from the trench!"],
   "the megalodon has awoken!": ["the megalodon has awoken!", "the apex of the sea has arrived!", "a shadow longer than the tank slides in!", "the megalodon is hunting!"],
   "the blood moon drives the kraken wild...": ["the blood moon is rising...", "the kraken has gone feral...", "the red moon wakes the kraken..."],
-  "the blood moon drives the kraken wild... and something huge is coming for it": ["the blood moon is rising, and something huge is coming...", "the red moon wakes them both..."],
+  "the blood moon drives the kraken wild... and something huge is coming for it": ["the blood moon is rising...", "the red moon wakes them both..."],
   // How it went.
   "the kraken scared the megalodon off... for now!": ["the megalodon slinks back into the dark...", "the kraken holds the deep, for now...", "the megalodon retreats, but it will return..."],
   "the sharks drove the kraken off!": ["the kraken has been driven back...", "the kraken retreats into the dark...", "the kraken will return..."],
@@ -121,9 +121,41 @@ export function pickLine(lines: string[]) {
   return lines[Math.floor(Math.random() * lines.length)];
 }
 
+/** The entrance alone gets the ghost's special glow; later outcomes stay ordinary one-line toasts. */
+export const GHOST_ARRIVE = ["a blue shadow approaches..."];
+export const GHOST_LINES = {
+  provoked: "the guardian is disturbed...", calm: "the deep grows quiet again...",
+  subLost: "a submarine is lost to the deep...", subHit: "the submarine's hull buckles...", diver: "a diver strayed too close...",
+};
+export function isGhost(text: string) {
+  return GHOST_ARRIVE.includes(text);
+}
+
+/** Yeat mode ad-libs: the one that announces it, and the ones that drift in while it lasts. */
+export const YEAT_LINES = [
+  "luh tönka...", "luh birky...", "luh twïzzy...", "smooktobër...", "lüh shmünk...", "twïzzy bööm...",
+  "lüh flöörp...", "yöö yöö...", "shmüüt shmüüt...", "skrööp...", "lüh böbbo...", "snörp snörp...", "güh wöö...",
+  "lüh zönky...", "smöö smöö...", "bläh bläh blüh...", "shnööt...", "lüh kröppy...", "dröö dröö...", "bööp bööp...", "lüh twönk...",
+];
+
+/** A toast is one short sentence: anything after the first full stop, ellipsis, "!" or "?" is dropped (a very short opening keeps going to the next). */
+export function oneLine(text: string): string {
+  const re = /(\.{2,}|[!?]+|\.)(?=\s+\S)/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const end = m.index + m[0].length;
+    if (end >= 14) return text.slice(0, end);
+  }
+  return text;
+}
+
 /** Every toast trails off: a closing full stop becomes "..." and a bare ending gets one; "!" and "?" stay as they are. */
-export function dramatic(text: string): string {
-  const t = text.trimEnd();
+export function dramatic(text: string, whole = false): string {
+  const t = whole || isBoss(text) || isClash(text) ? text.trimEnd() : oneLine(text.trimEnd());
   if (/(\.\.\.|[!?])$/.test(t)) return t;
   return t.replace(/[.,;:]+$/, "") + "...";
 }
+
+// Every toast is one sentence: stop at the first full stop, ellipsis, "!" or "?", boss and clash lines included.
+for (const k of Object.keys(BOSS)) BOSS[k] = BOSS[k].map(oneLine);
+for (const k of Object.keys(VARIANTS)) VARIANTS[k] = VARIANTS[k].map(oneLine);
+for (const list of [CLASH, CLASH_AMBIENT, FRENZY_LINES]) list.splice(0, list.length, ...list.map(oneLine));
