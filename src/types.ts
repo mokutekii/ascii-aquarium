@@ -308,6 +308,11 @@ export interface Jelly {
   /** Last zap, and who it hit (drawn as a bolt for a moment). */
   zapAt?: number;
   zapTarget?: Fish;
+  /** Squash and wobble from being shoved: the spring position and speed, and the direction it was pushed. */
+  sq?: number;
+  sqv?: number;
+  ax?: number;
+  ay?: number;
 }
 
 export interface Whale {

@@ -1,11 +1,13 @@
 /**
  * Draws the World as a grid of ASCII cells:
- *   1. a pure black cell grid
+ *   1. a dark water grid that fades from daylight to indigo night
  *   2. a wake field that diffuses where things swim, lighting the dots cyan
  *   3. fish as minimal ASCII dashes, one per cell, glinting on hard turns
  *   4. sharks rasterised cell-by-cell with supersampled edges: grey blocks
  *      shaded by the light, dense glyphs, and shimmering accent colours
  */
+import { drawGhost, drawSeabed, drawSubs } from "./deepdraw";
+import { ghostFrame, ghostHalfWidth } from "./leviathan";
 import { angleDiff, clamp, hash3, smoothstep } from "./math";
 import { DIVER_SUIT, KRAKEN_ARC, SHARK_NODES, STRIKE_TIME, type Shark, type SharkKind, type World } from "./world";
 
@@ -375,6 +377,8 @@ export class AsciiRenderer {
   private ch = 18;
   private cols = 0;
   private rows = 0;
+  /** Rows between stacked event bars, tightened when many events run at once. */
+  private barStep = 4.2;
   private fontFamily = "ui-monospace, Menlo, monospace";
 
   private dotKind = new Uint8Array(0); // 0 none, 1 blue, 2 green, 3 red, 4 pale
@@ -513,7 +517,7 @@ export class AsciiRenderer {
     const { ctx, dpr, cols, ch } = this;
     if (cols === 0) return;
     const t = world.time;
-    this.night = world.night;
+    this.night += (world.night - this.night) * (this.reduced ? 1 : Math.min(1, dt * 1.4));
     this.yeat = world.yeat;
     // Yeat mode: everything goes monochrome with a hard contrast curve and a soft white halo round
     // every glyph, like the hazy grayscale album covers.
@@ -529,12 +533,23 @@ export class AsciiRenderer {
     this.diffuse(dt);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.globalAlpha = 1 - this.night * 0.65;
     ctx.drawImage(this.bg, 0, 0);
+    ctx.globalAlpha = 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (this.night > 0) {
-      ctx.fillStyle = `rgba(0,10,30,${(0.3 * this.night).toFixed(3)})`;
-      ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
-    }
+    // Daylight has depth and a lit surface; at night the water and grid recede into indigo.
+    const daylight = 1 - this.night;
+    const water = ctx.createLinearGradient(0, 0, 0, this.height);
+    water.addColorStop(0, `rgb(${Math.round(1 + 9 * daylight)},${Math.round(5 + 30 * daylight)},${Math.round(16 + 28 * daylight)})`);
+    water.addColorStop(0.55, `rgb(${Math.round(1 + 3 * daylight)},${Math.round(2 + 12 * daylight)},${Math.round(8 + 13 * daylight)})`);
+    water.addColorStop(1, `rgb(0,${Math.round(1 + 4 * daylight)},${Math.round(4 + 5 * daylight)})`);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = water;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
 
     if (this.yeat > 0) {
       // Crush the water to a black void and drift patchy wisps of white fog through it.
@@ -587,12 +602,15 @@ export class AsciiRenderer {
     ctx.textBaseline = "middle";
 
     this.drawHeat();
+    this.drawDeepLayer(world, "back");
     this.drawInk(world);
     this.drawFish();
     this.drawJellies(world);
     this.drawWhale(world);
+    this.drawDeepLayer(world, "mid");
     this.drawWhirl(world);
     this.drawDivers(world);
+    this.drawDeepLayer(world, "front");
     this.drawBolts(world);
     this.drawBombs(world);
     this.drawMess(world);
@@ -610,26 +628,15 @@ export class AsciiRenderer {
     this.drawWraps(world);
     boneRage = 0;
     this.drawFightHud(world);
-    // The announced events stack their banners one under another, the invasion first.
+    // Every announced event gets its bar, stacked one under another: the titans clash first, then the invasion, then the rest.
+    // The more there are, the tighter they pack, so the stack stays in the top half of the screen.
     let slot = 0;
-    // A boss fight owns the HUD: while the titans clash only its one line is shown, whatever else is running.
-    const clash = world.sagas.find((sg) => sg.kind === "clash");
-    if (clash) this.drawSagaBanner(world, clash, slot++);
-    else {
-      if (world.invasion) this.drawInvasion(world, slot++);
-      for (const sg of world.sagas) this.drawSagaBanner(world, sg, slot++);
-    }
-    // Only three bars are ever drawn; the rest fold into one line.
-    if (slot > 3) {
-      const extra = slot - 3;
-      this.hud.push(() => {
-        const { put, flush } = this.painter();
-        const more = `+${extra} more`;
-        const cx = (this.cols * this.cw) / 2;
-        for (let i = 0; i < more.length; i++) put(cx + (i - more.length / 2) * this.cw, this.ch * (3.2 + 3 * 4.2 + 0.2), more[i], this.yeat > 0.05 ? "rgb(200,205,220)" : "rgb(170,175,185)", true);
-        flush(this.yeat * 8);
-      });
-    }
+    const order = [...world.sagas].sort((a, b) => Number(b.kind === "clash") - Number(a.kind === "clash"));
+    const bars = order.length + (world.invasion ? 1 : 0);
+    this.barStep = Math.max(2.6, Math.min(4.2, (this.rows * 0.5 - 3.2) / Math.max(1, bars)));
+    if (order[0]?.kind === "clash") this.drawSagaBanner(world, order.shift()!, slot++);
+    if (world.invasion) this.drawInvasion(world, slot++);
+    for (const sg of order) this.drawSagaBanner(world, sg, slot++);
     this.drawMeteors(world);
     this.drawSawBlade(world);
     this.drawSlices(world);
@@ -644,10 +651,6 @@ export class AsciiRenderer {
       ctx.fillRect(0, 0, w, h);
     }
     this.drawTitanEntrance(world);
-    if (this.night > 0) {
-      ctx.fillStyle = `rgba(0,8,26,${(0.2 * this.night).toFixed(3)})`;
-      ctx.fillRect(0, 0, this.cols * this.cw, this.rows * this.ch);
-    }
     this.drawHud();
   }
 
@@ -1013,7 +1016,18 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     for (const j of world.jellies) {
       const r = j.size * (1 + 0.12 * Math.sin(j.phase));
+      const sq = j.sq ?? 0;
+      const ax = j.ax ?? 0;
+      const ay = j.ay ?? 1;
       const rgb = `${Math.round(120 + 80 * j.hue)},${Math.round(205 - 65 * j.hue)},255`;
+      if (this.night > 0.05) {
+        const radius = Math.max(cw * 4, r * 5);
+        const halo = this.ctx.createRadialGradient(j.x, j.y, 0, j.x, j.y, radius);
+        halo.addColorStop(0, `rgba(${rgb},${(this.night * 0.24).toFixed(3)})`);
+        halo.addColorStop(1, `rgba(${rgb},0)`);
+        this.ctx.fillStyle = halo;
+        this.ctx.fillRect(j.x - radius, j.y - radius, radius * 2, radius * 2);
+      }
       const top = j.y - r * 1.5;
       for (let y = top; y <= j.y + r * 0.1; y += ch * 0.6) {
         for (let x = j.x - r; x <= j.x + r; x += cw * 0.6) {
@@ -1021,6 +1035,18 @@ export class AsciiRenderer {
           const ny = (y - j.y) / (r * 1.5);
           const d = nx * nx + ny * ny;
           if (d > 1) continue;
+          // Squash along the push and bulge across it, with a slow ripple through the rim.
+          let wx = x;
+          let wy = y;
+          if (sq) {
+            const px = x - j.x;
+            const py = y - j.y;
+            const along = px * ax + py * ay;
+            const across = -px * ay + py * ax;
+            wx = j.x + px - ax * along * sq * 0.5 - ay * across * sq * 0.3;
+            wy = j.y + py - ay * along * sq * 0.5 + ax * across * sq * 0.3;
+          }
+          wy += Math.sin(j.phase * 1.3 + nx * 4) * ch * 0.18 * (ny > -0.3 ? 1 : 0.3);
           let glyph: string;
           let alpha = 0.5 + 0.3 * world.night;
           if (d > 0.6) {
@@ -1031,8 +1057,13 @@ export class AsciiRenderer {
           } else {
             glyph = (Math.floor(x / cw) + Math.floor(y / ch)) % 3 === 0 ? "." : ":";
           }
-          put(x, y, glyph, `rgba(${rgb},${alpha})`, true);
+          put(wx, wy, glyph, `rgba(${rgb},${alpha})`, true);
         }
+      }
+      // Bubbles rise off the bell in a lazy string.
+      for (let k = 0; k < 3; k++) {
+        const bt = (world.time * 0.35 + k / 3 + j.hue * 7) % 1;
+        put(j.x + Math.sin(bt * 8 + k * 2) * r * 0.45, j.y - r * 1.5 - bt * r * 2.6, bt < 0.45 ? "o" : ".", `rgba(${rgb},${(0.8 * (1 - bt)).toFixed(2)})`);
       }
       put(j.x, j.y - r * 0.55, "o", `rgba(${rgb},0.95)`, true);
       // A zap: a jagged yellow bolt from the bell to the diver.
@@ -1052,12 +1083,14 @@ export class AsciiRenderer {
       for (let sIdx = 0; sIdx < 5; sIdx++) {
         const len = 3 + (sIdx % 3);
         for (let i = 1; i <= len; i++) {
-          const sway = Math.sin(j.phase * 0.8 - i * 0.6 + sIdx) * cw * 0.9 * (i / len);
-          put(j.x + (sIdx - 2) * r * 0.42 + sway, j.y + r * 0.16 + i * ch * 0.9, i < len ? "|" : ":", `rgba(${rgb},${(0.8 * (1 - i / (len + 2))).toFixed(2)})`);
+          // Tentacles trail behind whatever way it is being carried, and flare when it is squashed.
+          const sway = Math.sin(j.phase * 0.8 - i * 0.6 + sIdx) * cw * 0.9 * (i / len) - (j.vx ?? 0) * 0.07 * i;
+          const flare = 1 + Math.abs(sq) * 0.6;
+          put(j.x + (sIdx - 2) * r * 0.42 * flare + sway, j.y + r * 0.16 + i * ch * 0.9 - (j.vy ?? 0) * 0.04 * i, i < len ? "|" : ":", `rgba(${rgb},${(0.8 * (1 - i / (len + 2))).toFixed(2)})`);
         }
       }
     }
-    flush();
+    flush(this.night * 12);
   }
 
   /**
@@ -1083,6 +1116,37 @@ export class AsciiRenderer {
       put(hx + fx * jaw * 0.5 + Math.cos(ang) * r, hy + fy * jaw * 0.5 + Math.sin(ang) * r, i % 3 ? "*" : ":", `rgb(${190 + (i % 3) * 25},40,55)`, true);
     }
     flush();
+  }
+
+  /** Seabed and searchlights behind everything, the leviathan mid-water, submarines in front. */
+  private drawDeepLayer(world: World, layer: "back" | "mid" | "front") {
+    const grid = { cw: this.cw, ch: this.ch, cols: this.cols, rows: this.rows };
+    const { put, flush } = this.painter();
+    if (layer === "back") drawSeabed(put, world, grid);
+    else if (layer === "mid") {
+      const lv = world.leviathan;
+      if (!lv) return;
+      // Broad, low blue bloom beneath the translucent glyphs. Yeat brightens the same creature.
+      const { ctx } = this;
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      for (let u = 0.04; u < 0.95; u += 0.11) {
+        const f = ghostFrame(lv, u);
+        const r = ghostHalfWidth(lv.length, u) * 2.5;
+        if (f.x < -r || f.y < -r || f.x > this.cols * this.cw + r || f.y > this.rows * this.ch + r) continue;
+        const pulse = 0.85 + 0.15 * Math.sin(world.time * 0.8 - u * 12);
+        const glow = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+        glow.addColorStop(0, `rgba(25,130,255,${((0.18 + this.night * 0.08 + world.yeat * 0.13) * pulse).toFixed(3)})`);
+        glow.addColorStop(0.45, `rgba(30,95,245,${((0.07 + world.yeat * 0.07) * pulse).toFixed(3)})`);
+        glow.addColorStop(1, "rgba(20,80,240,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(f.x - r, f.y - r, r * 2, r * 2);
+      }
+      ctx.restore();
+      drawGhost(put, world, grid);
+    }
+    else drawSubs(put, world, grid);
+    flush(layer === "mid" ? 5 + world.yeat * 12 : 0);
   }
 
   private drawWhale(world: World) {
@@ -1463,6 +1527,21 @@ export class AsciiRenderer {
       ctx.textBaseline = "middle";
       for (const c of world.callouts) {
         const age = world.time - c.born;
+        if (c.small) {
+          // Soft little thought: drifts up and sways, fades in and out, a thin dark outline only.
+          const a = Math.max(0, Math.min(1, age / 0.4, (3.6 - age) / 1));
+          ctx.font = `600 ${Math.round(ch * 0.72)}px ${this.fontFamily}`;
+          const sx = c.x + Math.sin(age * 1.8 + c.y) * 6;
+          const sy = Math.max(ch, c.y - age * 14);
+          ctx.lineJoin = "round";
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = `rgba(0,0,0,${(0.7 * a).toFixed(2)})`;
+          ctx.strokeText(c.text, sx, sy);
+          ctx.fillStyle = `rgba(${c.rgb},${(0.9 * a).toFixed(2)})`;
+          ctx.fillText(c.text, sx, sy);
+          ctx.font = `800 ${Math.round(ch * 1.05)}px ${this.fontFamily}`;
+          continue;
+        }
         const alpha = Math.max(0, Math.min(1, age / 0.2, (5 - age) / 1));
         const tw = ctx.measureText(c.text).width;
         const x = Math.max(tw / 2 + 12, Math.min(world.width - tw / 2 - 12, c.x));
@@ -1685,13 +1764,13 @@ export class AsciiRenderer {
 
   /** One event bar: the title in the event's colour, a progress bar, and a short counter to the right of the bar. */
   private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1) {
-    if (slot >= 3) return;
+    const step = this.barStep;
     // Bars are drawn after everything else (see drawHud), so the yeat void, the vignette and the night tint never dim them.
     this.hud.push(() => {
     const { cw, ch } = this;
     const t = world.time;
     const cx = (this.cols * cw) / 2;
-    const y = ch * (3.2 + slot * 4.2);
+    const y = ch * (3.2 + slot * step);
     const width = 26;
     const filled = Math.round(Math.max(0, Math.min(1, progress)) * width);
     const { put, flush } = this.painter();
@@ -1833,20 +1912,24 @@ export class AsciiRenderer {
   /** A whirlpool: three spiral arms of foam turning around the centre. */
   /** A quiet living-light ribbon, behind the animals and without physical force. */
   private drawCurrent(world: World) {
-    if (world.currentUntil <= world.time) return;
+    const active = world.currentUntil > world.time;
+    if (!active && this.night < 0.1) return;
     const left = world.currentUntil - world.time;
-    const fade = Math.min(1, (45 - left) / 4, left / 6);
+    const fade = active ? Math.min(1, (45 - left) / 4, left / 6) : this.night * 0.7;
     const { put, flush } = this.painter();
-    for (let lane = 0; lane < 3; lane++) {
-      for (let i = 0; i < 100; i++) {
-        const u = i / 99;
+    const samples = Math.ceil(world.width / (this.cw * 1.3));
+    for (let lane = 0; lane < (active ? 5 : 3); lane++) {
+      for (let i = 0; i < samples; i++) {
+        const u = i / Math.max(1, samples - 1);
         const x = u * world.width;
-        const y = world.height * (0.36 + lane * 0.09 + 0.12 * Math.sin(u * 6 + world.time * 0.09 + lane * 0.4));
+        const y = world.height * (0.32 + lane * 0.08 + 0.13 * Math.sin(u * 6 + world.time * 0.09 + lane * 0.4))
+          + this.ch * Math.sin(i * 0.37 + lane) * (active ? 1.5 : 3);
         const twinkle = 0.5 + 0.5 * Math.sin(i * 2.4 + world.time * 0.8 + lane);
-        put(x, y, twinkle > 0.85 ? "+" : ".", `rgba(${lane === 1 ? "125,155,225" : "80,205,190"},${(fade * (0.1 + twinkle * 0.28)).toFixed(3)})`);
+        if (!active && twinkle < 0.7) continue;
+        put(x, y, twinkle > 0.85 ? "+" : ".", `rgba(${lane % 2 ? "145,170,255" : "85,245,220"},${(fade * (0.28 + twinkle * 0.65)).toFixed(3)})`);
       }
     }
-    flush();
+    flush(8 + this.night * 12);
   }
 
   private drawWhirl(world: World) {
@@ -2429,7 +2512,7 @@ export class AsciiRenderer {
       const shade = sharkShade[i];
       const xr = this.sharkXray[i];
       // In x-ray the skin sinks back so the bones show through, but its outline stays bright so the shark still reads.
-      const dim = (0.7 + 0.3 * sharkDepth[i]) * (xr === 1 ? 0.55 : xr === 2 ? 1.5 : 1);
+      const dim = (0.7 + 0.3 * sharkDepth[i]) * (1 - this.night * 0.32) * (xr === 1 ? 0.55 : xr === 2 ? 1.5 : 1);
       let [tr, tg, tb] = SHAPES[KINDS[sharkKind[i]]].tint;
       // An enraged megalodon's hide deepens: darker, and the cool grey tint swings to a deep crimson.
       const rg = this.sharkRage[i] / 255;
@@ -2519,6 +2602,7 @@ export class AsciiRenderer {
 
   private drawFish() {
     const { ctx, cw, ch, cols, fishBuckets } = this;
+    ctx.globalAlpha = 1 - this.night * 0.4;
     for (let b = 0; b < fishBuckets.length; b++) {
       const bucket = fishBuckets[b];
       if (!bucket.length) continue;
@@ -2527,6 +2611,7 @@ export class AsciiRenderer {
         ctx.fillText("-", (i % cols) * cw + cw / 2, ((i / cols) | 0) * ch + ch / 2 + 1);
       }
     }
+    ctx.globalAlpha = 1;
   }
 
   private drawHeat() {
@@ -2555,8 +2640,8 @@ export class AsciiRenderer {
 
     for (let i = 0; i < n; i++) {
       // After dark a few dots flare like bioluminescence.
-      const spark = this.night > 0.2 && Math.sin(t * dotFreq[i] * 0.7 + dotPhase[i] * 3) > 0.985;
-      const e = energy[i] + (spark ? 0.6 * this.night : 0);
+      const spark = this.night > 0.2 && (i * 13) % 97 < 9 && Math.sin(t * dotFreq[i] * 0.7 + dotPhase[i] * 3) > 0.97;
+      const e = energy[i] * (1 + this.night * 0.5) + (spark ? 1.5 * this.night : 0);
       const kind = dotKind[i];
       if (sharkFlag[i] || fishStamp[i] === frameId || (kind === 0 && e < 0.45)) {
         bucketOf[i] = SKIP;
