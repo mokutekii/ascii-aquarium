@@ -2,7 +2,7 @@
 
 the kraken fights are rebuilt, the sharks have personalities, and submarines share the deep with a luminous ghost leviathan.
 
-Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/archive/refs/tags/v1.4.4.zip).
+Latest source: [v1.4.5](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.5) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/archive/refs/tags/v1.4.5.zip).
 
 **v1.4.0**
 - **ordered wrap:** the kraken turns, thrusts in arms first and lands, and is only "wrapped" once the arms have closed.
@@ -67,3 +67,50 @@ Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4)
 - **alien salvage:** the wreck scatters drifting metal. Once the main pressure fronts pass, divers retrieve it and equip visible alien armor that absorbs one encounter shot or teleport collision hit.
 - **unstable drone cores:** destroyed drones drop pulsing capacitors with a four-second fuse. Nearby divers can retrieve them for armor before discharge; abandoned cores release smaller pressure waves. Surviving escorts also shed cores when the mothership collapses.
 - **regression checks:** attack teleport timing, diver and submarine impacts, stunned-drone clearance, collapse progression, capacitor salvage versus discharge, one push per pressure front, effect cleanup and fully faded hull rendering. These run with `npm test`; browser inspection also checked the disc silhouette.
+
+
+**v1.4.5 - an ocean that fights back**
+- Attackers keep individual firing rhythms, ranges and approach angles. Bounded random squads make some encounters quieter and others more crowded.
+- Hijacked UFOs fight alien UFOs, drones and motherships. Distinct laser colors identify each side and weapon.
+- Motherships cruise between less frequent jumps and can sweep attackers away. Drones stay behind on a teleport, then navigate back while remaining vulnerable.
+- Throw divers and craft, crash hulls, set off chain reactions, or provoke nearby titans. Sharks attack drones; hammerheads have their own bash.
+- Titans make physical contact with the mothership through rams, tail strikes, captures and returned drones. Ghost passages give titans a gentle wake without forcing endless turns.
+- UFOs blend the classic silhouette with a shaded underside, gentle ebb and smooth banking. Wider target-fitting beams glow more at night, finish captures, and can be broken by escape or rescue fire. Abducted bombers keep their unpredictable outcomes.
+- UFOs, submarines and motherships each leave at least three fragment shapes. Shark detail is sharper at the same size; meteor shockwaves vary between impacts.
+- Invasions use **I**; **U** no longer starts one automatically. **Tab** shows 15 major toasts, while **/** opens the command line. **Status: one / more** controls event-bar stacking.
+- Natural populations return gradually after ocean-wide disruptions. Rendering reuses detail buffers and avoids unnecessary sampling; smooth/saver remain 30/15 fps.
+- README shortened to setup, core controls, options and privacy. Discoveries stay in the ocean.
+- **solid bodies:** sharks anticipate crossing paths and separate their full bodies, including perfectly stacked spines. Dragged and thrown UFOs remain solid against other UFOs; pilots move with their hulls. Alien and hijacked UFOs share submarine contact rules for hammerhead rams and sawshark cuts.
+- **physical rim blasts:** the mothership's defensive sweep and final departure carry sharks, craft, whales and titans outward with fading momentum. Heavy creatures resist more, loose debris flies clear, and each pressure front hits a body once. Small fish are still vaporized.
+- **titan scale:** Kraken and Megalodon grow with the expanded tank rather than stopping at the old size limits. The Ghost Leviathan keeps its existing size and remains the largest creature.
+- **finished encounter details:** the Kraken reaches from its own tentacle roots, grips and swings captured drones before release. The maul progress bar waits for jaw contact. Agitation drives rage and focus together; drones react to shots, blasts and Blood Moon. Individual LCL mergers make a brief white pop that scales with the creature.
+- **one entrance per trigger:** manually started events use their existing world announcement, preventing duplicate living-light, submarine and major-event messages. A pending unrelated message is never consumed by another event.
+- **controls and maintenance:** [KEYBINDS.md](KEYBINDS.md) lists shortcuts, events and interactions without expanding the homepage. Local handoffs, profiles and release ZIPs are ignored. Generated files and private settings stay outside version control.
+- **safer arrivals:** UFOs and submarines choose clear entry lanes and reserve space for incoming craft. Crowded arrivals wait farther offshore instead of spawning inside another hull.
+- **mothership escalation:** at 50% health, three reserve drones launch in a staggered wave. At 33%, jumps and rim defenses accelerate; at 10%, three-turn sweeps recur more frequently. Phase changes announce once, the eight-drone cap remains, and attacks retain their wind-up.
+- **in-app keys:** the gear menu includes a collapsible shortcut list styled like the event checklist. Each row shows its key and can be clicked to perform the action; the list scrolls within small windows.
+
+**v1.4.5 follow-up - titan movement and alien defenses**
+- Lighter left-click splashes; water drag trails removed. Dragging picks up divers and ordinary craft; the mothership cannot be grabbed.
+- Options, events and key lists fit the window with bounded scrolling. Removed the extra hold-and-drag note.
+- Megalodon has a stiffer forebody, broad interior patrols and closer diver opportunities. Titan provocation no longer adds a competing body turn.
+- Kraken hull wraps reuse normal arm roots, reaching and coiling. Up to eight arms engulf the hull, with at least four maintained as other arms respond to incoming drone threats; drone targeting no longer automatically drops the hull. The mothership can dispatch escorts or jump free.
+- Slow and swept diver impacts kill on the hull unless a shield absorbs them. Ordinary divers deal one hull damage; bombers hit harder.
+- Mothership spins fire radial laser volleys. Rim blasts provoke titan retaliation; bomb, bomber, core and meteor pressure fronts push nearby bodies once and frighten sharks.
+- Hull fragments vary between rising, drifting and sinking. Alien armor gives divers a faint cyan halo and one saved hit or lethal event, with a short break flash.
+- Above half health, ten undamaged seconds starts gradual hull regeneration at 0.8% maximum health per second. Damage interrupts it and restarts the delay. Longer encounters expand defender squads by up to four and gradually increase defender firing cadence, preserving population limits and normal departure.
+- Manual submarine spawning bypasses the automatic three-sub cap.
+
+**v1.4.5 follow-up - engulfing wraps, pursuit and craft durability**
+- Kraken visibly coils before striking and engulfing the mothership. Arms shift one at a time between hull constriction and defense against shooting drones; at least four maintain the grip. Enraged whale wraps can spare more arms, while Megalodon wraps only rarely release two briefly.
+- Drone snatches use distinct free arms. Drones can veer away during the reach, with a 38% calm escape chance reduced to 8% against an enraged Kraken.
+- Megalodon retaliation is owned by its normal swimming controller. Mothership and escort shots focus it on the mothership. Blast recoil is capped and fades; shark escape turns are gradual, and offscreen pressure no longer clamps a titan back across the map.
+- Manual UFO and submarine spawning has no population limit. Crowded manual arrivals wait only as far offshore as their own lane requires, rather than scaling distance by the combined fleet count.
+- UFOs and submarines share four hull points. Megalodon's full body, including its flank and tail, deals two craft damage with a contact cooldown; escort drones are smashed. Thrown craft provoke pursuit, and the Kraken can catch them with throw momentum canceled. UFO grips track the specific captured craft in a fleet.
+- Surviving UFOs flash red after damage. The charged radial laser spin remains: two or three complete turns, more frequent defenses below 33%, and guaranteed three-turn spins at 10% health.
+- Added focused checks for real-shot pursuit, bounded head movement, offshore blast recoil, ten manual spawns of each craft, adaptive arm allocation, dodges, catches and full-body craft impacts.
+
+- **titan clash follow-through:** close Kraken approaches line up arms-first instead of maintaining a sideways orbit. A missed lunge disengages rather than becoming a distant wrap. Jaw-contact mauls, thrashing, escape chases and harpoon recovery remain; focused regressions check actual jaw contact, missed strikes, chase reattachment and whole-spine harpoon movement.
+- **matched craft hulls:** UFOs and submarines each start with four hull points. A Megalodon body hit deals two damage to either, so a fresh craft survives one impact; repeated contacts use a cooldown. Kraken contact catches the craft instead.
+
+**Clash steering correction:** attached Kraken/Megalodon struggles keep a steady travel course, with thrashing in the body animation instead of steering at an attachment point. Free pursuit uses one turn controller; ordinary sharks neither divert nor displace Megalodon. Smaller sharks may overlap briefly as they ease aside. Boundary steering runs after targeting. Resizing a tank with no ordinary fish preserves active titans instead of reseeding them.
