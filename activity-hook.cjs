@@ -25,7 +25,8 @@ function handle() {
     if (!['claude', 'codex'].includes(source)) return;
     const data = JSON.parse(input || '{}');
     const sessionId = data.session_id || data.sessionId || data.thread_id || data.conversation_id;
-    if (!sessionId || data.agent_id) return;
+    const childFinished = event === 'SubagentStop';
+    if (!sessionId || (data.agent_id && !childFinished)) return;
     const key = hash(`${source}:${sessionId}`);
     const turnId = data.turn_id || data.turnId;
     const turn = turnId ? hash(turnId) : null;
@@ -44,15 +45,17 @@ function handle() {
     const starting = event === 'UserPromptSubmit' || event === 'PreToolUse';
     const stopping = ['Stop', 'StopFailure', 'Interrupt', 'SessionEnd'].includes(event);
     // The assistant is waiting on you (a question, a permission prompt, or idle).
-    const asking = event === 'Notification' || event === 'PermissionRequest';
-    if (!starting && !stopping && !asking) return;
-    if (stopping && event !== 'SessionEnd' && turn && previous.turn && turn !== previous.turn) return;
+    const question = event === 'PreToolUse' && /(?:^|[.:]|__)(AskUserQuestion|request_user_input(?:_async)?)$/.test(data.tool_name || '');
+    const asking = question || event === 'Notification' || event === 'PermissionRequest';
+    if (!starting && !stopping && !asking && !childFinished) return;
+    if ((stopping || childFinished) && event !== 'SessionEnd' && turn && previous.turn && turn !== previous.turn) return;
     const record = {
       source, turn: starting ? turn : previous.turn || turn,
-      working: asking ? !!previous.working : starting, updatedAt: at,
+      working: asking || childFinished ? !!previous.working : starting, updatedAt: at,
       lastFinished: event === 'Stop' ? at : previous.lastFinished || 0,
       // Only booleans and timestamps: whether it is waiting on you, and when a plan was last presented.
-      attention: asking ? true : starting || stopping ? false : !!previous.attention,
+      attention: asking ? true : childFinished ? !!previous.attention : starting || stopping ? false : !!previous.attention,
+      subagentAt: childFinished ? at : previous.subagentAt || 0,
       planAt: event === 'PreToolUse' && data.tool_name === 'ExitPlanMode' ? at : previous.planAt || 0,
     };
     const temp = filename + `.${process.pid}.tmp`;

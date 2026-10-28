@@ -50,10 +50,13 @@ export function drawSeabed(put: Put, world: World, g: Grid) {
 // A shark-sized submarine, drawn procedurally so it can pitch and sway: a rounded gunmetal hull with a red stripe and lit
 // portholes, a conning tower with a periscope, tail fins and a spinning propeller, and a lamp on the nose.
 export function drawSubs(put: Put, world: World, g: Grid) {
-  const { cw, ch } = g;
+  // Hull dimensions belong to the world, not to adaptive text detail.
+  const cw = clamp(Math.round(world.width / 124), 8, 13);
+  const ch = Math.round(cw * 1.45);
   const t = world.time;
   for (const sb of world.subs) {
     const accent = sb.crew === "claude" ? "255,140,70" : sb.crew === "codex" ? "185,140,255" : "235,80,95";
+    if (sb.crew && world.attention[sb.crew]) put(sb.x, sb.y - ch * 5, "?", `rgba(255,235,160,${0.65 + 0.35 * Math.sin(t * 3) ** 2})`, true);
     const hurt = t - sb.hitAt < 0.4;
     const f = sb.face;
     const Ls = SUB_BOW * 2 * cw - cw * 2;
@@ -125,7 +128,7 @@ export function drawGhost(put: Put, world: World, g: Grid) {
   const half = (u: number) => ghostHalfWidth(L, u);
   const blue = (shade: number, alpha: number) => {
     const v = Math.round(clamp(shade, 0, 1) * 7) / 7;
-    const a = Math.round(clamp(alpha + light * 0.12 + warning * 0.15, 0, 1) * 12) / 12;
+    const a = Math.round(clamp(alpha * 1.12 + 0.04 + light * 0.12 + warning * 0.15, 0, 1) * 12) / 12;
     return `rgba(${Math.round(40 + 150 * v)},${Math.round(110 + 135 * v)},255,${a.toFixed(2)})`;
   };
   const line = (ax: number, ay: number, bx: number, by: number, glyph: string, color: string) => {
@@ -193,7 +196,9 @@ export function drawGhost(put: Put, world: World, g: Grid) {
         const wave = Math.sin(lv.phase - u * 3 + root * 8) * reach * 0.08 * u;
         const x = base.x - base.tx * back + base.nx * (s * outward + wave);
         const y = base.y - base.ty * back + base.ny * (s * outward + wave);
-        line(px, py, x, y, u > 0.75 ? "~" : "-", blue(0.8, 0.65 * (1 - u * 0.5)));
+        line(px, py, x, y, u > 0.75 ? "~" : "-", blue(0.9, 0.82 * (1 - u * 0.25)));
+        // Brighter trailing pinpricks keep the tendrils legible without a costly blur.
+        if (j % 5 === 0 && u > 0.55) put(x, y, "+", blue(1, 0.85), true);
         // A sparse veil between the outer fin ray and the flank.
         if (j % 2 === 0 && u < 0.7) {
           const inner = frame(clamp(root + back / L, 0, 0.98));

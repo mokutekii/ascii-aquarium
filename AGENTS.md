@@ -6,7 +6,7 @@ The person being helped may not be technical and may not use Claude Code or Code
 
 ## Prerequisites
 - Node.js 18 or newer (`node --version`). If missing, tell the user to install it from https://nodejs.org; do not install system software yourself.
-- Edge or Chrome is optional (falls back to the default browser).
+- Chrome, Chromium or Brave is required for the standalone app window. Prefer a compatible default browser; never use Edge or fall back to a regular browser tab.
 
 ## Steps
 1. Run from this folder: `node install.cjs`

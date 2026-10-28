@@ -1,11 +1,15 @@
 import { angleDiff, clamp, rand, randInt, TAU } from "./math";
 import { SHARK_NODES } from "./types";
+import type { Ufo } from "./types";
+import type { AttackDrone, Mothership } from "./encounters";
 import type { Fish, Shark } from "./types";
 import { ghostBlobs, ghostFrame } from "./leviathan";
 import { GHOST_ARRIVE, GHOST_LINES, YEAT_LINES } from "./lines";
 import type { World } from "./world";
 
 /** The deep: a ghost leviathan and submarines (including the crew that works while an assistant does). */
+
+export type GhostTarget = Fish | Sub | Ufo | AttackDrone | Mothership;
 
 export interface Leviathan {
   x: number;
@@ -24,7 +28,7 @@ export interface Leviathan {
   state: "drift" | "warn" | "charge" | "recover";
   stateAt: number;
   rageUntil: number;
-  target: Fish | Sub | null;
+  target: GhostTarget | null;
   nextAttack: number;
   hitAt: number;
 }
@@ -51,6 +55,9 @@ export interface Sub {
   bob: number;
   hitAt: number;
   bumpAt: number;
+  seizedByKraken?: boolean;
+  seizedAt?: number;
+  crushAt?: number;
 }
 
 export interface Torpedo {
@@ -80,7 +87,7 @@ export interface DeepMethods {
   stepDeep(this: World, dt: number): void;
   destroySub(this: World, sb: Sub, notice: string): void;
   agitate(this: World, sh: Shark, mode: "attack" | "flee", from: { x: number; y: number }, seconds: number, sub?: Sub): void;
-  agitateLeviathan(this: World, x: number, y: number, radius?: number, attacker?: Fish | Sub): boolean;
+  agitateLeviathan(this: World, x: number, y: number, radius?: number, attacker?: GhostTarget): boolean;
 }
 
 const SUB_LINES = ["a submarine dips in...", "a research sub is on patrol...", "sonar ping...", "a little sub joins the dive..."];
@@ -95,7 +102,7 @@ function sharkNear(sh: Shark, x: number, y: number, r: number) {
 
 export const deepMethods: DeepMethods = {
   /** Damage or a collision provokes it; ordinary swimming, sonar and splashes leave it peaceful. */
-  agitateLeviathan(this: World, x: number, y: number, radius = 0, attacker?: Fish | Sub) {
+  agitateLeviathan(this: World, x: number, y: number, radius = 0, attacker?: GhostTarget) {
     const lv = this.leviathan;
     if (!lv || lv.leaving || !ghostBlobs(lv).some((p) => Math.hypot(p.x - x, p.y - y) < p.r + radius)) return false;
     const calm = this.time >= lv.rageUntil;
@@ -149,7 +156,8 @@ export const deepMethods: DeepMethods = {
       nextSong: time + rand(6, 10),
       state: "drift", stateAt: time, rageUntil: 0, target: null, nextAttack: time + 6, hitAt: -99,
     };
-    this.notices.push(pick(GHOST_ARRIVE));
+    // Keep a stable event key; the toast layer rotates its entrance wording.
+    this.notices.push(GHOST_ARRIVE[0]);
     return true;
   },
 
@@ -169,6 +177,7 @@ export const deepMethods: DeepMethods = {
   },
 
   setWorkers(this: World, claude: boolean, codex: boolean) {
+    if(this.eoe)return;
     for (const [who, on] of [["claude", claude], ["codex", codex]] as const) {
       const sub = this.subs.find((s) => s.crew === who);
       if (on && !sub && this.width) this.spawnSub(who);
@@ -192,8 +201,12 @@ export const deepMethods: DeepMethods = {
         lv.leaving = true;
         this.titanCooldownUntil = Math.max(this.titanCooldownUntil, time + rand(140, 220));
       }
-      const valid = (o: Fish | Sub | null): o is Fish | Sub => !!o && o.x > -40 && o.x < W + 40 && o.y > -40 && o.y < H + 40 && ("hull" in o
-        ? this.subs.includes(o) && !o.leaving : o.alive && !!o.diver && !o.seized && !o.riding && this.fish.includes(o));
+      const valid = (o: GhostTarget | null): o is GhostTarget => !!o && o.x>-40&&o.x<W+40&&o.y>-40&&o.y<H+40&&(
+        "hull" in o?this.subs.includes(o)&&!o.leaving:
+        "maxBeams" in o?this.ufos.includes(o):
+        "stunned" in o?this.attackDrones.includes(o)&&o.hp>0:
+        "maxHp" in o?this.mothership===o&&o.hp>0:
+        o.alive&&!!o.diver&&!o.seized&&!o.riding&&this.fish.includes(o));
       const angry = time < lv.rageUntil && !lv.leaving;
       if (!angry && lv.state !== "drift") {
         lv.state = "drift"; lv.stateAt = time; lv.target = null;
@@ -261,10 +274,10 @@ export const deepMethods: DeepMethods = {
             target.fleeUntil = time + 9; target.fleeFrom = { x: lv.x, y: lv.y };
             if (target.hull <= 0) this.destroySub(target, GHOST_LINES.subLost);
             else this.notices.push(GHOST_LINES.subHit);
-          } else {
-            this.popDiver(target);
-            this.notices.push(GHOST_LINES.diver);
-          }
+          } else if("maxBeams" in target) this.destroyUfo("blasted",target);
+          else if("stunned" in target) target.hp=0;
+          else if("maxHp" in target) target.hp-=12;
+          else { this.popDiver(target); this.notices.push(GHOST_LINES.diver); }
           lv.target = null;
         }
       }
@@ -290,7 +303,7 @@ export const deepMethods: DeepMethods = {
         return { nx, ny, force };
       };
       for (const f of this.fish) {
-        if (!f.alive || f.seized || f.riding || f.dragger) continue;
+        if (!f.alive || f.diver || f.seized || f.riding || f.dragger) continue;
         const { nx, ny, force } = repel(f, f.diver ? 130 : 100, 160);
         if (!force) continue;
         f.alarm = 1;
@@ -351,6 +364,27 @@ export const deepMethods: DeepMethods = {
     // --- Submarines ------------------------------------------------------------------------------------------------------
     const ghostBody = this.leviathan ? ghostBlobs(this.leviathan) : [];
     for (const sb of this.subs) {
+      if(sb.seizedByKraken){
+        const k=this.kraken;
+        if(!k){sb.seizedByKraken=false;continue;}
+        const a=k.heading+Math.PI+Math.sin(time*.18)*.16;
+        const radius=k.size*.72;
+        const pull=Math.min(1,dt*.5);
+        sb.x+=(k.x+Math.cos(a)*radius-sb.x)*pull;
+        sb.y+=(k.y+Math.sin(a)*radius-sb.y)*pull;
+        sb.vx=0;sb.vy=0;
+        if(time>=(sb.crushAt??Infinity)){
+          sb.hull--;sb.hitAt=time;sb.crushAt=time+5.5;
+          this.callout(sb.x,sb.y-40,"HULL STRAIN","255,170,110");
+          if(sb.hull<=0){this.destroySub(sb,"the kraken crushed a submarine...");continue;}
+        }
+        if(time>=sb.nextTorp){
+          sb.nextTorp=time+10;
+          const aim=Math.atan2(k.y-sb.y,k.x-sb.x);
+          this.torpedoes.push({x:sb.x,y:sb.y,vx:Math.cos(aim)*190,vy:Math.sin(aim)*190,born:time,trail:[],owner:sb});
+        }
+        continue;
+      }
       const big = this.leviathan && !this.leviathan.leaving ? this.leviathan : null;
       const nearest = ghostBody.reduce<{ x: number; y: number; r: number } | null>((best, p) => !best || Math.hypot(p.x - sb.x, p.y - sb.y) - p.r < Math.hypot(best.x - sb.x, best.y - sb.y) - best.r ? p : best, null);
       const threat = nearest ? Math.hypot(nearest.x - sb.x, nearest.y - sb.y) - nearest.r : Infinity;
@@ -426,7 +460,9 @@ export const deepMethods: DeepMethods = {
       if (!sb.leaving && time > sb.nextTorp) {
         const charging = big?.state === "charge" && big.target === sb && Math.hypot(big.x - sb.x, big.y - sb.y) < 480;
         const attacker = this.sharks.find((sh) => this.agitated.get(sh)?.sub === sb && Math.hypot(sh.nodes[0] - sb.x, sh.nodes[1] - sb.y) < 300);
-        const aimAt = charging ? big : attacker ? { x: attacker.nodes[0], y: attacker.nodes[1] } : null;
+        const drone=this.mothership?.phase==="battle"?this.attackDrones.find(d=>Math.hypot(d.x-sb.x,d.y-sb.y)<650):null;
+        const carrier=this.mothership?.phase==="battle"&&Math.hypot(this.mothership.x-sb.x,this.mothership.y-sb.y)<750?this.mothership:null;
+        const aimAt = charging ? big : attacker ? { x: attacker.nodes[0], y: attacker.nodes[1] } : drone??carrier;
         if (aimAt) {
           sb.nextTorp = time + rand(9, 15);
           const a = Math.atan2(aimAt.y - sb.y, aimAt.x - sb.x);
@@ -443,7 +479,18 @@ export const deepMethods: DeepMethods = {
       t.x += t.vx * dt;
       t.y += t.vy * dt;
       let hit = false;
-      if (this.leviathan && ghostBody.some((p) => Math.hypot(p.x - t.x, p.y - t.y) < p.r + 6)) {
+      if(t.owner?.seizedByKraken&&this.kraken&&Math.hypot(t.x-this.kraken.x,t.y-this.kraken.y)<this.kraken.size*.28){
+        t.owner.seizedByKraken=false;t.owner.fleeUntil=time+6;t.owner.fleeFrom={x:this.kraken.x,y:this.kraken.y};
+        this.callout(t.owner.x,t.owner.y-40,"ARMS DRIVEN BACK","170,230,255");
+        hit=true;
+      }
+      const drone=!hit?this.attackDrones.find(d=>d.hp>0&&Math.hypot(d.x-t.x,d.y-t.y)<35):undefined;
+      if(drone){drone.hp-=2;hit=true;}
+      const boss=this.mothership;
+      if(!hit&&boss&&((t.x-boss.x)/(boss.size*.95))**2+((t.y-boss.y)/(boss.size*.25))**2<1){boss.hp-=4;hit=true;}
+      const craft=!hit?this.ufos.find(u=>!u.pilot&&Math.hypot(u.x-t.x,u.y-t.y)<65):undefined;
+      if(craft){craft.hits=(craft.hits??0)+2;if(craft.hits>=3)this.destroyUfo("shot",craft);hit=true;}
+      if (!hit && this.leviathan && ghostBody.some((p) => Math.hypot(p.x - t.x, p.y - t.y) < p.r + 6)) {
         hit = this.agitateLeviathan(t.x, t.y, 8, t.owner);
         if (hit) this.splash(t.x, t.y, 1.3, undefined, { quiet: true, max: 180 });
       }

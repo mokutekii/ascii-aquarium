@@ -1,4 +1,4 @@
-## v1.4 - kraken overhaul
+## v1.4 - immersive oceans!
 
 the kraken fights are rebuilt, the sharks have personalities, and submarines share the deep with a luminous ghost leviathan.
 
@@ -34,3 +34,27 @@ the kraken fights are rebuilt, the sharks have personalities, and submarines sha
 - **small details:** floating text, squishy jellyfish and one-line toasts.
 - **collisions:** creatures steer clear of each other; a shark that is bumped or hit goes after what hit it, or bolts.
 - **night and living light:** N now reaches full night. Daylight fades into indigo water, normal creatures dim, jellyfish gain luminous halos, and cyan plankton and living-light ribbons stand out. Fish slow and school more closely while sharks prowl faster.
+
+**v1.4.3 - performance, living light and encounters**
+- **automatic quality:** reduces ASCII detail, glow and frame rate under sustained load, then restores detail after recovery. Saver mode keeps a bounded grid and simpler shark edges for slower computers.
+- **bounded catch-up:** overdue simulation work is discarded under heavy load so it cannot keep the window stuck catching up.
+- **less repeated work:** shark segment geometry is reused across drawing samples; distant jellyfish contacts avoid unnecessary square roots.
+- **clearer Ghost:** slightly brighter membrane, more distinct trailing tendrils and bright sensory pinpricks.
+- **living light:** drifting patches replace fixed wave bands; passing creatures leave gaps in the light.
+- **titan announcements:** ten ominous Ghost Leviathan entrances, eight each for the kraken and megalodon, and six clash announcements. Shuffled rotations prevent repeats until each pool is used, preserving their blue, red and purple styling.
+- **lighting controls:** replaces the misleading night on/off label with auto/day/night. Auto follows the cycle; day and night hold the selected lighting. Existing preferences carry over, and the nightfall event checkbox is labeled separately.
+- **browser choice:** a dedicated app window with no tabs or address bar, powered by Chrome, Chromium or Brave. Prefers a compatible Windows default. Edge is never used; no normal-tab fallback.
+- **verification:** overlapping-event stress, night/Ghost behavior, launcher fallback, drawing bounds, automatic quality and catch-up checks. CPU benchmarks exclude native canvas/GPU costs; older hardware still requires device testing.
+- **night lights and tractor beams:** a straight, constant-width green column ends at the tracked target instead of the floor. Whales and submarines can block it sooner. UFO emitters and beams brighten at night; Saver skips the hull halo.
+- **meteor impacts:** wider pressure rings, brief flashes and motion-aware shake; fish scatter, jellyfish tumble and submarines recoil without expanding the lethal core.
+- **moving whirlpools:** varied drifting funnels with pulsing foam arms affect fish, divers, jellyfish, scraps, debris, drones, UFOs, submarines, whales and torpedoes. Drones drift strongly, powered craft resist, whales barely shift and torpedoes bend without gaining speed. Maelstroms pull craft harder. Titans and the mothership remain unaffected, and currents leave kraken-held creatures and craft in its grip.
+- **busy divers and activity:** more frequent diver groups within the cap, plus distinct question, subagent-completion and work-finished pulses. Subagent signals need consent to update hook registration.
+- **mothership boss (Z):** a separate encounter with its own health bar, a fuller saucer silhouette and up to eight small attack drones that cannot be hijacked. A late alien invasion can escalate into the boss fight. Divers and submarines defend the sea; drones also frighten sharks and provoke titans.
+- **consistent combat:** shots follow the firing weapon, hostile aim warnings lock before firing so defenders can dodge, and resolved shots stay at their actual firing positions. Piloted UFOs support the defenders, alien craft attack them, and whales can intercept lasers. Titan retaliation focuses on the offender without granting a rage boost; the Ghost still passes peacefully through divers until attacked.
+- **submarine spacing and survival:** avoidance and separation use full hulls, tails and towers, with room around other submarines, UFOs and whales. Adaptive drawing quality preserves submarine scale. Explosions damage and shove subs; the kraken can seize them, move more slowly under their weight and gradually crush the hull. Torpedoes or tech divers can free a captured sub. UFOs also weigh more than divers in the kraken's grip.
+- **photographers:** a visible camera and SNAP flash distinguish them from armed divers. Flashes startle fish, may attract shark aggression and can stun mothership drones.
+- **EOE — Merger Sequence:** a separate rare event with its own title, the exact arrival toast **Disgusting...**, a Lilith/Rei-inspired apparition, branching wings, crosses, converging souls, an LCL-colored wash, a cleared sea and eventual return of life. It is independent of the invasion and does not require a full diver crew. There is no event checkbox or single-key shortcut; the case-sensitive secret `SHINJISUX` works in the slash command field or through `window.aquarium.command("SHINJISUX")` in the developer console.
+- **slash history and commands:** `/` shows the last 15 major events and an input field. Ordinary diver chatter stays out; diver-cap milestones remain. Escape closes the panel.
+- **Yeat lines:** only `lüh tönka...`, `lüh birky...`, `lüh twïzzy...`, `smooktobër...`, `lüh shmünk...`, `aurghhhhhhh...` and `awöö...` remain.
+- **Windows startup:** shortcuts use a hidden script helper, while the browser's app process is explicitly allowed to show its window on the first launch. The local server still starts hidden and is checked for readiness before the app opens.
+- **additional checks:** mothership victory and retreat, bounded drone/shot populations, EOE progression and reseeding, full-hull traffic separation, target-depth tractor beams, dodgeable shots, Ghost retaliation, heavy kraken captures, explosion damage and weighted whirlpool effects.

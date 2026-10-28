@@ -18,6 +18,13 @@ try {
   send('codex', 'UserPromptSubmit', { session_id: 'codex-session', turn_id: 'turn-1' });
   assert.equal(getState(dir).claude.active, 2);
   assert.equal(getState(dir).codex.active, 1);
+  send('codex', 'SubagentStop', { session_id: 'codex-session', turn_id: 'turn-1', agent_id: 'SENSITIVE_MARKER', last_assistant_message: 'SENSITIVE_MARKER' });
+  assert.equal(getState(dir).codex.active, 1, 'subagent completion must not stop its parent');
+  assert.ok(getState(dir).codex.subagentAt > 0, 'subagent completion has a timestamp');
+  send('codex', 'PreToolUse', { session_id: 'codex-session', turn_id: 'turn-1', tool_name: 'request_user_input_async', tool_input: { prompt: 'SENSITIVE_MARKER' } });
+  assert.equal(getState(dir).codex.attention, 1, 'questions ask for attention');
+  send('codex', 'PreToolUse', { session_id: 'codex-session', turn_id: 'turn-1', tool_name: 'exec_command' });
+  assert.equal(getState(dir).codex.attention, 0, 'resumed tool activity clears attention');
   send('claude', 'Stop', { session_id: 'private-session', last_assistant_message: 'SENSITIVE_MARKER' });
   assert.equal(getState(dir).claude.active, 1);
   assert.ok(getState(dir).claude.lastFinished > 0);

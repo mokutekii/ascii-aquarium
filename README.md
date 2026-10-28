@@ -11,6 +11,15 @@ One release with the updates collected below; the full notes are in [RELEASE_NOT
 - **v1.4.0 — kraken overhaul:** ordered attacks and wraps, megalodon fights, whale encounters, and shark species with moods and stamina.
 - **v1.4.1 — encounters and polish:** harpoon escapes, swimming mauls, faster wraps, event history, ghost sharks, and clearer toasts.
 - **v1.4.2 — submarines and the deep:** research and activity-crewed submarines, a majestic Ghost Leviathan in ordinary water, translucent blue skin, visible ribs and orange markings, and a stronger glow in Yeat mode. A wider tank gives the titans more space. The Ghost drifts peacefully until provoked, then warns and charges humans or submarines. Its entrance toast glows blue.
+- **v1.4.3 — optimization and encounters:** automatic quality and Saver mode for slower computers, clearer Ghost tendrils, moving living light, corrected lighting controls, a dedicated app window without Edge, mothership combat, the secret EOE event, full-hull traffic spacing, weighted whirlpool currents and target-length tractor beams.
+
+### v1.4.3 encounters and fixes
+
+The mothership is a separate boss encounter, with a fuller saucer hull, its own health bar and up to eight small attack drones that cannot be hijacked. A late alien invasion can escalate into this encounter. Divers and submarines fight back; alien shots can also frighten sharks or provoke titans. Shot origins follow the firing weapon, warnings can be dodged, and photographers carry a visible camera with a **SNAP** flash.
+
+EOE is an independent, rare cinematic event. Its arrival toast is **Disgusting...**, followed by the **Merger Sequence**: a Lilith/Rei-inspired apparition, branching wings, crosses, gathering souls, an LCL-colored wash, a cleared sea and eventual return of life. It is a stylized ASCII homage to [The End of Evangelion](https://en.wikipedia.org/wiki/The_End_of_Evangelion). It has no event checkbox or single-key shortcut. To invoke it manually, open `/` and enter the case-sensitive command `SHINJISUX`, or use `window.aquarium.command("SHINJISUX")` in the developer console.
+
+Whole submarine hulls, UFOs and whales now keep space around each other. Contact or attacks make titans focus on the offender without granting rage; the Ghost still drifts through divers peacefully. The kraken can hold submarines, with slower heavy-hull movement, gradual crushing and torpedo or tech-diver rescue. Windows shortcuts launch through a hidden helper while allowing the aquarium's own app window to appear.
 
 ## Events
 
@@ -34,7 +43,8 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
 | H | another shark swims in from an edge, of a random kind (one in five is a ghost shark: pale cyan, slow, creeps up on divers and lunges in one hard burst). Capped a little above the usual shark count |
-| / | holds the last 15 major events in the toast spot, same style and size, until you press it again (or Esc) |
+| / | holds the last 15 major events and opens a command field; ordinary diver chatter is omitted, but diver-cap milestones stay. Press Esc to close |
+| Z | a MOTHERSHIP boss arrives with its own health bar and small armed drones; divers and submarines defend the sea |
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers (up to three at once; the first, second and third each get their own toast, and a fourth press says the sky is full) |
 | D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once; they also arrive by themselves in groups) |
 | (click) | tapping a diver pops it, and a shark swims over to clean up; press and hold one to carry it around with the mouse, and fling it by letting go mid-swing (it has opinions) |
@@ -46,7 +56,7 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 ### When things meet
 
 - The Ghost Leviathan appears in normal mode as well as Yeat mode. Its broad, glassy blue body reveals inner muscle ribbons, curved ribs and orange nerve lights; long fins trail behind its gently swaying hammerhead as a soft blue halo and a slow shimmer travel over its skin. It drifts in wide, unhurried arcs and sings quietly. The same creature keeps its shape, scale and temperament when Yeat mode begins or ends; its light intensifies. It stays 75 to 110 seconds before swimming away.
-- Ordinary wildlife flees the Ghost's whole body and hammerhead. Divers startle, submarines flee, and whales and other titans give it room. The Ghost never hunts fish, sharks, whales or titans. Torpedoes, blaster shots, nearby explosions or a fast submarine colliding with its head can agitate it for about 22 seconds. It gives a 2.5-second warning before a charge, targets humans and submarines, and only hurts them when its jaws reach them. A charge can kill a diver or take one of a sub's three hull points; it then recovers before trying again and returns to drifting when calm. Only its entrance toast, "a blue shadow approaches...", gets the special blue glow; warnings and outcomes stay ordinary one-line messages. On its own it never arrives during a kraken or megalodon encounter, but a key press can run them together.
+- Ordinary wildlife flees the Ghost's whole body and hammerhead. Divers startle, submarines flee, and whales and other titans give it room. The Ghost never hunts fish, sharks, whales or titans. Torpedoes, blaster shots, nearby explosions or a fast submarine colliding with its head can agitate it for about 22 seconds. It gives a 2.5-second warning before a charge, targets humans and submarines, and only hurts them when its jaws reach them. A charge can kill a diver or take one of a sub's three hull points; it then recovers before trying again and returns to drifting when calm. Only its rotating entrance announcements get the special blue glow; warnings and outcomes stay ordinary one-line messages. On its own it never arrives during a kraken or megalodon encounter, but a key press can run them together.
 - Things avoid each other, so collisions are rare. When one does happen, whatever got hit is agitated: a shark that bumps or is hit by a torpedo either goes after the sub (it takes three bites to sink one) or bolts, and the sub runs and, if it is being attacked, fires back.
 - A sparse seabed of kelp and coral sways along the floor.
 - Small floating text drifts up from things now and then (a shark's "hm.", a jellyfish's "bloop", a sub's "ping!", the ghost's quiet song), alongside the big bold callouts, which are still kept for outcomes and turning points.
@@ -95,7 +105,7 @@ Click **opts** in the top corner. Each line cycles when you click it, and your c
 
 - **pace:** off, calm (no big events), normal, or busy. Keys still work when pace is off.
 - **events:** shows every event by name with a small box. Untick one to stop it appearing (its key and any queued arrival are switched off too), tick it again to bring it back. Remembered between runs.
-- **night:** turn the slow night cycle on or off.
+- **lighting:** auto follows the day/night cycle; day or night holds that lighting. The nightfall event checkbox allows the event, rather than showing the current lighting.
 - **motion:** smooth (30 frames per second) or saver (15).
 
 ## Install on Windows
@@ -120,7 +130,9 @@ sh install.sh
 
 Next time, run `npm start` in that folder.
 
-You need Microsoft Edge or Google Chrome for the nicest window. Without them it opens in your normal browser.
+The shortcut opens a dedicated aquarium window with no tabs or address bar, using Chrome, Chromium or Brave. On Windows it prefers your default browser when it supports this window mode; otherwise it uses an installed compatible browser. Edge is never used. The aquarium runs locally, with its own browser profile.
+
+Titan entrances rotate through 10 Ghost Leviathan lines, eight each for the kraken and megalodon, and six for titan clashes. Each set is shuffled and exhausted before repeating, with no immediate repeat between sets. Ghost entrances retain their blue glow; other boss and clash colors stay distinct.
 
 ## Using it
 
@@ -167,3 +179,21 @@ This adds a small command to your Claude Code and Codex settings. Your existing 
 The shark and fish engine in `src/` comes from the ascii-sharks project. No license file was published with it, so this is shared as a hobby project. If you are its author and want something changed, please open an issue. The activity helper, ripples, events and installer were added on top.
 
 The cat icon is by Chanut-is-Industries, from [Flaticon](https://www.flaticon.com/free-icons/black-cat) ("black cat icons").
+
+### Slower computers
+
+Quality defaults to **auto**: it reduces ASCII detail, glow effects and frame rate when frames take too long, then restores detail after sustained recovery. **Settings > quality > saver** keeps a smaller grid, disables per-glyph glow and uses simpler shark edges. **Motion > saver** also limits drawing to 15 fps. Creatures and events remain enabled; under heavy load the simulation can slow down to keep the window responsive.
+
+Developer CPU benchmark: `node dev-tests/performance.mjs` (add `--wide` for a large window and `--saver` for reduced detail). Canvas painting is stubbed, so these timings exclude browser/GPU text and blur costs.
+
+### Light, impacts and activity
+
+- UFO tractor beams form a straight, constant-width green column ending at the tracked target, with whales and submarines able to block it sooner. The emitter and beam brighten at night; Saver skips the hull halo.
+- Meteor impacts add a broad pressure ring, a brief flash and a short shake (disabled for reduced motion). Fish scatter, jellyfish tumble and submarines recoil without increasing the lethal core.
+- Whirlpools vary in size and position, drift and pulse. Fish, divers, jellyfish, scraps and debris spiral; drones drift strongly, UFOs and submarines resist, and whales barely shift. Torpedoes bend with the current without gaining speed. Maelstroms pull craft harder and can swallow fish, divers and jellyfish. Held creatures and craft stay in the kraken's grip; the kraken, megalodon, Ghost and mothership resist the current completely.
+- Busy mode adds diver groups every 7-13 simulation seconds, respecting the event setting and population cap.
+- Assistant submarines show **?** for attention, **CREW RETURNED** for a subagent completion and **DONE** for a finished response, with source-colored ripples. These use hook events; ordinary prose questions cannot be inferred from chat text.
+
+Subagent signals require the new `SubagentStop` registration. The installer prepares it for both assistants. Updating personal hook settings requires consent; Codex then needs hook trust review and a fresh chat. Restart the aquarium for new server fields.
+
+Hook events checked 2026-10-27: [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude Code hooks](https://code.claude.com/docs/en/hooks). Only flags, timestamps, source and hashed session/turn IDs are stored; no agent IDs, question text, prompts, replies or transcript paths are saved.
