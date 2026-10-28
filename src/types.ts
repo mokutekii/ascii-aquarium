@@ -68,6 +68,8 @@ export interface Fish {
   hotAt?: number;
   fuseAt?: number;
   equipUntil?: number;
+  /** Salvaged alien plating: absorbs one incoming encounter hit. */
+  alienArmor?: boolean;
   nextShot?: number;
   /** Tech divers get one roll at blasting themselves free of a grab: undefined = not rolled, false = used up. */
   escapeRoll?: boolean;

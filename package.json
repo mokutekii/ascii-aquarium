@@ -1,6 +1,6 @@
 {
   "name": "ascii-aquarium",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "An ASCII aquarium that reacts to Claude Code and Codex activity. Runs locally; no API keys.",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node verify.cjs"
+    "test": "node verify.cjs && node verify-encounters.cjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

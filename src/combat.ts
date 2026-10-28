@@ -71,6 +71,7 @@ export function resolveShots(w:World){
     }
     else if(w.fish.includes(target as Fish)){
       const f=target as Fish;
+      if(f.alienArmor){f.alienArmor=false;w.callout(f.x,f.y-30,"ARMOR","120,235,255");continue;}
       let state=w.diverCombat.get(f);
       if(!state){state={nextShot:w.time+1,hits:0,hitAt:-99,nextRepair:w.time+4};w.diverCombat.set(f,state);}
       if(w.time-state.hitAt<2)continue;

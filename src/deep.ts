@@ -162,6 +162,7 @@ export const deepMethods: DeepMethods = {
   },
 
   spawnSub(this: World, crew?: "claude" | "codex") {
+    if (this.eoe) return false;
     if (!crew && !this.isEventEnabled("sub")) return false;
     if (!crew && this.subs.filter((s) => !s.crew).length >= 3) return false;
     const { width: W, height: H, time } = this;

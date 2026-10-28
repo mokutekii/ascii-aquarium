@@ -11,13 +11,18 @@ One release with the updates collected below; the full notes are in [RELEASE_NOT
 - **v1.4.0 — kraken overhaul:** ordered attacks and wraps, megalodon fights, whale encounters, and shark species with moods and stamina.
 - **v1.4.1 — encounters and polish:** harpoon escapes, swimming mauls, faster wraps, event history, ghost sharks, and clearer toasts.
 - **v1.4.2 — submarines and the deep:** research and activity-crewed submarines, a majestic Ghost Leviathan in ordinary water, translucent blue skin, visible ribs and orange markings, and a stronger glow in Yeat mode. A wider tank gives the titans more space. The Ghost drifts peacefully until provoked, then warns and charges humans or submarines. Its entrance toast glows blue.
-- **v1.4.3 — optimization and encounters:** automatic quality and Saver mode for slower computers, clearer Ghost tendrils, moving living light, corrected lighting controls, a dedicated app window without Edge, mothership combat, the secret EOE event, full-hull traffic spacing, weighted whirlpool currents and target-length tractor beams.
+- **v1.4.3 - performance, light and currents:** automatic quality and Saver mode, clearer Ghost tendrils, moving living light, corrected lighting controls, a dedicated app window, weighted whirlpool currents, stronger meteor effects and target-length tractor beams.
+- **v1.4.4 - mothership assault and encounters:** attack teleports, stronger alien volleys, seismic destruction, salvageable armor and unstable drone cores, alongside mothership combat and full-hull traffic spacing.
 
-### v1.4.3 encounters and fixes
+### v1.4.4 mothership assault and encounters
 
-The mothership is a separate boss encounter, with a fuller saucer hull, its own health bar and up to eight small attack drones that cannot be hijacked. A late alien invasion can escalate into this encounter. Divers and submarines fight back; alien shots can also frighten sharks or provoke titans. Shot origins follow the firing weapon, warnings can be dodged, and photographers carry a visible camera with a **SNAP** flash.
+The mothership is a separate boss encounter with a crisp UFO disc, its own health bar and up to eight armed drones. It fades out, marks an arrival zone and teleports near defenders: getting caught in the hull knocks divers away and can injure them, while a submarine struck by its arrival loses two hull points. Below half health, the boss fires wider volleys and launches drones more often. Drones stay below the hull, including after teleports and while stunned.
 
-EOE is an independent, rare cinematic event. Its arrival toast is **Disgusting...**, followed by the **Merger Sequence**: a Lilith/Rei-inspired apparition, branching wings, crosses, gathering souls, an LCL-colored wash, a cleared sea and eventual return of life. It is a stylized ASCII homage to [The End of Evangelion](https://en.wikipedia.org/wiki/The_End_of_Evangelion). It has no event checkbox or single-key shortcut. To invoke it manually, open `/` and enter the case-sensitive command `SHINJISUX`, or use `window.aquarium.command("SHINJISUX")` in the developer console.
+Destroying the mothership starts cascading ruptures and a brief core implosion, followed by blue seismic rings, three expanding shockwaves and flying scrap. The waves push wildlife and craft outward; heavier creatures resist more. Divers retrieve the wreckage and equip visible alien armor that absorbs one encounter shot or teleport collision hit.
+
+Destroyed drones leave pulsing, unstable capacitors. A nearby diver can retrieve one for armor before its four-second fuse expires; otherwise it releases a smaller pressure wave. Surviving drones also shed their cores when the boss collapses.
+
+A late alien invasion can escalate into the mothership encounter. Divers, submarines and piloted UFOs fight back; alien shots can also frighten sharks or provoke titans. Firing flashes show where defender lasers originate, hostile warnings can be dodged, and photographers carry a visible camera with a **SNAP** flash.
 
 Whole submarine hulls, UFOs and whales now keep space around each other. Contact or attacks make titans focus on the offender without granting rage; the Ghost still drifts through divers peacefully. The kraken can hold submarines, with slower heavy-hull movement, gradual crushing and torpedo or tech-diver rescue. Windows shortcuts launch through a hidden helper while allowing the aquarium's own app window to appear.
 
@@ -43,8 +48,8 @@ Everything here happens on its own: leave the window alone and the sea keeps put
 | V | a whirlpool sweeps fish into a spiral, then flings them out |
 | F | two sharks square off, circle and lunge at each other |
 | H | another shark swims in from an edge, of a random kind (one in five is a ghost shark: pale cyan, slow, creeps up on divers and lunges in one hard burst). Capped a little above the usual shark count |
-| / | holds the last 15 major events and opens a command field; ordinary diver chatter is omitted, but diver-cap milestones stay. Press Esc to close |
-| Z | a MOTHERSHIP boss arrives with its own health bar and small armed drones; divers and submarines defend the sea |
+| / | holds the last 15 major events in the original toast layout; ordinary diver chatter is omitted, but diver-cap milestones stay. Press / again or Esc to close |
+| Z | a MOTHERSHIP boss attacks with teleports, beam volleys and armed drones; destroy it for seismic shockwaves and salvageable alien armor |
 | U | a flying saucer hovers above and beams up fish, jellyfish and divers (up to three at once; the first, second and third each get their own toast, and a fourth press says the sky is full) |
 | D | divers slip in from any edge, and the sharks go after them (spam it, up to 25 at once; they also arrive by themselves in groups) |
 | (click) | tapping a diver pops it, and a shark swims over to clean up; press and hold one to carry it around with the mouse, and fling it by letting go mid-swing (it has opinions) |

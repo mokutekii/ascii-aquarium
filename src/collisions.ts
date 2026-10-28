@@ -46,7 +46,9 @@ export function separateTraffic(w:World,dt:number) {
     for(let i=0;i<SHARK_NODES;i+=3){const u=i/(SHARK_NODES-1);points.push({x:sh.nodes[i*2],y:sh.nodes[i*2+1],r:sh.length*(.025+.075*Math.sin(Math.PI*u))+10});}
     add({kind:"shark",ref:sh,points,inverseMass:.7,move:(x,y)=>{for(let i=0;i<sh.nodes.length;i+=2){sh.nodes[i]+=x;sh.nodes[i+1]+=y;}},velocity:(x,y)=>{if(Math.abs(x)+Math.abs(y)>1)sh.heading=Math.atan2(y,x);}});
   }
-  if(w.mothership){const b=w.mothership;add({kind:"carrier",ref:b,inverseMass:0,points:[-.75,-.35,0,.35,.75].map(u=>({x:b.x+u*b.size,y:b.y,r:b.size*.2})),move:()=>{},velocity:()=>{}});}
+  if(w.mothership&&w.mothership.phase!=="collapse"&&(!w.mothership.warp||w.mothership.warp.moved)){
+    const b=w.mothership;add({kind:"carrier",ref:b,inverseMass:0,points:[-.75,-.35,0,.35,.75].map(u=>({x:b.x+u*b.size,y:b.y,r:b.size*.2})),move:()=>{},velocity:()=>{}});
+  }
   const allowed=(a:Body,b:Body)=>{
     if(a.kind===b.kind)return a.kind==="ufo"||a.kind==="sub"||a.kind==="whale";
     if(a.kind==="shark"||b.kind==="shark")return a.kind==="whale"||b.kind==="whale"||a.kind==="carrier"||b.kind==="carrier";
