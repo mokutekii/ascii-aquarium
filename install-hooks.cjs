@@ -39,7 +39,7 @@ for (const source of ['claude', 'codex']) {
   if (original !== null) fs.writeFileSync(path.join(backupDir, `${source}-${stamp}.json`), original);
   const config = original === null ? {} : JSON.parse(original.replace(/^﻿/, ''));
   config.hooks ||= {};
-  const events = ['UserPromptSubmit', 'PreToolUse', 'Stop', 'SessionEnd', ...(source === 'codex' ? ['Interrupt', 'PermissionRequest'] : ['StopFailure', 'Notification'])];
+  const events = ['UserPromptSubmit', 'PreToolUse', 'SubagentStop', 'Stop', 'SessionEnd', ...(source === 'codex' ? ['Interrupt', 'PermissionRequest'] : ['StopFailure', 'Notification'])];
   for (const event of events) {
     // Drop any earlier aquarium entry for this event, keep everything else, then add the current one.
     config.hooks[event] = (config.hooks[event] || [])

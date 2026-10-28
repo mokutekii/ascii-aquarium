@@ -1,8 +1,7 @@
-// Starts the local server if it is not already running, then opens the aquarium in its own
-// app-style window (Edge or Chrome), or in your default browser if neither is installed.
+// Starts the local server, then opens a dedicated app window without browser tabs.
+// Uses Chrome/Chromium or Brave, preferring a compatible Windows default. Never Edge.
 // Cross-platform: `npm start`, the Windows shortcut and Run.cmd all end up here.
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const { spawn, spawnSync } = require('node:child_process');
@@ -25,36 +24,39 @@ function healthy() {
   });
 }
 
-function findBrowser() {
+// Prefer a compatible default browser, then Chrome/Chromium. Never use Edge.
+function findAppBrowser() {
   const env = process.env;
-  const candidates = {
-    win32: [
-      path.join(env['ProgramFiles(x86)'] || '', 'Microsoft/Edge/Application/msedge.exe'),
-      path.join(env.ProgramFiles || '', 'Microsoft/Edge/Application/msedge.exe'),
-      path.join(env.ProgramFiles || '', 'Google/Chrome/Application/chrome.exe'),
-      path.join(env['ProgramFiles(x86)'] || '', 'Google/Chrome/Application/chrome.exe'),
-      path.join(env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
-    ],
-    darwin: [
-      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    ],
-    linux: ['microsoft-edge', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'],
-  }[process.platform] || [];
-  for (const candidate of candidates) {
-    if (process.platform === 'linux') {
-      if (spawnSync('which', [candidate], { stdio: 'ignore' }).status === 0) return candidate;
-    } else if (candidate && fs.existsSync(candidate)) {
-      return candidate;
+  if (process.platform === 'win32') {
+    const query = (key, value) => {
+      const result = spawnSync('reg', ['query', key, value ? '/v' : '/ve', ...(value ? [value] : [])], { encoding: 'utf8', windowsHide: true });
+      return result.status === 0 ? /REG_SZ\s+(.+)/i.exec(result.stdout || '')?.[1]?.trim() : null;
+    };
+    const id = query('HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice', 'ProgId');
+    if (id && !/edge/i.test(id)) {
+      const command = query(`HKCR\\${id}\\shell\\open\\command`);
+      const executable = command && (/^"([^"]+\.exe)"/i.exec(command)?.[1] || /^(.+?\.exe)(?:\s|$)/i.exec(command)?.[1]);
+      if (executable && /^(chrome|chromium|brave)\.exe$/i.test(path.win32.basename(executable)) && fs.existsSync(executable)) return executable;
     }
+    return [env.ProgramFiles, env['ProgramFiles(x86)'], env.LOCALAPPDATA].filter(Boolean)
+      .flatMap((dir) => ['Google/Chrome/Application/chrome.exe', 'BraveSoftware/Brave-Browser/Application/brave.exe', 'Chromium/Application/chrome.exe'].map((browser) => path.join(dir, browser)))
+      .find((file) => fs.existsSync(file)) || null;
   }
-  return null;
+  const candidates = process.platform === 'darwin'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Chromium.app/Contents/MacOS/Chromium']
+    : ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser'];
+  return candidates.find((file) => process.platform === 'darwin' ? fs.existsSync(file) : spawnSync('which', [file], { stdio: 'ignore' }).status === 0) || null;
 }
 
-function openDefault() {
-  const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', URL_ROOT]]
-    : process.platform === 'darwin' ? ['open', [URL_ROOT]] : ['xdg-open', [URL_ROOT]];
-  spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+function openApp() {
+  const browser = findAppBrowser();
+  if (!browser) {
+    console.error('A standalone aquarium window needs Chrome, Chromium or Brave. Install one, then open the aquarium again. Edge is never used.');
+    process.exitCode = 1;
+    return;
+  }
+  spawn(browser, [`--app=${URL_ROOT}`, `--user-data-dir=${path.join(root, 'browser-profile')}`, '--window-size=560,380', '--no-first-run', '--no-default-browser-check', '--disable-background-mode', '--disable-pinch'],
+    { detached: true, stdio: 'ignore', windowsHide: false }).unref();
 }
 
 (async () => {
@@ -70,9 +72,5 @@ function openDefault() {
       process.exit(1);
     }
   }
-  const browser = findBrowser();
-  if (!browser) { openDefault(); return; }
-  const profile = path.join(root, 'browser-profile');
-  spawn(browser, [`--app=${URL_ROOT}`, `--user-data-dir=${profile}`, '--window-size=560,380', '--no-first-run', '--no-default-browser-check', '--disable-background-mode', '--disable-pinch'],
-    { detached: true, stdio: 'ignore' }).unref();
+  openApp();
 })();

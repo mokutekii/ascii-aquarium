@@ -1,2 +1,2 @@
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Launch.ps1"
+start "" "%SystemRoot%\System32\wscript.exe" "%~dp0Launch.vbs"

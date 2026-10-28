@@ -20,7 +20,16 @@ assert.equal(w.night, 0);
 assert.equal(w.triggerEvent('night'), 'off');
 w.settings.night = true; w.dayOffset = 0; w.time = 540;
 assert.equal(w.night, 0, 'the automatic cycle returns to daylight');
-assert.equal(isGhost('a blue shadow approaches...'), true);
+// Fixed lighting holds across the automatic clock; auto resumes its cycle.
+w.lighting = 'night'; w.time = 0;
+assert.equal(w.night, 1, 'night mode is dark even at startup');
+w.time = 540; assert.equal(w.night, 1, 'night mode remains dark');
+w.lighting = 'day'; w.time = 270;
+assert.equal(w.night, 0, 'day mode overrides the nighttime clock');
+w.lighting = 'auto';
+assert.equal(w.night, 1, 'auto resumes the nighttime clock');
+w.time = 540; assert.equal(w.night, 0, 'auto still reaches daylight');
+assert.equal(isGhost('the ghost leviathan has awoken...'), true);
 for (const text of Object.values(GHOST_LINES)) assert.equal(isGhost(text), false, 'only the entrance gets the special glow');
 
 function fishSpeed(night) {

@@ -95,6 +95,8 @@ export const titanMethods: TitanMethods = {
     }
     // Every move is along the body's own axis: `reverse` swims backward (arms leading), never sideways.
     const move = (speed: number, heading: number, pulse = true, turnRate = 1.6, reverse = false, ease = 6) => {
+      const load=(k.ufoHeld?5:0)+this.subs.filter(s=>s.seizedByKraken).length*8+k.caught.reduce((sum,f)=>sum+DIVER_MASS[f.dkind??"scuba"],0);
+      speed/=1+load*.07;
       speed *= 1 + 0.06 * this.krakenRage();
       // Everything it does turns as a slow, wide, fluid curve: a heavy body that bends round, never a quick rotation.
       turnRate *= 0.7;
@@ -324,12 +326,13 @@ export const titanMethods: TitanMethods = {
     }
     // Saucers are fair game too: a tentacle lashes out, then it is flung about and crushed (or breaks free).
     const sauc = this.ufo;
-    if ((k.state === "enter" || k.state === "grab") && sauc && !sauc.held && sauc.y > 20 && time >= k.nextCatch && (k.whaleUntil === 0 || fury)) {
+    if ((k.state === "enter" || k.state === "grab") && sauc && !sauc.held && sauc.y > 20 && (time >= k.nextCatch || Math.hypot(sauc.x-k.x,sauc.y-k.y)<k.size*.35) && (k.whaleUntil === 0 || fury)) {
       const back = k.heading + Math.PI;
       // Once it has set an arm on the saucer it keeps at it a good while longer, and follows it, so a saucer that drifts off
       // is chased down rather than the grab just fizzling out.
       const reaching = k.ufoStrike !== null;
-      const near = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * (reaching ? 1.7 : 1.2) * (fury ? 1.2 : 1) && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC + (reaching ? 0.3 : 0);
+      const touching=Math.hypot(sauc.x-k.x,sauc.y-k.y)<k.size*.35;
+      const near = touching || Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * (reaching ? 1.7 : 1.2) * (fury ? 1.2 : 1) && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC + (reaching ? 0.3 : 0);
       if (reaching && k.state === "grab") {
         const gd = Math.hypot(sauc.x - k.x, sauc.y - k.y);
         const sp = clamp((gd - k.size * 0.9) * 0.9, 0, 130);
@@ -337,12 +340,12 @@ export const titanMethods: TitanMethods = {
         k.y += ((sauc.y - k.y) / (gd || 1)) * sp * dt;
       }
       if (k.ufoStrike === null && near) {
-        if (Math.random() < (fury ? 0.92 : 0.5)) k.ufoStrike = time;
+        if (Math.hypot(sauc.x-k.x,sauc.y-k.y)<k.size*.35 || Math.random() < (fury ? 0.92 : 0.5)) k.ufoStrike = time;
         else k.nextCatch = time + rand(1.5, 4) * (fury ? 0.35 : 1);
       } else if (k.ufoStrike !== null && !near) k.ufoStrike = null;
-      else if (k.ufoStrike !== null && time - k.ufoStrike > STRIKE_TIME) {
+      else if (k.ufoStrike !== null && time - k.ufoStrike > STRIKE_TIME*1.8) {
         k.ufoStrike = null;
-        if (Math.random() < 0.25) k.nextCatch = time + rand(3, 6);
+        if (Math.hypot(sauc.x-k.x,sauc.y-k.y)>=k.size*.35 && Math.random() < 0.25) k.nextCatch = time + rand(3, 6);
         else {
           k.ufoHeld = true;
           k.ufoUntil = time + rand(5, 8);
@@ -358,7 +361,7 @@ export const titanMethods: TitanMethods = {
         // Held out on long arms and swayed more slowly than anything else it flings about: a saucer is the heaviest catch.
         const a = k.heading + Math.PI + Math.sin(time * 0.3) * 0.55;
         const r = Math.min(k.size * (0.9 + 0.08 * Math.sin(time * 0.45)), Math.min(W, H) * 0.45);
-        const pull = Math.min(1, dt * 1.6);
+        const pull = Math.min(1, dt * .8);
         u.x += (k.x + Math.cos(a) * r - u.x) * pull;
         u.y += (k.y + Math.sin(a) * r - u.y) * pull;
         if (time > k.ufoUntil) {

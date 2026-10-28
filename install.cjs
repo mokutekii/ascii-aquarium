@@ -47,8 +47,8 @@ function createShortcuts() {
       if (!$path) { continue }
       New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
       $s = $ws.CreateShortcut($path)
-      $s.TargetPath = (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-      $s.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:AQ_ROOT 'Launch.ps1') + '"'
+      $s.TargetPath = (Join-Path $env:SystemRoot 'System32\\wscript.exe')
+      $s.Arguments = '"' + (Join-Path $env:AQ_ROOT 'Launch.vbs') + '"'
       $s.WorkingDirectory = $env:AQ_ROOT
       $s.IconLocation = (Join-Path $env:AQ_ROOT 'aquarium.ico') + ',0'
       $s.Description = 'ASCII Aquarium'

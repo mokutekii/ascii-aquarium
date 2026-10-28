@@ -53,6 +53,8 @@ export interface Fish {
   diver?: true;
   /** A diver riding on top of the ufo. */
   riding?: true;
+  /** Committed to the rare EOE departure sequence. */
+  eoeBound?: true;
   /** What kind of diver this is; changes its look and how it swims. */
   dkind?: DiverKind;
   /** The shark carrying this diver around in its jaws. */
@@ -368,6 +370,7 @@ export interface Ufo {
   beams: number;
   maxBeams: number;
   beamX: number;
+  beamTarget?: Fish | Jelly;
   aim: { x: number; y: number } | null;
   /** Seconds spent hovering with no clear target. */
   waited: number;
@@ -410,6 +413,7 @@ export interface Saga {
 }
 
 export interface Whirl {
+  baseR?: number;
   x: number;
   y: number;
   r: number;

@@ -27,6 +27,25 @@ export class OceanEngine {
   private speed = 1;
   private trail: { x: number; y: number } | null = null;
   private f = 1;
+  private quality: "auto" | "high" | "saver" = "auto";
+  private qualityTier = 0;
+  private loadMs = 0;
+  private qualityAt = 0;
+
+  setQuality(mode: "auto" | "high" | "saver") {
+    if (mode === this.quality) return;
+    this.quality = mode;
+    this.changeQuality(mode === "saver" ? 2 : 0);
+  }
+
+  private changeQuality(tier: number) {
+    if (tier === this.qualityTier) return;
+    this.qualityTier = tier;
+    this.renderer.setQuality(tier);
+    this.loadMs = 0;
+    this.qualityAt = performance.now();
+    this.resize();
+  }
 
   setEventEnabled(kind: Parameters<World["triggerEvent"]>[0], enabled: boolean) { this.world.setEventEnabled(kind, enabled); }
   queueEvent(kind: Parameters<World["triggerEvent"]>[0]) { return this.world.queueEvent(kind); }
@@ -53,9 +72,24 @@ export class OceanEngine {
 
   setAttention(claude: boolean, codex: boolean) { this.world.attention = { claude, codex }; }
 
+  activityPulse(source: "claude" | "codex", kind: "question" | "subagent" | "done") {
+    if (this.reducedMotion.matches) return;
+    const sub = this.world.subs.find((sb) => sb.crew === source);
+    const x = sub?.x ?? this.world.width - (source === "claude" ? 70 : 140);
+    const y = sub?.y ?? 60;
+    this.world.splash(x, y, 0.9, source === "claude" ? 1 : 0, { quiet: true, max: 230 });
+    this.world.callout(x, y - 40, kind === "question" ? "?" : kind === "subagent" ? "CREW RETURNED" : "DONE", source === "claude" ? "255,175,100" : "195,165,255");
+  }
+
   setEventLevel(level: World["settings"]["events"]) { this.world.settings.events = level; }
 
   setNightEnabled(on: boolean) { this.world.settings.night = on; if (!on) this.world.cancelQueuedEvent("night"); }
+
+  setLighting(mode: "auto" | "day" | "night") {
+    this.world.lighting = mode;
+    this.setNightEnabled(mode !== "day");
+    if (this.reducedMotion.matches) this.drawStill();
+  }
 
   /** Demo hook: run a random event on demand. */
   trigger(kind: Parameters<World["triggerEvent"]>[0]) {
@@ -138,7 +172,9 @@ export class OceanEngine {
     const h = rect.height * this.f;
     const dpr = Math.min((window.devicePixelRatio || 1) / this.f, 1.5);
     this.renderer.resize(w, h, dpr);
-    this.world.resize(w, h, this.renderer.cellWidth, this.renderer.cellHeight);
+    // Rendering detail must not change flocking distances or the simulation itself.
+    const cellWidth = Math.max(8, Math.min(13, Math.round(w / 124)));
+    this.world.resize(w, h, cellWidth, Math.round(cellWidth * 1.45));
     if (this.reducedMotion.matches) this.drawStill();
   }
 
@@ -156,22 +192,32 @@ export class OceanEngine {
     this.raf = requestAnimationFrame(this.frame);
     // Cap the frame rate. An unfocused window only drops to 20 fps (not 15): closing an assistant hands focus away, and a sudden
     // drop to a slideshow looks like the tank froze.
-    const interval = 1000 / (document.hasFocus() ? this.fps : Math.min(this.fps, 20));
+    const targetFps = Math.min(this.fps, [60, 24, 20][this.qualityTier]);
+    const interval = 1000 / (document.hasFocus() ? targetFps : Math.min(targetFps, 20));
     if (now - this.lastDraw < interval - 3) return;
     this.lastDraw = now;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     this.liveSpeed += (this.activitySpeed - this.liveSpeed) * Math.min(1, dt * 1.2);
     this.acc += dt * this.liveSpeed * this.speed;
+    const workStarted = performance.now();
     let steps = 0;
     const maxSteps = MAX_STEPS * this.speed;
     while (this.acc >= STEP && steps < maxSteps) {
       this.world.step(STEP);
       this.acc -= STEP;
       steps++;
+      // Drop overdue time rather than let catch-up work monopolize a slow machine.
+      if (performance.now() - workStarted > 10) { this.acc = 0; break; }
     }
     if (steps === maxSteps) this.acc = 0;
     this.renderer.render(this.world, dt);
+    const workMs = performance.now() - workStarted;
+    this.loadMs += (workMs - this.loadMs) * 0.08;
+    if (this.quality === "auto" && now - this.qualityAt > 3000) {
+      if (this.loadMs > interval * 0.65 && this.qualityTier < 2) this.changeQuality(this.qualityTier + 1);
+      else if (this.loadMs < interval * 0.22 && this.qualityTier > 0 && now - this.qualityAt > 12000) this.changeQuality(this.qualityTier - 1);
+    }
   };
 
   /** Reduced motion: let the ecosystem settle, then show a single frame. */

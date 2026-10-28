@@ -1,15 +1,17 @@
+import { parseAquariumCommand } from './src/commands';
 import { OceanEngine } from './src';
 import { dramatic, flavor, isBoss, isGhost, isClash, oneLine } from './src/lines';
 
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
 ]);
-type Source = { active: number; stale: number; lastFinished: number; seen: boolean; attention: number; planAt: number };
+type Source = { active: number; stale: number; lastFinished: number; seen: boolean; attention: number; planAt: number; subagentAt?: number };
 type State = { claude: Source; codex: Source };
 const message = document.querySelector('#message')!;
 let initialized = false;
 let lastFinished = 0;
 let lastPlan = 0;
+const lastSignals = { claude: { subagent: 0, attention: false, finished: 0 }, codex: { subagent: 0, attention: false, finished: 0 } };
 let bothSince = 0;
 let bothFired = false;
 let celebrationUntil = 0;
@@ -70,6 +72,16 @@ async function refresh() {
     lastPlan = plan;
     // Anything waiting on you rings from its dot until you answer.
     engine.setAttention(state.claude.attention > 0, state.codex.attention > 0);
+    for (const name of ['claude', 'codex'] as const) {
+      const source = state[name], last = lastSignals[name];
+      const child = source.subagentAt || 0;
+      if (initialized) {
+        if (source.attention > 0 && !last.attention) engine.activityPulse(name, 'question');
+        if (child > last.subagent && Date.now() - child < 15000) engine.activityPulse(name, 'subagent');
+        if (source.lastFinished > last.finished && Date.now() - source.lastFinished < 15000) engine.activityPulse(name, 'done');
+      }
+      last.attention = source.attention > 0; last.subagent = child; last.finished = source.lastFinished;
+    }
     // Both assistants working at once: a bait ball frenzy, once per overlap.
     if (state.claude.active > 0 && state.codex.active > 0) {
       bothSince ||= Date.now();
@@ -107,6 +119,7 @@ void refresh();
 
 // Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / the last 15 events, S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall, T ghost leviathan, X submarine.
 const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
+  z: ['mothership', 'the mothership has eclipsed the surface...'],
   l: ['current', 'living light drifts through the deep...'],
   k: ['kraken', "you feel like you're being watched..."], m: ['mega', 'something stirs from below...'], c: ['saga', 'the deep has awoken...'],
   r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
@@ -174,11 +187,11 @@ const TONES: [RegExp, string, string][] = [
   [/^(?!.*diver).*(shark|hammerhead|mako|thresher|nurse|zebra|tiger|pack)/i, 'shark', '>< '],
   [/eaten|crushed|swallowed|lost|horror|ow. just|gone. just|boom|squeezed|ate /i, 'danger', '(!) '],
   [/really...|wow|oh come on|well. that|bold of him|nobody saw|did he really|he was warned|he lit it|counting|buffet|taking numbers|brave|warn him|plan is not/i, 'quip', '(?) '],
-  [/invad|aliens|ufo|saucer|diver/i, 'alien', '<o> '],
+  [/invad|aliens|ufo|saucer|mothership|diver/i, 'alien', '<o> '],
   [/whale|song/i, 'whale', '~o~ '],
   [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
   [/light|glow|jelly|ribbon|luminous|shimmer|reef/i, 'glow', '*~ '],
-  [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd|leviathan|torpedo|roar|submarine|sonar/i, 'event', '>>> '],
+  [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd|leviathan|torpedo|roar|submarine|sonar|individual lives return/i, 'event', '>>> '],
 ];
 const SPECIAL: Record<string, string> = {};
 // Diver quips keep their punchlines: everything else is cut to one sentence.
@@ -193,6 +206,27 @@ const lives = new WeakMap<HTMLElement, Animation>();
 // The last 15 major moments, kept for the "/" panel (diver quips and plain chatter stay out of it).
 const HISTORY_MAX = 15;
 const history: { text: string; tone: string; at: number }[] = [];
+const commandPrompt = document.createElement('input');
+commandPrompt.id = 'command-prompt'; commandPrompt.type = 'text'; commandPrompt.autocomplete = 'off';
+commandPrompt.spellcheck = false; commandPrompt.placeholder = '/ command';
+commandPrompt.setAttribute('aria-label', 'Aquarium command');
+document.body.append(commandPrompt);
+function runAquariumCommand(text: string) {
+  const kind = parseAquariumCommand(text);
+  if (!kind) return 'unknown';
+  return engine.trigger(kind);
+}
+Object.defineProperty(window, 'aquarium', { value: Object.freeze({ command: runAquariumCommand }), configurable: true });
+commandPrompt.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Escape') { commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur(); return; }
+  if (e.key !== 'Enter') return;
+  const result = runAquariumCommand(commandPrompt.value);
+  commandPrompt.value = '';
+  if (result === 'unknown') { showToast('unknown command...'); return; }
+  if (result === 'off') { showToast('this event is disabled in settings...'); return; }
+  commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur();
+});
 const historyPanel = document.createElement('div');
 historyPanel.id = 'history';
 document.body.append(historyPanel);
@@ -234,8 +268,10 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
     log.append(same);
     return;
   }
-  const [, tone] = forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
-  if (tone !== 'quip' && tone !== 'plain' && !forced) recordHistory(text, tone);
+  const [, tone] = text === 'Disgusting...' ? [0, 'eoe', ''] : forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  const capMilestone=forced==='rainbow'||forced==='insist';
+  const diverChatter=whole||[...DIVER_LINES,...DIVER_SPAM,...DIVER_FULL].some(line=>line===text||oneLine(line)===text);
+  if(capMilestone||(!diverChatter&&tone!=='quip'&&tone!=='plain'&&!forced))recordHistory(text,tone);
   const el = document.createElement('div');
   el.className = 'toast t-' + tone;
   // Boss and clash lines are bare: no leading marks and no exclamation marks (ellipses stay), like an announcement in Terraria.
@@ -266,8 +302,10 @@ for (const g of ['gesturestart', 'gesturechange', 'gestureend']) addEventListene
 addEventListener('keydown', e => {
   if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLElement && e.target.closest('input,select,textarea'))) {
     e.preventDefault();
-    if (historyPanel.classList.toggle('open')) renderHistory();
-  } else if (e.key === 'Escape') historyPanel.classList.remove('open');
+    const open=historyPanel.classList.toggle('open');
+    commandPrompt.classList.toggle('open',open);
+    if(open){renderHistory();commandPrompt.focus();}
+  } else if (e.key === 'Escape') { historyPanel.classList.remove('open'); commandPrompt.classList.remove('open'); }
   else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !(e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) {
     if (engine.spawnShark() === 'full') showToast('the tank is wall to wall with sharks...', 'shark');
   }
@@ -278,7 +316,7 @@ addEventListener('keydown', e => {
   if (!entry) return;
   const result = engine.trigger(entry[0]);
   // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
-  if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'luh twïzzy...'); return; }
+  if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'lüh twïzzy...'); return; }
   if (entry[0] === 'diver' && (result === 'started' || result === 'full')) { showToast(diverToast(result), undefined, undefined, true); return; }
   if (result === 'cake') { showToast('let them have their cake!', 'rainbow'); return; }
   if (result === 'insist') { showToast('fine...if you insist...', 'insist'); return; }
@@ -291,7 +329,7 @@ addEventListener('keydown', e => {
     return;
   }
   // The kraken, the megalodon and the clash announce themselves from the world, so the key adds no line of its own.
-  if (result === 'started' && ['kraken', 'mega', 'saga', 'leviathan'].includes(entry[0])) return;
+  if (result === 'started' && ['kraken', 'mega', 'saga', 'leviathan', 'mothership', 'eoe'].includes(entry[0])) return;
   showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up...' : result === 'full' ? (entry[0] === 'sub' ? 'the sea has enough submarines...' : 'no more divers... :(') : result === 'started' ? oneLine(flavor(entry[1])) : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'not enough room right now...');
 });
 
@@ -301,14 +339,15 @@ const eventCatalog: [EventKind, string][] = [
   ['current', 'living light'], ['whale', 'whales'], ['jelly', 'jellyfish'], ['bloom', 'jellyfish bloom'], ['migration', 'great migration'],
   ['whirl', 'whirlpool'], ['maelstrom', 'maelstrom'], ['meteor', 'meteor shower'], ['moon', 'blood moon'], ['kraken', 'kraken'],
   ['mega', 'megalodon'], ['saga', 'titans clash'], ['ufo', 'flying saucers'], ['diver', 'divers'], ['chase', 'chases'],
-  ['leviathan', 'ghost leviathan'], ['sub', 'submarines'],
-  ['bait', 'bait balls'], ['fight', 'shark duels'], ['night', 'nightfall'], ['yeat', 'yeat mode'],
+  ['leviathan', 'ghost leviathan'], ['sub', 'submarines'], ['mothership', 'mothership'],
+  ['bait', 'bait balls'], ['fight', 'shark duels'], ['night', 'nightfall events'], ['yeat', 'yeat mode'],
 ];
-const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], night: ['on', 'off'], motion: ['smooth', 'saver'], speed: ['1x', '2x', '4x'] };
-const chosen: Record<string, string> = { events: 'normal', night: 'on', motion: 'smooth', speed: '1x' };
+const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], lighting: ['auto', 'day', 'night'], motion: ['smooth', 'saver'], quality: ['auto', 'high', 'saver'], speed: ['1x', '2x', '4x'] };
+const chosen: Record<string, string> = { events: 'normal', lighting: 'auto', motion: 'smooth', quality: 'auto', speed: '1x' };
 const enabled: Record<string, boolean> = {};
 try {
   const saved = JSON.parse(localStorage.getItem('aq-options') || '{}');
+  if (!saved.lighting && saved.night) saved.lighting = saved.night === 'off' ? 'day' : 'auto';
   for (const key of Object.keys(choices)) if (choices[key].includes(saved?.[key])) chosen[key] = saved[key];
 } catch { /* Invalid preferences fall back to defaults. */ }
 try {
@@ -335,9 +374,10 @@ eventsButton.addEventListener('click', () => {
 });
 function applyOptions() {
   engine.setEventLevel(chosen.events as 'off' | 'calm' | 'normal' | 'busy');
-  engine.setNightEnabled(chosen.night === 'on');
+  engine.setLighting(chosen.lighting as 'auto' | 'day' | 'night');
   engine.setFps(chosen.motion === 'saver' ? 15 : 30);
   engine.setSpeed(parseInt(chosen.speed, 10) || 1);
+  engine.setQuality(chosen.quality as 'auto' | 'high' | 'saver');
   panel.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach(button => { button.querySelector('b')!.textContent = chosen[button.dataset.opt!]; });
   try { localStorage.setItem('aq-options', JSON.stringify(chosen)); } catch {}
 }

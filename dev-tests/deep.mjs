@@ -101,7 +101,7 @@ console.log('deep ok');
   g.time = lv.rageUntil + 1; pose(); g.stepDeep(0);
   assert.equal(lv.state, 'drift', 'it calms down after the disturbance ends');
   assert.equal(lv.target, null);
-  assert.ok(g.notices.includes('a blue shadow approaches...'), 'the entrance is one simple glowing line');
+  assert.ok(g.notices.includes('the ghost leviathan has awoken...'), 'the entrance is one simple glowing line');
 
   // Ordinary wildlife is never a retaliation target, even if it is the only nearby creature.
   g.subs = []; g.fish = g.fish.filter(f => !f.diver);
