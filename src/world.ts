@@ -21,7 +21,7 @@ import { TRAITS } from "./sharks";
 import { CLASH_AMBIENT, FRENZY_LINES, YEAT_LINES, pickLine } from "./lines";
 import { titanMethods, type TitanMethods } from "./titans";
 import { deepMethods, type DeepMethods, type Leviathan, type Sub, type Torpedo, type Agitation } from "./deep";
-import { startMothership, startEoe, stepEncounters, type Mothership, type AttackDrone, type EncounterShot, type Eoe, type DiverCombat } from "./encounters";
+import { startMothership, startEoe, stepEncounters, stepMergerMotion, type Mothership, type AttackDrone, type EncounterShot, type Eoe, type DiverCombat } from "./encounters";
 import { queueShot } from "./combat";
 import { provoke, stepProvocations, type Provocation } from "./provocation";
 import { separateTraffic } from "./collisions";
@@ -55,10 +55,14 @@ export class World {
   provocations=new Map<Shark|Kraken,Provocation>();
   retaliationArcs:{x0:number;y0:number;x1:number;y1:number;born:number;kraken:boolean}[]=[];
   mothership: Mothership | null = null;
+  mothershipWreck: import("./mothership-fx").MothershipWreck | null = null;
+  alienScrap: import("./mothership-fx").AlienScrap[] = [];
+  capacitorWaves: import("./mothership-fx").MothershipWreck[] = [];
   attackDrones: AttackDrone[] = [];
   encounterShots: EncounterShot[] = [];
   diverCombat = new WeakMap<Fish, DiverCombat>();
   eoe: Eoe | null = null;
+  eoePlayed = false;
   nextEoeAt = 60;
   readonly disabledEvents = new Set<EventKind>();
   readonly eventQueue: EventKind[] = [];
@@ -279,9 +283,11 @@ export class World {
     const move = (point: { x: number; y: number }) => { point.x *= sx; point.y *= sy; };
     for (const points of [this.whales, this.jellies, this.ufos, this.vortices, this.ripples, this.inks, this.meteors, this.mess, this.debris, this.blasts, this.bombs, this.callouts, this.subs, this.torpedoes, this.attackDrones]) for (const point of points) move(point);
     if (this.mothership) move(this.mothership);
+    if (this.mothership?.warp) move(this.mothership.warp);
+    if (this.mothershipWreck) move(this.mothershipWreck);
+    for (const point of [...this.alienScrap, ...this.capacitorWaves]) move(point);
     if (this.eoe) {
-      for (const cross of this.eoe.crosses) { cross.x *= sx; cross.y *= sy; }
-      for(const soul of this.eoe.souls){soul.x*=sx;soul.ox*=sx;soul.y*=sy;soul.oy*=sy;}
+      for (const cross of this.eoe.crosses) { cross.x *= sx; cross.y *= sy;if(cross.sourceX!==undefined)cross.sourceX*=sx;if(cross.sourceY!==undefined)cross.sourceY*=sy; }
     }
     for (const shot of this.encounterShots) { shot.x0 *= sx; shot.x1 *= sx; shot.y0 *= sy; shot.y1 *= sy; }
     if (this.kraken) move(this.kraken);
@@ -3062,7 +3068,7 @@ export class World {
 
   step(dt: number) {
     this.time += dt;
-    if(this.eoe){stepEncounters(this,dt);return;}
+    if(this.eoe){stepMergerMotion(this,dt);this.stepRipples(dt);stepEncounters(this,dt);return;}
     this.stepEvents(dt);
     this.stepRipples(dt);
     this.rebuildHash();

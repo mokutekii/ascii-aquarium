@@ -2,6 +2,8 @@
 
 the kraken fights are rebuilt, the sharks have personalities, and submarines share the deep with a luminous ghost leviathan.
 
+Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/archive/refs/tags/v1.4.4.zip).
+
 **v1.4.0**
 - **ordered wrap:** the kraken turns, thrusts in arms first and lands, and is only "wrapped" once the arms have closed.
 - **the megalodon fights back:** it can charge the kraken, bite its head and whip it about. a fleeing kraken is sometimes chased: its ink loses the megalodon, or it is run down. a megalodon getting away can be hooked by an arm and dragged back.
@@ -35,7 +37,7 @@ the kraken fights are rebuilt, the sharks have personalities, and submarines sha
 - **collisions:** creatures steer clear of each other; a shark that is bumped or hit goes after what hit it, or bolts.
 - **night and living light:** N now reaches full night. Daylight fades into indigo water, normal creatures dim, jellyfish gain luminous halos, and cyan plankton and living-light ribbons stand out. Fish slow and school more closely while sharks prowl faster.
 
-**v1.4.3 - performance, living light and encounters**
+**v1.4.3 - performance, light and currents**
 - **automatic quality:** reduces ASCII detail, glow and frame rate under sustained load, then restores detail after recovery. Saver mode keeps a bounded grid and simpler shark edges for slower computers.
 - **bounded catch-up:** overdue simulation work is discarded under heavy load so it cannot keep the window stuck catching up.
 - **less repeated work:** shark segment geometry is reused across drawing samples; distant jellyfish contacts avoid unnecessary square roots.
@@ -49,12 +51,19 @@ the kraken fights are rebuilt, the sharks have personalities, and submarines sha
 - **meteor impacts:** wider pressure rings, brief flashes and motion-aware shake; fish scatter, jellyfish tumble and submarines recoil without expanding the lethal core.
 - **moving whirlpools:** varied drifting funnels with pulsing foam arms affect fish, divers, jellyfish, scraps, debris, drones, UFOs, submarines, whales and torpedoes. Drones drift strongly, powered craft resist, whales barely shift and torpedoes bend without gaining speed. Maelstroms pull craft harder. Titans and the mothership remain unaffected, and currents leave kraken-held creatures and craft in its grip.
 - **busy divers and activity:** more frequent diver groups within the cap, plus distinct question, subagent-completion and work-finished pulses. Subagent signals need consent to update hook registration.
+- **Windows startup:** shortcuts use a hidden script helper, while the browser's app process is explicitly allowed to show its window on the first launch. The local server still starts hidden and is checked for readiness before the app opens.
+
+**v1.4.4 - mothership assault and encounters**
 - **mothership boss (Z):** a separate encounter with its own health bar, a fuller saucer silhouette and up to eight small attack drones that cannot be hijacked. A late alien invasion can escalate into the boss fight. Divers and submarines defend the sea; drones also frighten sharks and provoke titans.
 - **consistent combat:** shots follow the firing weapon, hostile aim warnings lock before firing so defenders can dodge, and resolved shots stay at their actual firing positions. Piloted UFOs support the defenders, alien craft attack them, and whales can intercept lasers. Titan retaliation focuses on the offender without granting a rage boost; the Ghost still passes peacefully through divers until attacked.
 - **submarine spacing and survival:** avoidance and separation use full hulls, tails and towers, with room around other submarines, UFOs and whales. Adaptive drawing quality preserves submarine scale. Explosions damage and shove subs; the kraken can seize them, move more slowly under their weight and gradually crush the hull. Torpedoes or tech divers can free a captured sub. UFOs also weigh more than divers in the kraken's grip.
 - **photographers:** a visible camera and SNAP flash distinguish them from armed divers. Flashes startle fish, may attract shark aggression and can stun mothership drones.
-- **EOE — Merger Sequence:** a separate rare event with its own title, the exact arrival toast **Disgusting...**, a Lilith/Rei-inspired apparition, branching wings, crosses, converging souls, an LCL-colored wash, a cleared sea and eventual return of life. It is independent of the invasion and does not require a full diver crew. There is no event checkbox or single-key shortcut; the case-sensitive secret `SHINJISUX` works in the slash command field or through `window.aquarium.command("SHINJISUX")` in the developer console.
-- **slash history and commands:** `/` shows the last 15 major events and an input field. Ordinary diver chatter stays out; diver-cap milestones remain. Escape closes the panel.
+- **slash history:** `/` holds the last 15 major events in their original toast layout. Ordinary diver chatter stays out; diver-cap milestones remain. Press `/` again or Escape to close.
 - **Yeat lines:** only `lüh tönka...`, `lüh birky...`, `lüh twïzzy...`, `smooktobër...`, `lüh shmünk...`, `aurghhhhhhh...` and `awöö...` remain.
-- **Windows startup:** shortcuts use a hidden script helper, while the browser's app process is explicitly allowed to show its window on the first launch. The local server still starts hidden and is checked for readiness before the app opens.
-- **additional checks:** mothership victory and retreat, bounded drone/shot populations, EOE progression and reseeding, full-hull traffic separation, target-depth tractor beams, dodgeable shots, Ghost retaliation, heavy kraken captures, explosion damage and weighted whirlpool effects.
+- **encounter checks:** mothership victory and retreat, bounded drone/shot populations, full-hull traffic separation, target-depth tractor beams, dodgeable shots, Ghost retaliation, heavy kraken captures, explosion damage and weighted whirlpool effects.
+- **attack teleports:** the mothership fades out, marks an arrival zone and rematerializes near divers or submarines. Hull contact knocks divers away and can injure them; materializing through a submarine takes two hull points and can sink it. Fading craft stop blocking traffic until they return.
+- **a stronger boss:** paired beam volleys become three-target attacks below half health, while drone launches accelerate. A bright continuous rim and a cleaner disc silhouette make the mothership easier to read. Drones launch below the hull and keep clear even when stunned or after a teleport. Visible firing flashes identify defender laser origins.
+- **seismic destruction:** cascading hull ruptures contract into the core before a bright blue release. Three expanding pressure fronts and flat seismic rings accompany flying wreckage, pushing wildlife and craft outward. Heavy creatures resist more, held creatures stay attached, and each front pushes an actor only once. The waves and scraps persist after the ship disappears.
+- **alien salvage:** the wreck scatters drifting metal. Once the main pressure fronts pass, divers retrieve it and equip visible alien armor that absorbs one encounter shot or teleport collision hit.
+- **unstable drone cores:** destroyed drones drop pulsing capacitors with a four-second fuse. Nearby divers can retrieve them for armor before discharge; abandoned cores release smaller pressure waves. Surviving escorts also shed cores when the mothership collapses.
+- **regression checks:** attack teleport timing, diver and submarine impacts, stunned-drone clearance, collapse progression, capacitor salvage versus discharge, one push per pressure front, effect cleanup and fully faded hull rendering. These run with `npm test`; browser inspection also checked the disc silhouette.

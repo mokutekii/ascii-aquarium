@@ -9,7 +9,8 @@
 import { drawGhost, drawSeabed, drawSubs } from "./deepdraw";
 import { drawSaucerHull } from "./saucer-draw";
 import { tractorBottom, TRACTOR_HALF_WIDTH } from "./tractor";
-import { drawMothership, drawEoe } from "./encounters-draw";
+import { drawMothership, drawEoe, mergerCrossFrame } from "./encounters-draw";
+import { drawMothershipFx } from "./mothership-fx";
 import { ghostBlobs, ghostFrame, ghostHalfWidth } from "./leviathan";
 import { angleDiff, clamp, hash3, smoothstep } from "./math";
 import { DIVER_SUIT, KRAKEN_ARC, SHARK_NODES, STRIKE_TIME, type Shark, type SharkKind, type World } from "./world";
@@ -629,18 +630,20 @@ export class AsciiRenderer {
     this.drawMess(world);
     this.drawAlerts(world);
     this.drawUfo(world);
-    if (world.mothership) {
+    if (world.mothership || world.mothershipWreck || world.alienScrap.length || world.capacitorWaves.length || world.fish.some(f=>f.alive&&f.alienArmor)) {
       const { put, flush } = this.painter();
       if (world.mothership) {
         if (this.quality < 2) {
           const b = world.mothership;
           const halo = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.size);
-          halo.addColorStop(0,"rgba(140,80,255,0.2)");
+          const fade=b.warp?Math.min(1,Math.abs(world.time-b.warp.at-1.2)/1.2):1;
+          halo.addColorStop(0,`rgba(140,80,255,${.2*fade})`);
           halo.addColorStop(1,"rgba(70,220,140,0)");
           ctx.fillStyle = halo; ctx.fillRect(b.x-b.size,b.y-b.size,b.size*2,b.size*2);
         }
         drawMothership(put,world,this.cw,this.ch);
       }
+      drawMothershipFx(put,world,this.cw,this.ch);
       flush();
     }
     this.drawDebris(world);
@@ -660,9 +663,8 @@ export class AsciiRenderer {
     // The more there are, the tighter they pack, so the stack stays in the top half of the screen.
     let slot = 0;
     if (world.mothership) this.drawEventBar(world,"THE MOTHERSHIP","170,255,205",Math.max(0,world.mothership.hp/world.mothership.maxHp),"CORE",slot++);
-    if (world.eoe) this.drawEventBar(world,"EOE - MERGER SEQUENCE","255,210,235",(world.time-world.eoe.born)/52,"",slot++);
     const order = [...world.sagas].sort((a, b) => Number(b.kind === "clash") - Number(a.kind === "clash"));
-    const bars = order.length + (world.invasion ? 1 : 0) + (world.mothership ? 1 : 0) + (world.eoe ? 1 : 0);
+    const bars = order.length + (world.invasion ? 1 : 0) + (world.mothership ? 1 : 0);
     this.barStep = Math.max(2.6, Math.min(4.2, (this.rows * 0.5 - 3.2) / Math.max(1, bars)));
     if (order[0]?.kind === "clash") this.drawSagaBanner(world, order.shift()!, slot++);
     if (world.invasion) this.drawInvasion(world, slot++);
@@ -672,17 +674,40 @@ export class AsciiRenderer {
     this.drawSlices(world);
     if (world.eoe) {
       const age = world.time - world.eoe.born;
-      const fade = clamp(Math.min(age / 6, (52 - age) / 9), 0, 1);
-      ctx.fillStyle = `rgba(18,0,15,${fade * 0.25})`;
-      ctx.fillRect(0,0,this.width,this.height);
-      if(age>15){
-        const flood=clamp((age-15)/17,0,1)*clamp((52-age)/8,0,1);
-        ctx.fillStyle=`rgba(200,65,30,${fade*.16})`;
-        ctx.fillRect(0,this.height*(1-flood),this.width,this.height*flood);
+      // LCL rises through the existing sea; daylight and night retain their normal sky.
+      const flood=clamp(age/20,0,1)*clamp((52-age)/8,0,1);
+      const lcl=ctx.createLinearGradient(0,this.height*(1-flood),0,this.height);
+      lcl.addColorStop(0,`rgba(255,177,80,${.56+this.night*.02})`);
+      lcl.addColorStop(.45,`rgba(248,157,65,${.50+this.night*.02})`);
+      lcl.addColorStop(1,`rgba(236,141,52,${.44+this.night*.02})`);
+      ctx.fillStyle=lcl;
+      ctx.fillRect(0,this.height*(1-flood),this.width,this.height*flood);
+      ctx.save();ctx.beginPath();
+      ctx.rect(0,this.height*(1-flood),this.width,this.height*flood);ctx.clip();
+      // One batched light pass keeps the stems thin, with a wider green bloom at night.
+      ctx.save();ctx.beginPath();
+      for(const [i,cross] of world.eoe.crosses.entries()){
+        if(!cross.converted)continue;
+        const f=mergerCrossFrame(world,cross,i,this.cw,this.ch,!this.reduced);
+        if(f.alpha<=0)continue;
+        const x=Math.floor(cross.x/this.cw)*this.cw+this.cw/2+f.dx;
+        const y=Math.floor(cross.y/this.ch)*this.ch+this.ch/2+1+f.dy;
+        ctx.moveTo(x,f.top+f.dy);ctx.lineTo(x,f.bottom+f.dy);
+        ctx.moveTo(x-f.arm,y);ctx.lineTo(x+f.arm,y);
       }
+      ctx.globalAlpha=clamp((52-age)/5,0,1)*(this.reduced?1:.94+.06*Math.sin(world.time*2.2));
+      ctx.lineWidth=Math.max(2,this.cw*(.30+this.night*.12));
+      ctx.lineCap="square";
+      ctx.strokeStyle=`rgba(150,255,185,${.45+this.night*.35})`;
+      ctx.shadowColor="rgb(120,255,160)";
+      ctx.shadowBlur=this.quality===2?0:Math.max(3,this.cw*this.dpr*(1.1+this.night*1.5));
+      ctx.stroke();
+      ctx.shadowBlur=0;ctx.strokeStyle=`rgba(220,255,230,${.55+this.night*.3})`;
+      ctx.stroke();ctx.restore();
       const { put, flush } = this.painter();
-      drawEoe(put,world,this.cw,this.ch,this.quality === 2);
+      drawEoe(put,world,this.cw,this.ch,this.quality === 2,!this.reduced);
       flush();
+      ctx.restore();
     }
     if (this.yeat > 0) {
       // Dark vignette, so the glow sits in the middle of a black frame.

@@ -208,8 +208,9 @@ const HISTORY_MAX = 15;
 const history: { text: string; tone: string; at: number }[] = [];
 const commandPrompt = document.createElement('input');
 commandPrompt.id = 'command-prompt'; commandPrompt.type = 'text'; commandPrompt.autocomplete = 'off';
-commandPrompt.spellcheck = false; commandPrompt.placeholder = '/ command';
-commandPrompt.setAttribute('aria-label', 'Aquarium command');
+commandPrompt.spellcheck = false; commandPrompt.placeholder = '';
+commandPrompt.addEventListener('input', () => { commandPrompt.style.width = `${Math.max(1, Math.min(32, commandPrompt.value.length + 1))}ch`; });
+commandPrompt.setAttribute('aria-label', 'Entry');
 document.body.append(commandPrompt);
 function runAquariumCommand(text: string) {
   const kind = parseAquariumCommand(text);
@@ -219,12 +220,12 @@ function runAquariumCommand(text: string) {
 Object.defineProperty(window, 'aquarium', { value: Object.freeze({ command: runAquariumCommand }), configurable: true });
 commandPrompt.addEventListener('keydown', e => {
   e.stopPropagation();
-  if (e.key === 'Escape') { commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur(); return; }
+  if (e.key === 'Escape' || (e.key === '/' && !commandPrompt.value)) { e.preventDefault(); commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur(); return; }
   if (e.key !== 'Enter') return;
   const result = runAquariumCommand(commandPrompt.value);
   commandPrompt.value = '';
-  if (result === 'unknown') { showToast('unknown command...'); return; }
-  if (result === 'off') { showToast('this event is disabled in settings...'); return; }
+  commandPrompt.style.width = '1ch';
+  if (result === 'unknown' || result === 'off') return;
   commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur();
 });
 const historyPanel = document.createElement('div');
@@ -239,6 +240,7 @@ function recordHistory(text: string, tone: string) {
 }
 function renderHistory() {
   // The same lines, in the same spot and size as the live toasts, just held in place with no fade, header or ages.
+  const focused = document.activeElement === commandPrompt;
   historyPanel.replaceChildren();
   for (const h of history) {
     const row = document.createElement('div');
@@ -246,6 +248,11 @@ function renderHistory() {
     row.textContent = h.tone === 'boss' || h.tone === 'clash' ? h.text.replace(/!+/g, '').trim() : h.tone === 'whale' ? h.text.replace(/[.!~\s]+$/, '') + '~' : h.text;
     historyPanel.append(row);
   }
+  const entryRow = document.createElement('div');
+  entryRow.className = 'toast';
+  entryRow.append(commandPrompt);
+  historyPanel.append(entryRow);
+  if (focused) commandPrompt.focus();
 }
 function showToast(text: string, forced?: string, key = text, whole = false) {
   if (!whole && !QUIP.test(text)) text = oneLine(text);
@@ -268,7 +275,7 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
     log.append(same);
     return;
   }
-  const [, tone] = text === 'Disgusting...' ? [0, 'eoe', ''] : forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  const [, tone] = (text === 'Disgusting...' || text === 'Congratulations...') ? [0, 'eoe', ''] : forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
   const capMilestone=forced==='rainbow'||forced==='insist';
   const diverChatter=whole||[...DIVER_LINES,...DIVER_SPAM,...DIVER_FULL].some(line=>line===text||oneLine(line)===text);
   if(capMilestone||(!diverChatter&&tone!=='quip'&&tone!=='plain'&&!forced))recordHistory(text,tone);
