@@ -20,3 +20,11 @@ HANDOFF.local.md
 .dev-tests/
 dev-tests/*.bundle.mjs
 
+# Local handoffs, profiling and packaged releases
+removemeafter-*.md
+*.local.md
+*.cpuprofile
+*.heapprofile
+/artifacts/
+/ascii-aquarium-*.zip
+

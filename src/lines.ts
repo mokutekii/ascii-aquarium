@@ -8,6 +8,11 @@
  * kept, and the toast takes the red "boss" style.
  */
 const BOSS: Record<string, string[]> = {
+  "kraken remains": ["the kraken has already claimed these waters...", "the trench has answered. it will not answer twice...", "the kraken is still watching...", "the kraken has not finished with you..."],
+  "mega remains": ["the megalodon is already hunting...", "the apex predator yields to nothing...", "one shadow is enough to empty the sea...", "the megalodon has yet to be satisfied..."],
+  "mothership remains": ["the mothership still commands the sky...", "the crown above has not been broken...", "their gaze remains upon the water...", "the siege has already begun..."],
+  "saga remains": ["the titans have already answered...", "the deep has no room for another throne...", "two ancient hungers still contest the sea...", "the clash has yet to choose its victor..."],
+
   "the mothership has eclipsed the surface...": ["the mothership has eclipsed the surface...", "the sky has lowered its crown...", "the deep is beneath their gaze...", "something vast commands the lights..."],
   "the mothership has fallen...": ["the mothership has fallen...", "the crown of the invaders lies broken...", "the divers have broken the siege..."],
   // The warning, before anything shows itself (the K, M and C keys).
@@ -159,7 +164,7 @@ export const GHOST_LINES = {
   subLost: "a submarine is lost to the deep...", subHit: "the submarine's hull buckles...", diver: "a diver strayed too close...",
 };
 export function isGhost(text: string) {
-  return GHOST_ARRIVE.includes(text);
+  return GHOST_ARRIVE.includes(text) || GHOST_PRESENCE.includes(text);
 }
 
 /** Yeat mode ad-libs: the one that announces it, and the ones that drift in while it lasts. */
@@ -189,3 +194,7 @@ export function dramatic(text: string, whole = false): string {
 for (const k of Object.keys(BOSS)) BOSS[k] = BOSS[k].map(oneLine);
 for (const k of Object.keys(VARIANTS)) VARIANTS[k] = VARIANTS[k].map(oneLine);
 for (const list of [CLASH, CLASH_AMBIENT, FRENZY_LINES]) list.splice(0, list.length, ...list.map(oneLine));
+
+const GHOST_PRESENCE = ["the guardian needs no second summons...", "the oldest shadow still passes beneath you...", "the ghost leviathan has not yet departed...", "the deep keeps its oldest promise..."];
+export function bossPresence(kind: string) { return pickLine(kind === "leviathan" ? GHOST_PRESENCE : BOSS[`${kind} remains`] ?? BOSS["saga remains"]); }
+export const SHARK_ARRIVALS: Record<string,string[]> = Object.fromEntries(Object.entries({classic:"shark",ghost:"ghost shark",hammerhead:"hammerhead",greathammer:"great hammerhead",mako:"mako",thresher:"thresher",tiger:"tiger shark",nurse:"nurse shark",zebra:"zebra shark",sawshark:"sawshark"}).map(([kind,name])=>[kind,[`a ${name} slips into the water...`,`another ${name}. the fish have noticed.`,`a ${name} arrives with no dinner reservation.`,`more teeth: a ${name} joins the crowd.`]]));

@@ -1,3 +1,6 @@
+import { krakenArmRoot, inKrakenReachArc } from "./kraken-reach";
+import type { Put } from "./deepdraw";
+import { hullPoint } from "./ufo-motion";
 /**
  * Draws the World as a grid of ASCII cells:
  *   1. a dark water grid that fades from daylight to indigo night
@@ -7,39 +10,59 @@
  *      shaded by the light, dense glyphs, and shimmering accent colours
  */
 import { drawGhost, drawSeabed, drawSubs } from "./deepdraw";
-import { drawSaucerHull } from "./saucer-draw";
-import { tractorBottom, TRACTOR_HALF_WIDTH } from "./tractor";
-import { drawMothership, drawEoe, mergerCrossFrame } from "./encounters-draw";
+import { drawClassicSaucer } from "./saucer-draw";
+import { drawCraftDebris } from "./wreckage";
+import { tractorIntake, tractorBottom, tractorHalfWidth, tractorCaptives } from "./tractor";
+import { drawMothership, drawEncounterShots, drawEoe, mergerCrossFrame } from "./encounters-draw";
 import { drawMothershipFx } from "./mothership-fx";
+import { drawRimWaves } from "./rim-wave";
+import { droneArmFrame, DRONE_RELEASE_TIME } from "./drone-arm";
+import { krakenFightProgress } from "./fight-progress";
+import { meteorRadius } from "./meteor";
 import { ghostBlobs, ghostFrame, ghostHalfWidth } from "./leviathan";
 import { angleDiff, clamp, hash3, smoothstep } from "./math";
 import { DIVER_SUIT, KRAKEN_ARC, SHARK_NODES, STRIKE_TIME, type Shark, type SharkKind, type World } from "./world";
-
 const ALPHA_LEVELS = 6;
 const FISH_ALPHAS = [0.28, 0.42, 0.58, 0.74, 0.9];
-
 // Dot colour classes: blue, green, red, pale; the last entry is the cyan wake.
-const DOT_RGB: [number, number, number][] = [
-  [48, 52, 235],
-  [52, 205, 60],
-  [228, 50, 44],
-  [190, 212, 255],
-  [110, 230, 255],
-];
+const DOT_RGB: [
+  number,
+  number,
+  number
+][] = [
+    [48, 52, 235],
+    [52, 205, 60],
+    [228, 50, 44],
+    [190, 212, 255],
+    [110, 230, 255],
+  ];
 const WAKE = DOT_RGB.length - 1;
 // Splash ripples fade through these purples as the ring spreads: lavender at the origin, deep violet at the edge.
 const RIPPLE_BASE = DOT_RGB.length;
 const RIPPLE_STEPS = 8;
 /** Eases from one colour to another over RIPPLE_STEPS steps, for a soft gradient as a ring spreads. */
-const ramp = (from: [number, number, number], to: [number, number, number]) =>
-  Array.from({ length: RIPPLE_STEPS }, (_, i): [number, number, number] => [0, 1, 2].map((k) => Math.round(from[k] + (to[k] - from[k]) * (i / (RIPPLE_STEPS - 1)))) as [number, number, number]);
+const ramp = (from: [
+  number,
+  number,
+  number
+], to: [
+  number,
+  number,
+  number
+]) => Array.from({ length: RIPPLE_STEPS }, (_, i): [
+  number,
+  number,
+  number
+] => [0, 1, 2].map((k) => Math.round(from[k] + (to[k] - from[k]) * (i / (RIPPLE_STEPS - 1)))) as [
+  number,
+  number,
+  number
+]);
 DOT_RGB.push(...ramp([234, 224, 255], [132, 116, 214]));
 const ORANGE_BASE = DOT_RGB.length;
 DOT_RGB.push(...ramp([255, 234, 204], [214, 132, 74]));
 const DOT_BASE_ALPHA = DOT_RGB.map(() => 1);
-
 const ACCENTS = ["#e0892c", "#e03a32", "#b44ae0", "#33c8cc", "#3cb54a", "#3150e8", "#d9c14a"];
-
 // Sparse glyphs on bright skin, dense glyphs in shadow, so the texture
 // reinforces the shading instead of fighting it.
 const SKIN_RAMP = ":;t%SX8#@";
@@ -47,8 +70,6 @@ const FIN_GLYPHS = "%;tS:";
 const RIDGE_GLYPHS = "@8%";
 const EDGE_HEAVY = ":;";
 const EDGE_LIGHT = ".',`";
-
-
 const FLAG_BODY = 1;
 const FLAG_EDGE = 2;
 const FLAG_FIN = 3;
@@ -57,41 +78,39 @@ const FLAG_EYE = 5;
 /** Dark skin markings: tiger bars, zebra-shark spots. */
 const FLAG_MARK = 6;
 const MARK_GLYPHS = "#%@";
-
 // Sub-cell sample offsets for anti-aliased silhouettes.
 const SUBSAMPLES = [0.25, 0.3, 0.75, 0.3, 0.25, 0.72, 0.75, 0.72];
-
 /** Classic top-down half-width at s ∈ [0, 1] (snout → tail), as a fraction of length. */
 /**
  * Sideways offset of a shark's spine at s (0 snout to 1 tail). Ordinary sharks beat faster the faster they swim; the
  * megalodon keeps a long, slow S-curve that builds toward the tail, and a bigger, tighter wave while it thrashes.
  */
 function bodyWave(sh: Shark, s: number) {
+  if (sh.mega && sh.swimSpine) return 0;
   const L = sh.length;
   // About a full wavelength along the body, so the middle swings across as well as the tail: an S that travels, never a fixed crescent.
-  if (!sh.mega) return L * 0.05 * (0.2 + 0.8 * Math.pow(s, 1.6)) * clamp(sh.speed / 60, 0.4, 1.4) * (sh.tailAmp ?? 1) * Math.sin(sh.phase - s * 6.6);
+  if (!sh.mega)
+    return L * 0.05 * (0.2 + 0.8 * Math.pow(s, 1.6)) * clamp(sh.speed / 60, 0.4, 1.4) * (sh.tailAmp ?? 1) * Math.sin(sh.phase - s * 6.6);
   const th = sh.thrash ?? 0;
-  const power = clamp(0.6 + sh.speed / 150, 0.6, 1.25) * (1 + 0.55 * th);
-  return L * 0.065 * (0.2 + 0.8 * Math.pow(s, 1.5)) * power * Math.sin(sh.phase - s * (5.8 + 1.2 * th));
+  const power = clamp(0.9 + sh.speed / 150, 0.9, 1.3) * (1 + 0.2 * Math.min(1, th));
+  return L * 0.052 * (0.18 * s + 0.82 * Math.pow(s, 1.65)) * power * Math.sin(sh.phase - s * 4.8);
 }
-
 /**
  * The megalodon's tail fin is a blade hinged on the tail stalk: it points along the end of the body, then pitches a
  * little behind the wave, so each stroke whips through the fin instead of sliding past it. Returns its base point and axis.
  */
 function megaFinFrame(sh: Shark, sp: ArrayLike<number>, N: number) {
   const th = sh.thrash ?? 0;
-  const power = clamp(0.6 + sh.speed / 150, 0.6, 1.25) * (1 + 0.55 * th);
+  const power = clamp(0.9 + sh.speed / 150, 0.9, 1.3) * (1 + 0.2 * Math.min(1, th));
   const fi = 0.88 * (N - 1);
   const i0 = Math.floor(fi);
   const w = fi - i0;
   const bx = sp[i0 * 2] * (1 - w) + sp[i0 * 2 + 2] * w;
   const by = sp[i0 * 2 + 1] * (1 - w) + sp[i0 * 2 + 3] * w;
   const ang = Math.atan2(sp[(N - 1) * 2 + 1] - sp[(N - 3) * 2 + 1], sp[(N - 1) * 2] - sp[(N - 3) * 2]) +
-    Math.cos(sh.phase - (5.8 + 1.2 * th) - 1.0) * (0.3 + 0.12 * th) * Math.min(1.4, power);
-  return { bx, by, c: Math.cos(ang), s: Math.sin(ang) };
+    (Math.cos(sh.phase - 4.8 - .65) + .22 * Math.sin(sh.phase * 2 - 5.4)) * (0.46 + 0.24 * th) * Math.min(1.4, power);
+  return { bx, by, c: Math.cos(ang), s: Math.sin(ang), flex: Math.sin(sh.phase - 5.8) * (.018 + .012 * th) };
 }
-
 /** The kraken's ivory, shared by its body and every arm that wraps something so they match exactly. */
 /** Which spine node an arm takes hold at: the body, and never the saw at a sawshark's snout. */
 function bodyNode(sh: Shark, a: number) {
@@ -108,52 +127,100 @@ const ARM_STAGGER = 0.45;
 const WRAP_STAGGER = 0.15;
 /** How angry the kraken looks this frame (0 calm → 1 furious): its ivory flushes red. Set once per frame by render(). */
 let boneRage = 0;
+/** 0-1: how strongly the kraken's hide is flashing red from being struck. */
+let boneHit = 0;
 function krakenBone(v: number, tint = 0) {
+  const base = krakenBoneBase(v, tint);
+  if (boneHit <= 0)
+    return base;
+  const [r, g, b] = base.slice(4,-1).split(",").map(Number);
+  return `rgb(${Math.round(r + (255 - r) * boneHit)},${Math.round(g * (1 - .75 * boneHit))},${Math.round(b * (1 - .8 * boneHit))})`;
+}
+function krakenBoneBase(v: number, tint = 0) {
   const c = Math.round(Math.max(90, Math.min(252, v)));
   // Calm, the ivory carries a dark green cast.
   const r0 = c * 0.84;
   const g = c * 0.95 - tint * 0.2;
   const b = c * 0.7 - tint * 0.4;
-  if (boneRage <= 0) return `rgb(${Math.round(r0)},${Math.round(g)},${Math.round(b)})`;
+  if (boneRage <= 0)
+    return `rgb(${Math.round(r0)},${Math.round(g)},${Math.round(b)})`;
   // Enraged, the hide sinks to a dark olive green shot with yellow, and the brightest parts (suckers, rim highlights) glow
   // yellow instead of fading with the rest.
-  if (v >= 245) return `rgb(${Math.round(r0 + (255 - r0) * boneRage)},${Math.round(g + (228 - g) * boneRage)},${Math.round(b + (60 - b) * boneRage)})`;
+  if (v >= 245)
+    return `rgb(${Math.round(r0 + (255 - r0) * boneRage)},${Math.round(g + (228 - g) * boneRage)},${Math.round(b + (60 - b) * boneRage)})`;
   return `rgb(${Math.round(r0 + (c * 0.62 - r0) * boneRage)},${Math.round(Math.max(g + (c * 0.8 - g) * boneRage, 105 * boneRage))},${Math.round(b + (c * 0.16 - b) * boneRage)})`;
 }
-
+/** 0-1 how recently a megalodon's jaws snapped shut on something; a clamp on a hull holds a trembling grip. */
+function megaClamp(sh: Shark, t: number) {
+  const age = t - (sh.chompAt ?? -Infinity);
+  const bite = age >= 0 && age < .55 ? 1 - age / .55 : 0;
+  return sh.hullClamp ? Math.max(bite, .45) : bite;
+}
 function classicHalfWidth(s: number) {
-  if (s < 0.13) return 0.09 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.95);
-  if (s < 0.3) return 0.09 + 0.016 * smoothstep(0.13, 0.3, s);
-  if (s < 0.84) return 0.019 + 0.087 * Math.pow(1 - (s - 0.3) / 0.54, 1.25);
+  if (s < 0.13)
+    return 0.09 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.95);
+  if (s < 0.3)
+    return 0.09 + 0.016 * smoothstep(0.13, 0.3, s);
+  if (s < 0.84)
+    return 0.019 + 0.087 * Math.pow(1 - (s - 0.3) / 0.54, 1.25);
   const k = (s - 0.84) / 0.16;
   return 0.019 * (1 - k) + 0.012 * Math.sin(k * Math.PI);
 }
-
 /** Body outline and fin layout per species. All values are fractions of length. */
 interface SharkShape {
   halfWidth: (s: number) => number;
   /** Pectoral fin: leading root, trailing root, tip position along the body, and reach. */
-  pectoral: [number, number, number, number];
+  pectoral: [
+    number,
+    number,
+    number,
+    number
+  ];
   /** Notched (falcate) trailing edge on the pectorals. */
   falcate: boolean;
   /** Pelvic fins: leading root, trailing root, tip, reach. */
-  pelvic: [number, number, number, number];
+  pelvic: [
+    number,
+    number,
+    number,
+    number
+  ];
   /** Forked caudal fin reach, or 0 when the tail is a ribbon (zebra shark). */
   caudal: number;
-  dorsal: [number, number];
-  secondDorsal: [number, number];
+  dorsal: [
+    number,
+    number
+  ];
+  secondDorsal: [
+    number,
+    number
+  ];
   /**
    * Hammerheads' cephalofoil: half-span, how far its tips sweep back, its depth, and the
    * notch in the middle of the front edge. All fractions of length; absent for other sharks.
    */
-  head?: { span: number; sweep: number; depth: number; notch: number };
+  head?: {
+    span: number;
+    sweep: number;
+    depth: number;
+    notch: number;
+  };
   /** null when the eyes sit somewhere else (hammerhead: on the cephalofoil tips). */
-  eye: [number, number] | null;
-  gills: [number, number];
+  eye: [
+    number,
+    number
+  ] | null;
+  gills: [
+    number,
+    number
+  ];
   /** Skin colour multipliers (r, g, b). */
-  tint: [number, number, number];
+  tint: [
+    number,
+    number,
+    number
+  ];
 }
-
 const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   classic: {
     halfWidth: classicHalfWidth,
@@ -171,8 +238,10 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // tall first dorsal, long upper tail lobe. Bronze-olive grey.
   hammerhead: {
     halfWidth: (s) => {
-      if (s < 0.06) return 0.045;
-      if (s < 0.3) return 0.045 + 0.061 * smoothstep(0.06, 0.3, s);
+      if (s < 0.06)
+        return 0.045;
+      if (s < 0.3)
+        return 0.045 + 0.061 * smoothstep(0.06, 0.3, s);
       return classicHalfWidth(s) * 0.92;
     },
     head: { span: 0.17, sweep: 0.035, depth: 0.09, notch: 0 },
@@ -189,9 +258,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // Blunt, square snout on a heavy body; barred back. Warm grey-brown.
   tiger: {
     halfWidth: (s) => {
-      if (s < 0.13) return 0.1 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.45);
-      if (s < 0.3) return 0.1 + 0.014 * smoothstep(0.13, 0.3, s);
-      if (s < 0.84) return 0.019 + 0.095 * Math.pow(1 - (s - 0.3) / 0.54, 1.2);
+      if (s < 0.13)
+        return 0.1 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.45);
+      if (s < 0.3)
+        return 0.1 + 0.014 * smoothstep(0.13, 0.3, s);
+      if (s < 0.84)
+        return 0.019 + 0.095 * Math.pow(1 - (s - 0.3) / 0.54, 1.2);
       const k = (s - 0.84) / 0.16;
       return 0.019 * (1 - k) + 0.012 * Math.sin(k * Math.PI);
     },
@@ -209,9 +281,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // tail fin. Broad rounded pectorals, spotted sandy skin.
   zebra: {
     halfWidth: (s) => {
-      if (s < 0.1) return 0.075 * Math.pow(Math.sin(((s / 0.1) * Math.PI) / 2), 0.7);
-      if (s < 0.28) return 0.075 + 0.025 * smoothstep(0.1, 0.28, s);
-      if (s < 0.55) return 0.022 + 0.078 * Math.pow(1 - (s - 0.28) / 0.27, 1.1);
+      if (s < 0.1)
+        return 0.075 * Math.pow(Math.sin(((s / 0.1) * Math.PI) / 2), 0.7);
+      if (s < 0.28)
+        return 0.075 + 0.025 * smoothstep(0.1, 0.28, s);
+      if (s < 0.55)
+        return 0.022 + 0.078 * Math.pow(1 - (s - 0.28) / 0.27, 1.1);
       const k = (s - 0.55) / 0.45;
       return 0.022 * (1 - k * k) + 0.012 * Math.sin(k * Math.PI);
     },
@@ -229,8 +304,10 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // a towering sickle first dorsal (drawn long and bright from above), and a cooler slate skin.
   greathammer: {
     halfWidth: (s) => {
-      if (s < 0.05) return 0.04;
-      if (s < 0.3) return 0.04 + 0.07 * smoothstep(0.05, 0.3, s);
+      if (s < 0.05)
+        return 0.04;
+      if (s < 0.3)
+        return 0.04 + 0.07 * smoothstep(0.05, 0.3, s);
       return classicHalfWidth(s) * 0.95;
     },
     head: { span: 0.21, sweep: 0.006, depth: 0.085, notch: 0.014 },
@@ -248,9 +325,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // and a tall crescent tail. Metallic indigo back.
   mako: {
     halfWidth: (s) => {
-      if (s < 0.17) return 0.088 * Math.pow(Math.sin(((s / 0.17) * Math.PI) / 2), 1.5);
-      if (s < 0.32) return 0.088 + 0.012 * smoothstep(0.17, 0.32, s);
-      if (s < 0.86) return 0.014 + 0.086 * Math.pow(1 - (s - 0.32) / 0.54, 1.45);
+      if (s < 0.17)
+        return 0.088 * Math.pow(Math.sin(((s / 0.17) * Math.PI) / 2), 1.5);
+      if (s < 0.32)
+        return 0.088 + 0.012 * smoothstep(0.17, 0.32, s);
+      if (s < 0.86)
+        return 0.014 + 0.086 * Math.pow(1 - (s - 0.32) / 0.54, 1.45);
       const k = (s - 0.86) / 0.14;
       return 0.014 * (1 - k) + 0.01 * Math.sin(k * Math.PI);
     },
@@ -268,9 +348,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // that's as long as the shark itself. Big eyes, long sickle pectorals, bronze-violet skin.
   thresher: {
     halfWidth: (s) => {
-      if (s < 0.08) return 0.07 * Math.pow(Math.sin(((s / 0.08) * Math.PI) / 2), 0.75);
-      if (s < 0.2) return 0.07 + 0.02 * smoothstep(0.08, 0.2, s);
-      if (s < 0.48) return 0.012 + 0.078 * Math.pow(1 - (s - 0.2) / 0.28, 1.3);
+      if (s < 0.08)
+        return 0.07 * Math.pow(Math.sin(((s / 0.08) * Math.PI) / 2), 0.75);
+      if (s < 0.2)
+        return 0.07 + 0.02 * smoothstep(0.08, 0.2, s);
+      if (s < 0.48)
+        return 0.012 + 0.078 * Math.pow(1 - (s - 0.2) / 0.28, 1.3);
       // The whip: thin, with a slight sickle swell before it tapers out.
       const k = (s - 0.48) / 0.52;
       return 0.012 * (1 - k) + 0.006 * Math.sin(k * Math.PI * 0.9) + 0.002;
@@ -289,9 +372,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // rounded paddle pectorals, and a long low tail with no lower lobe. Tawny brown.
   nurse: {
     halfWidth: (s) => {
-      if (s < 0.08) return 0.085 * Math.pow(Math.sin(((s / 0.08) * Math.PI) / 2), 0.4);
-      if (s < 0.3) return 0.085 + 0.02 * smoothstep(0.08, 0.3, s);
-      if (s < 0.72) return 0.022 + 0.083 * Math.pow(1 - (s - 0.3) / 0.42, 1.1);
+      if (s < 0.08)
+        return 0.085 * Math.pow(Math.sin(((s / 0.08) * Math.PI) / 2), 0.4);
+      if (s < 0.3)
+        return 0.085 + 0.02 * smoothstep(0.08, 0.3, s);
+      if (s < 0.72)
+        return 0.022 + 0.083 * Math.pow(1 - (s - 0.3) / 0.42, 1.1);
       const k = (s - 0.72) / 0.28;
       return 0.022 * (1 - k * k) + 0.014 * Math.sin(k * Math.PI);
     },
@@ -309,9 +395,12 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
   // sandy body with small fins and a modest tail.
   sawshark: {
     halfWidth: (s) => {
-      if (s < 0.3) return 0; // the blade is drawn separately, in white (drawSawBlade)
-      if (s < 0.4) return 0.012 + 0.056 * smoothstep(0.3, 0.4, s);
-      if (s < 0.86) return 0.018 + 0.05 * Math.pow(1 - (s - 0.4) / 0.46, 1.2);
+      if (s < 0.3)
+        return 0; // the blade is drawn separately, in white (drawSawBlade)
+      if (s < 0.4)
+        return 0.012 + 0.056 * smoothstep(0.3, 0.4, s);
+      if (s < 0.86)
+        return 0.018 + 0.05 * Math.pow(1 - (s - 0.4) / 0.46, 1.2);
       const k = (s - 0.86) / 0.14;
       return 0.018 * (1 - k) + 0.01 * Math.sin(k * Math.PI);
     },
@@ -326,16 +415,10 @@ const BASE_SHAPES: Record<Exclude<SharkKind, "ghost">, SharkShape> = {
     tint: [1.04, 0.96, 0.86],
   },
 };
-
 // A pale spectral cousin of the classic shark: same body, drained of colour and washed with cold cyan.
 const SHAPES: Record<SharkKind, SharkShape> = { ...BASE_SHAPES, ghost: { ...BASE_SHAPES.classic, tint: [0.72, 1.18, 1.3] } };
-
 const KINDS = Object.keys(SHAPES) as SharkKind[];
-
-function inTriangle(
-  px: number, py: number,
-  ax: number, ay: number, bx: number, by: number, cx: number, cy: number,
-) {
+function inTriangle(px: number, py: number, ax: number, ay: number, bx: number, by: number, cx: number, cy: number) {
   const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
   const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
   const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
@@ -343,7 +426,6 @@ function inTriangle(
   const pos = d1 > 0 || d2 > 0 || d3 > 0;
   return !(neg && pos);
 }
-
 /** Visible dark-grey cell grid, snapped to device pixels. Shared with the sidebar backdrop. */
 export function paintGrid(g: CanvasRenderingContext2D, W: number, H: number, cw: number, ch: number, dpr: number) {
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -362,7 +444,6 @@ export function paintGrid(g: CanvasRenderingContext2D, W: number, H: number, cw:
   }
   g.stroke();
 }
-
 export class AsciiRenderer {
   private ctx: CanvasRenderingContext2D;
   private bg: HTMLCanvasElement;
@@ -385,8 +466,8 @@ export class AsciiRenderer {
   private rows = 0;
   /** Rows between stacked event bars, tightened when many events run at once. */
   private barStep = 4.2;
+  private eventBarCount = 0;
   private fontFamily = "ui-monospace, Menlo, monospace";
-
   private dotKind = new Uint8Array(0); // 0 none, 1 blue, 2 green, 3 red, 4 pale
   private dotPhase = new Float32Array(0);
   private dotFreq = new Float32Array(0);
@@ -401,7 +482,6 @@ export class AsciiRenderer {
   private bucketOrder = new Int32Array(0);
   private bucketCounts = new Int32Array(DOT_RGB.length * ALPHA_LEVELS + 1);
   private dotStyles: string[] = [];
-
   private sharkFlag = new Uint8Array(0);
   private sharkShade = new Float32Array(0);
   private sharkKey = new Uint32Array(0);
@@ -411,6 +491,7 @@ export class AsciiRenderer {
   private sharkXray = new Uint8Array(0);
   /** 0-255: how enraged the megalodon that owns this cell is (its hide deepens to crimson and glows amber). */
   private sharkRage = new Uint8Array(0);
+  private sharkHit = new Uint8Array(0);
   /** Cells darkened by a shark's shadow on the seabed. */
   private sharkShadow = new Uint8Array(0);
   private spine = new Float32Array(SHARK_NODES * 2);
@@ -425,30 +506,40 @@ export class AsciiRenderer {
   private segmentLength = new Float64Array(SHARK_NODES - 1);
   private shape = SHAPES.classic;
   /** The megalodon's tail fin as a blade that pitches on the end of the tail, lagging the wave: base point and axis. */
-  private megaFin: { bx: number; by: number; c: number; s: number } | null = null;
+  private megaFin: ReturnType<typeof megaFinFrame> | null = null;
   private sharkId = 0;
   private finTipLeft = 0;
   private finTipRight = 0;
   // Scratch outputs of sampleShark(), to avoid allocating per sample.
   private hitFlag = 0;
+  private captured = new Set<object>();
+  private sharpSharks: {
+    x: number;
+    y: number;
+    flag: number;
+    shade: number;
+    key: number;
+    tint: readonly number[];
+    captured: boolean;
+  }[] = [];
+  private sharpSharkCount = 0;
+  private megaCells = new Set<number>();
   private hitShade = 0;
   private hitS = 0;
   private hitV = 0;
   private hitDist = 0;
-
   /** Cells holding a fish this frame (frame stamp); dots skip them. */
   private fishStamp = new Uint32Array(0);
   private frameId = 0;
   /** Fish cells bucketed by brightness, so each bucket is one fillStyle. */
   private fishBuckets: number[][] = FISH_ALPHAS.map(() => []);
   private fishStyles = FISH_ALPHAS.map((a) => `rgba(230,238,255,${a})`);
-
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) throw new Error("2D canvas unavailable");
+    if (!ctx)
+      throw new Error("2D canvas unavailable");
     this.ctx = ctx;
     this.bg = document.createElement("canvas");
-
     for (let c = 0; c < DOT_RGB.length; c++) {
       const [r, g, b] = DOT_RGB[c];
       for (let l = 0; l < ALPHA_LEVELS; l++) {
@@ -457,19 +548,16 @@ export class AsciiRenderer {
       }
     }
   }
-
   get cellWidth() {
     return this.cw;
   }
-
   get cellHeight() {
     return this.ch;
   }
-
   setFontFamily(family: string) {
-    if (family) this.fontFamily = family;
+    if (family)
+      this.fontFamily = family;
   }
-
   resize(width: number, height: number, dpr: number) {
     this.width = width;
     this.height = height;
@@ -479,12 +567,10 @@ export class AsciiRenderer {
     this.ch = Math.round(this.cw * 1.45);
     this.cols = Math.ceil(width / this.cw);
     this.rows = Math.ceil(height / this.ch);
-
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
     this.bg.width = this.canvas.width;
     this.bg.height = this.canvas.height;
-
     const n = this.cols * this.rows;
     this.dotKind = new Uint8Array(n);
     this.currentMask = new Uint8Array(n);
@@ -503,9 +589,9 @@ export class AsciiRenderer {
     this.sharkKind = new Uint8Array(n);
     this.sharkXray = new Uint8Array(n);
     this.sharkRage = new Uint8Array(n);
+    this.sharkHit = new Uint8Array(n);
     this.sharkShadow = new Uint8Array(n);
     this.fishStamp = new Uint32Array(n);
-
     for (let i = 0; i < n; i++) {
       const col = i % this.cols;
       const row = (i / this.cols) | 0;
@@ -516,20 +602,21 @@ export class AsciiRenderer {
     }
     this.paintBackground();
   }
-
   private paintBackground() {
     const g = this.bg.getContext("2d");
-    if (!g) return;
+    if (!g)
+      return;
     const { width: W, height: H, dpr, cw, ch } = this;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = "#000";
     g.fillRect(0, 0, W, H);
     paintGrid(g, W, H, cw, ch, dpr);
   }
-
   render(world: World, dt: number) {
+    this.eventBarCount = 0;
     const { ctx, dpr, cols, ch } = this;
-    if (cols === 0) return;
+    if (cols === 0)
+      return;
     const t = world.time;
     this.night += (world.night - this.night) * (this.reduced ? 1 : Math.min(1, dt * 1.4));
     this.yeat = world.yeat;
@@ -540,12 +627,11 @@ export class AsciiRenderer {
       const y = this.yeat;
       this.canvas.style.filter = y > 0 && this.quality === 0 ? `grayscale(${y.toFixed(3)}) contrast(${(1 + 0.5 * y).toFixed(3)}) brightness(${(1 + 0.25 * y).toFixed(3)}) drop-shadow(0 0 ${(3 * y).toFixed(1)}px rgba(255,255,255,${(0.85 * y).toFixed(3)})) drop-shadow(0 0 ${(12 * y).toFixed(1)}px rgba(255,255,255,${(0.6 * y).toFixed(3)})) drop-shadow(0 0 ${(30 * y).toFixed(1)}px rgba(255,255,255,${(0.35 * y).toFixed(3)}))` : "";
     }
-
     this.consumeEvents(world);
-    this.rasterizeSharks(world.sharks, t);
+    this.captured = tractorCaptives(world);
+    this.rasterizeSharks(world.sharks, t, world);
     this.depositWake(world);
     this.diffuse(dt);
-
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -564,7 +650,13 @@ export class AsciiRenderer {
     ctx.fillStyle = water;
     ctx.fillRect(0, 0, this.width, this.height);
     ctx.restore();
-
+    if(this.night>.01 && world.thunderstorms.length){
+      const haze=ctx.createRadialGradient(this.width*.5,this.height*.5,this.height*.12,this.width*.5,this.height*.5,Math.max(this.width,this.height)*.65);
+      haze.addColorStop(0,"rgba(45,20,85,0)");
+      haze.addColorStop(.6,`rgba(70,30,110,${this.night*.13})`);
+      haze.addColorStop(1,`rgba(80,35,125,${this.night*.32})`);
+      ctx.fillStyle=haze;ctx.fillRect(0,0,this.width,this.height);
+    }
     if (this.yeat > 0) {
       // Crush the water to a black void and drift patchy wisps of white fog through it.
       const w = this.cols * this.cw;
@@ -582,7 +674,8 @@ export class AsciiRenderer {
         const clock = t / period + hash(i * 7.7);
         const slot = Math.floor(clock);
         const env = Math.pow(Math.sin(Math.PI * (clock - slot)), 1.4) * this.yeat;
-        if (env < 0.02) continue;
+        if (env < 0.02)
+          continue;
         const seed = i * 17.3 + slot * 5.1;
         const drift = (clock - slot) * period;
         const fx = w * hash(seed) + Math.cos(hash(seed + 1) * 6.28) * drift * 5;
@@ -605,16 +698,13 @@ export class AsciiRenderer {
         ctx.restore();
       }
     }
-
     this.drawCurrent(world);
     this.markFish(world);
     this.drawDots(t);
     this.drawYeatGlows(world, t);
-
     ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-
     this.drawHeat();
     this.drawDeepLayer(world, "back");
     this.drawInk(world);
@@ -630,82 +720,111 @@ export class AsciiRenderer {
     this.drawMess(world);
     this.drawAlerts(world);
     this.drawUfo(world);
-    if (world.mothership || world.mothershipWreck || world.alienScrap.length || world.capacitorWaves.length || world.fish.some(f=>f.alive&&f.alienArmor)) {
+    if (world.mothership || world.rimWaves.length || world.encounterShots.length || world.mothershipWreck || world.alienScrap.length || world.capacitorWaves.length || world.fish.some(f => f.alive && (f.alienArmor || (f.shieldUntil ?? 0) > world.time))) {
       const { put, flush } = this.painter();
       if (world.mothership) {
         if (this.quality < 2) {
           const b = world.mothership;
-          const halo = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.size);
-          const fade=b.warp?Math.min(1,Math.abs(world.time-b.warp.at-1.2)/1.2):1;
-          halo.addColorStop(0,`rgba(140,80,255,${.2*fade})`);
-          halo.addColorStop(1,"rgba(70,220,140,0)");
-          ctx.fillStyle = halo; ctx.fillRect(b.x-b.size,b.y-b.size,b.size*2,b.size*2);
+          const halo = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.size);
+          const fade = b.warp ? Math.min(1, Math.abs(world.time - b.warp.at - 1.2) / 1.2) : 1;
+          halo.addColorStop(0, `rgba(140,80,255,${.2 * fade})`);
+          halo.addColorStop(1, "rgba(70,220,140,0)");
+          ctx.fillStyle = halo;
+          ctx.fillRect(b.x - b.size, b.y - b.size, b.size * 2, b.size * 2);
         }
-        drawMothership(put,world,this.cw,this.ch);
+        drawMothership(put, world, this.cw, this.ch, !this.reduced);
       }
-      drawMothershipFx(put,world,this.cw,this.ch);
+      drawEncounterShots(put, world, this.cw, this.ch);
+      drawMothershipFx(put, world, this.cw, this.ch);
+      drawRimWaves(put, world, this.cw);
       flush();
     }
     this.drawDebris(world);
     boneRage = world.krakenRage() * (0.88 + 0.12 * Math.sin(world.time * 5));
+    {
+      // Each laser that lands flashes the hide red; a volley keeps it blinking while the fade between hits is still visible.
+      const since = world.time - (world.kraken?.hitAt ?? -99);
+      boneHit = since < .45 ? (1 - since / .45) * (Math.floor(since * 16) % 2 ? .55 : 1) : 0;
+    }
     // A kraken wrapped round the megalodon is drawn over it, so its arms really lie across the body instead of vanishing beneath it.
     const overShark = world.kraken?.state === "wrap" && !!world.kraken.wrapping && !world.kraken.maul;
-    if (!overShark) this.drawKraken(world);
+    if (!overShark)
+      this.drawKraken(world);
     this.drawSharks(t);
-    if (overShark) this.drawKraken(world);
+    this.drawMegaClamp(world);
+    this.drawTractorCaptives(world);
+    if (overShark)
+      this.drawKraken(world);
     this.drawWhaleBite(world);
     this.drawMegaSkeleton(world);
     this.drawWraps(world);
     this.drawInteractionArms(world);
     boneRage = 0;
+    boneHit = 0;
     this.drawFightHud(world);
     // Every announced event gets its bar, stacked one under another: the titans clash first, then the invasion, then the rest.
     // The more there are, the tighter they pack, so the stack stays in the top half of the screen.
     let slot = 0;
-    if (world.mothership) this.drawEventBar(world,"THE MOTHERSHIP","170,255,205",Math.max(0,world.mothership.hp/world.mothership.maxHp),"CORE",slot++);
+    if (world.mothership)
+      this.drawEventBar(world, "THE MOTHERSHIP", "170,255,205", Math.max(0, world.mothership.hp / world.mothership.maxHp), "CORE", slot++, 1, [0.5, 0.33, 0.1]);
     const order = [...world.sagas].sort((a, b) => Number(b.kind === "clash") - Number(a.kind === "clash"));
-    const bars = order.length + (world.invasion ? 1 : 0) + (world.mothership ? 1 : 0);
+    const bars = order.length + world.thunderstorms.length + (world.invasion ? 1 : 0) + (world.mothership ? 1 : 0);
     this.barStep = Math.max(2.6, Math.min(4.2, (this.rows * 0.5 - 3.2) / Math.max(1, bars)));
-    if (order[0]?.kind === "clash") this.drawSagaBanner(world, order.shift()!, slot++);
-    if (world.invasion) this.drawInvasion(world, slot++);
-    for (const sg of order) this.drawSagaBanner(world, sg, slot++);
+    if (order[0]?.kind === "clash")
+      this.drawSagaBanner(world, order.shift()!, slot++);
+    if (world.invasion)
+      this.drawInvasion(world, slot++);
+    for (const sg of order)
+      this.drawSagaBanner(world, sg, slot++);
+    for(const storm of world.thunderstorms)
+      this.drawEventBar(world,"THUNDERSTORM","195,165,255",clamp((storm.until-world.time)/(storm.until-storm.born),0,1),"CHARGE",slot++);
     this.drawMeteors(world);
+    this.drawStormElectricity(world);
     this.drawSawBlade(world);
     this.drawSlices(world);
     if (world.eoe) {
       const age = world.time - world.eoe.born;
       // LCL rises through the existing sea; daylight and night retain their normal sky.
-      const flood=clamp(age/20,0,1)*clamp((52-age)/8,0,1);
-      const lcl=ctx.createLinearGradient(0,this.height*(1-flood),0,this.height);
-      lcl.addColorStop(0,`rgba(255,177,80,${.56+this.night*.02})`);
-      lcl.addColorStop(.45,`rgba(248,157,65,${.50+this.night*.02})`);
-      lcl.addColorStop(1,`rgba(236,141,52,${.44+this.night*.02})`);
-      ctx.fillStyle=lcl;
-      ctx.fillRect(0,this.height*(1-flood),this.width,this.height*flood);
-      ctx.save();ctx.beginPath();
-      ctx.rect(0,this.height*(1-flood),this.width,this.height*flood);ctx.clip();
+      const flood = clamp(age / 20, 0, 1) * clamp((52 - age) / 8, 0, 1);
+      const lcl = ctx.createLinearGradient(0, this.height * (1 - flood), 0, this.height);
+      lcl.addColorStop(0, `rgba(255,177,80,${.56 + this.night * .02})`);
+      lcl.addColorStop(.45, `rgba(248,157,65,${.50 + this.night * .02})`);
+      lcl.addColorStop(1, `rgba(236,141,52,${.44 + this.night * .02})`);
+      ctx.fillStyle = lcl;
+      ctx.fillRect(0, this.height * (1 - flood), this.width, this.height * flood);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, this.height * (1 - flood), this.width, this.height * flood);
+      ctx.clip();
       // One batched light pass keeps the stems thin, with a wider green bloom at night.
-      ctx.save();ctx.beginPath();
-      for(const [i,cross] of world.eoe.crosses.entries()){
-        if(!cross.converted)continue;
-        const f=mergerCrossFrame(world,cross,i,this.cw,this.ch,!this.reduced);
-        if(f.alpha<=0)continue;
-        const x=Math.floor(cross.x/this.cw)*this.cw+this.cw/2+f.dx;
-        const y=Math.floor(cross.y/this.ch)*this.ch+this.ch/2+1+f.dy;
-        ctx.moveTo(x,f.top+f.dy);ctx.lineTo(x,f.bottom+f.dy);
-        ctx.moveTo(x-f.arm,y);ctx.lineTo(x+f.arm,y);
+      ctx.save();
+      ctx.beginPath();
+      for (const [i, cross] of world.eoe.crosses.entries()) {
+        if (!cross.converted)
+          continue;
+        const f = mergerCrossFrame(world, cross, i, this.cw, this.ch, !this.reduced);
+        if (f.alpha <= 0)
+          continue;
+        const x = Math.floor(cross.x / this.cw) * this.cw + this.cw / 2 + f.dx;
+        const y = Math.floor(cross.y / this.ch) * this.ch + this.ch / 2 + 1 + f.dy;
+        ctx.moveTo(x, f.top + f.dy);
+        ctx.lineTo(x, f.bottom + f.dy);
+        ctx.moveTo(x - f.arm, y);
+        ctx.lineTo(x + f.arm, y);
       }
-      ctx.globalAlpha=clamp((52-age)/5,0,1)*(this.reduced?1:.94+.06*Math.sin(world.time*2.2));
-      ctx.lineWidth=Math.max(2,this.cw*(.30+this.night*.12));
-      ctx.lineCap="square";
-      ctx.strokeStyle=`rgba(150,255,185,${.45+this.night*.35})`;
-      ctx.shadowColor="rgb(120,255,160)";
-      ctx.shadowBlur=this.quality===2?0:Math.max(3,this.cw*this.dpr*(1.1+this.night*1.5));
+      ctx.globalAlpha = clamp((52 - age) / 5, 0, 1) * (this.reduced ? 1 : .94 + .06 * Math.sin(world.time * 2.2));
+      ctx.lineWidth = Math.max(2, this.cw * (.30 + this.night * .12));
+      ctx.lineCap = "square";
+      ctx.strokeStyle = `rgba(150,255,185,${.45 + this.night * .35})`;
+      ctx.shadowColor = "rgb(120,255,160)";
+      ctx.shadowBlur = this.quality === 2 ? 0 : Math.max(3, this.cw * this.dpr * (1.1 + this.night * 1.5));
       ctx.stroke();
-      ctx.shadowBlur=0;ctx.strokeStyle=`rgba(220,255,230,${.55+this.night*.3})`;
-      ctx.stroke();ctx.restore();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = `rgba(220,255,230,${.55 + this.night * .3})`;
+      ctx.stroke();
+      ctx.restore();
       const { put, flush } = this.painter();
-      drawEoe(put,world,this.cw,this.ch,this.quality === 2,!this.reduced);
+      drawEoe(put, world, this.cw, this.ch, this.quality === 2, !this.reduced);
       flush();
       ctx.restore();
     }
@@ -722,8 +841,6 @@ export class AsciiRenderer {
     this.drawTitanEntrance(world);
     this.drawHud();
   }
-
-
   /**
    * A kraken or megalodon swimming in shakes the whole tank for a couple of seconds and dims everything
    * except the water around it, as if it blotted out the light.
@@ -740,13 +857,16 @@ export class AsciiRenderer {
       this.lastShake = css;
       this.canvas.style.transform = css;
     }
-    if (still) return;
+    if (still)
+      return;
     const env = Math.min(1, age / 0.8) * Math.max(0, 1 - age / 5);
-    if (env <= 0.01) return;
+    if (env <= 0.01)
+      return;
     const mega = world.sharks.find((sh) => sh.mega);
     const k = world.kraken;
     const at = k && (!mega || k.born > (mega.born ?? 0)) ? { x: k.x, y: k.y, r: k.size * 0.7 } : mega ? { x: mega.nodes[0], y: mega.nodes[1], r: mega.length * 0.5 } : null;
-    if (!at) return;
+    if (!at)
+      return;
     const w = this.cols * this.cw;
     const h = this.rows * this.ch;
     const g = this.ctx.createRadialGradient(at.x, at.y, at.r * 0.4, at.x, at.y, Math.max(w, h) * 0.95);
@@ -756,7 +876,6 @@ export class AsciiRenderer {
     this.ctx.fillStyle = g;
     this.ctx.fillRect(0, 0, w, h);
   }
-
   /** Clouds of kraken ink: dark, slightly violet blots that swell, drift and thin out. */
   private drawInk(world: World) {
     const { ctx } = this;
@@ -768,7 +887,8 @@ export class AsciiRenderer {
       const age = world.time - c.born;
       const R = c.r0 + (c.r1 - c.r0) * Math.min(1, age / 3);
       const a = Math.min(1, age / 1.2) * Math.pow(Math.max(0, 1 - age / c.life), 0.8);
-      if (a <= 0.01) continue;
+      if (a <= 0.01)
+        continue;
       for (let b = 0; b < 3; b++) {
         const bx = c.x + (hash(c.seed + b * 3) - 0.5) * R * 0.9;
         const by = c.y + (hash(c.seed + b * 3 + 1) - 0.5) * R * 0.7;
@@ -782,30 +902,94 @@ export class AsciiRenderer {
       }
     }
   }
-
   /** Collects glyphs by grid cell (first one wins unless forced), then draws them in one pass. */
   private painter() {
     const { ctx, cw, ch, cols, rows } = this;
-    const cells = new Map<number, [string, string]>();
+    const cells = new Map<number, [
+      string,
+      string
+    ]>();
     const put = (x: number, y: number, glyph: string, color: string, force = false) => {
       const col = Math.floor(x / cw);
       const row = Math.floor(y / ch);
-      if (col < 0 || row < 0 || col >= cols || row >= rows) return;
+      if (col < 0 || row < 0 || col >= cols || row >= rows)
+        return;
       const key = row * cols + col;
-      if (force || !cells.has(key)) cells.set(key, [glyph, color]);
+      if (force || !cells.has(key))
+        cells.set(key, [glyph, color]);
     };
     const flush = (glow = 0) => {
       glow = this.quality > 0 ? 0 : glow;
       for (const [key, [glyph, color]] of cells) {
         ctx.fillStyle = color;
-        if (glow > 0) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
+        if (glow > 0) {
+          ctx.shadowColor = color;
+          ctx.shadowBlur = glow;
+        }
         ctx.fillText(glyph, (key % cols) * cw + cw / 2, Math.floor(key / cols) * ch + ch / 2 + 1);
       }
-      if (glow > 0) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; }
+      if (glow > 0) {
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = "transparent";
+      }
     };
     return { put, flush };
   }
-
+  /** A hull carries its own finer text grid, so crossing a water-grid row cannot erase the dome. */
+  private hullPainter(x: number, y: number, scale = .6, rotation = 0) {
+    const cw = this.cw * scale, ch = this.ch * scale, ctx = this.ctx;
+    const cells = new Map<string, {
+      x: number;
+      y: number;
+      glyph: string;
+      color: string;
+    }>();
+    const put = (px: number, py: number, glyph: string, color: string, _force = false) => {
+      const c = Math.round((px - x) / cw), r = Math.round((py - y) / ch);
+      cells.set(`${c},${r}`, { x: x + c * cw, y: y + r * ch, glyph, color });
+    };
+    const flush = () => {
+      ctx.save();
+      ctx.font = `${Math.round(ch * .85)}px ${this.fontFamily}`;
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      for (const p of cells.values()) {
+        ctx.fillStyle = p.color;
+        ctx.fillText(p.glyph, p.x - x, p.y - y);
+      }
+      ctx.restore();
+    };
+    return { put, flush, cw, ch };
+  }
+  private drawTractorCaptives(world: World) {
+    const { ctx, cw, ch } = this;
+    ctx.save();
+    ctx.fillStyle = "rgb(110,255,150)";
+    ctx.strokeStyle = "rgba(110,255,150,.75)";
+    ctx.shadowColor = "rgb(75,255,125)";
+    ctx.shadowBlur = this.quality === 0 ? world.night * 10 : 0;
+    for (const actor of this.captured) {
+      if ("nodes" in actor)
+        continue;
+      const p = actor as {
+        x: number;
+        y: number;
+        diver?: boolean;
+        size?: number;
+      };
+      if (p.diver) {
+        ctx.strokeRect(p.x - cw * 2, p.y - ch * 1.7, cw * 4, ch * 3.4);
+      }
+      else if (p.size) {
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, p.size * 1.4, p.size, .0, Math.PI, Math.PI * 2);
+        ctx.stroke();
+      }
+      else
+        ctx.fillText("-", p.x, p.y);
+    }
+    ctx.restore();
+  }
   /**
    * The kraken, drawn as a giant squid in pale, heavy glyphs: a hatched cone mantle with fins, a
    * round head with one big hollow eye, a bunch of short arms, and four long tentacles that curl
@@ -814,12 +998,13 @@ export class AsciiRenderer {
    */
   private drawKraken(world: World) {
     const k = world.kraken;
-    if (!k) return;
+    if (!k)
+      return;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
     const grip = k.state === "grab" || wrapped;
-    const shudder = k.maul && k.biteAt !== undefined ? 16 : (wrapped ? (world.time < k.shakeUntil ? 9 : 5) * (k.ambush ? 1.5 : 1) : 3) * (1 + 0.9 * world.krakenRage());
+    const shudder = world.mothership?.grapple?.kraken === k ? 9 : k.maul && k.biteAt !== undefined ? 16 : (wrapped ? (world.time < k.shakeUntil ? 9 : 5) * (k.ambush ? 1.5 : 1) : 3) * (1 + 0.9 * world.krakenRage());
     // Just after a blast the whole body is knocked about: the head jolts and the mantle lurches off its line, while the arms
     // flail loose. An angry kraken (blast or blood moon) also thrashes its arms harder.
     const hit = clamp(1 - (world.time - (k.blastAt ?? -99)) / 2.5, 0, 1);
@@ -842,6 +1027,9 @@ export class AsciiRenderer {
     const held = wrapped ? [k.wrapping!] : k.grabbed;
     const holders = held.length;
     // A whale in the grip gets the same full set of limbs as a megalodon: each one grips its own spot along the body.
+    const hullHold = world.mothership?.grapple?.kraken === k ? world.mothership : null;
+    const hullReach = k.hullStrike?.reachAt !== undefined ? k.hullStrike.target : null;
+    const hullTarget = hullHold ?? hullReach;
     const whaleHold = k.whaleTarget && k.whaleUntil > world.time && k.whaleLanded !== undefined ? k.whaleTarget : null;
     const whaleGrip = (a: number) => {
       // Each limb takes its own spot within arm's reach of where the kraken has hold of the whale.
@@ -853,8 +1041,9 @@ export class AsciiRenderer {
     // Charging a megalodon or a whale, the arms spread wide and then snap together as each jet stroke drives it forward.
     const attack = k.lunging || k.hunt ? clamp(k.jet, 0, 1) : 0;
     const open = (1 - Math.sin(k.phase * 1.1)) / 2;
-    const spreadMul = k.stroke !== undefined ? 1 + 0.9 * k.stroke : 1 + 1.1 * attack * open;
-
+    const stretch = world.krakenRage() > 0 && world.time < (k.rageStretchUntil ?? 0)
+      ? Math.sin(Math.PI * clamp(1 - ((k.rageStretchUntil ?? 0) - world.time) / 2.4, 0, 1)) : 0;
+    const spreadMul = (k.stroke !== undefined ? 1 + 0.9 * k.stroke : 1 + 1.1 * attack * open) + stretch * .35;
     // Six short arms and four long looping tentacles, reaching out from the front of the head.
     const shortArms = 6;
     const limbs = shortArms + 4;
@@ -862,23 +1051,30 @@ export class AsciiRenderer {
       const feeder = a >= shortArms;
       const fi = a - shortArms;
       const psi = feeder ? [-0.75, -0.25, 0.25, 0.75][fi] : (a / (shortArms - 1) - 0.5) * 2.0;
+      if (world.attackDrones.some(d => d.returned?.arm === a && world.time - d.returned.at < DRONE_RELEASE_TIME + .3)) continue;
+      // The arm an enraged kraken frees to take a provoker is drawn by its own reach and grip, never as a loose flailing limb.
+      if (a === 9 && (hullTarget || whaleHold) && (k.gripArms ?? 10) < 10 && (k.ufoHeld || k.ufoStrike !== null || k.strike?.f.alive)) continue;
       let rootAng = armAng + psi;
       // Arms take hold one at a time: the first lands where the reach ended, the rest follow, up to what the kraken
       // could really wrap with. The rest keep waving until their turn comes, so the count only ever climbs.
       // Every limb is on the whale; only when enraged do the long tentacles stay free to flail at divers, saucers and sharks.
-      const wp = whaleHold && !(anger > 0 && feeder) ? whaleGrip(a) : null;
+      const hullArm = hullTarget && a < (k.gripArms ?? 8);
+      const hullAngle = a / 10 * Math.PI * 2;
+      const wp = hullArm ? hullPoint(hullTarget!, Math.cos(hullAngle) * hullTarget!.size * .8, Math.sin(hullAngle) * hullTarget!.size * .23)
+        : whaleHold && a < (k.gripArms ?? 10) ? whaleGrip(a) : null;
       const sh0 = wp || holders === 0 ? null : held[a % holders];
-      const sinceG = wp ? world.time - (k.whaleStart ?? world.time) : !sh0 ? 0 : wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
+      const sinceG = wp ? world.time - (hullArm ? hullHold?.grapple?.at ?? k.hullStrike?.reachAt ?? world.time : k.whaleStart ?? world.time) : !sh0 ? 0 : wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
       // A whale grip is taken by all the limbs together, a hair apart, not one after another.
       const armSince = wp ? sinceG - (a % 4) * 0.05 : sinceG - Math.floor(a / Math.max(1, holders)) * (wrapped ? WRAP_STAGGER : ARM_STAGGER);
-      const attached = wp ? armSince >= 0 : grip && !!sh0 && (!feeder || wrapped) && Math.floor(a / holders) < (wrapped ? WRAP_ARMS : holdArmsFor(sh0)) && armSince >= 0;
+      const attached = wp ? armSince >= 0 : (!wrapped || a < (k.gripArms ?? 10)) && grip && !!sh0 && (!feeder || wrapped) && Math.floor(a / holders) < (wrapped ? WRAP_ARMS : holdArmsFor(sh0)) && armSince >= 0;
       // An arm taking hold sweeps from where it was waving to its grip rather than jumping there: it always stays joined to the body.
       const prog = attached ? clamp(armSince / (0.9 + (a % 3) * 0.2), 0, 1) : 0;
       const ease = prog * prog * (3 - 2 * prog);
       // An arm that is holding something roots on the side of the head facing it, so it never has to cross the head.
       if (attached) {
         let aim: number;
-        if (wp) aim = Math.atan2(wp.y - hy, wp.x - hx);
+        if (wp)
+          aim = Math.atan2(wp.y - hy, wp.x - hx);
         else {
           const tgt = held[a % holders];
           const tn = bodyNode(tgt, a);
@@ -910,7 +1106,8 @@ export class AsciiRenderer {
           if (t < 0.5) {
             const u = t / 0.5;
             hp.push((1 - u) * (1 - u) * rx + 2 * (1 - u) * u * bx + u * u * x0, (1 - u) * (1 - u) * ry + 2 * (1 - u) * u * by + u * u * y0);
-          } else if (sh) {
+          }
+          else if (sh) {
             // Coil around the shark's body, following its spine.
             // Then it spirals round the body for several turns, crossing it on both sides.
             const u = (t - 0.5) / 0.5;
@@ -924,7 +1121,14 @@ export class AsciiRenderer {
             const tl = Math.hypot(tx, ty) || 1;
             const wrap = Math.sin(u * 20 + a + k.phase * 2) * Math.max(sh.length * 0.05, 14);
             hp.push(sx + (-ty / tl) * wrap, sy + (tx / tl) * wrap);
-          } else {
+          }
+          else if (hullArm) {
+            const u = (t - .5) / .5, angle = hullAngle + u * Math.PI * 2;
+            const pt = hullPoint(hullTarget!, Math.cos(angle) * hullTarget!.size * .8,
+              Math.sin(angle) * hullTarget!.size * (.23 + .015 * Math.sin(k.phase * 2)));
+            hp.push(pt.x, pt.y);
+          }
+          else {
             // Round the whale: the limb winds across its flank the way it winds a shark.
             const u = (t - 0.5) / 0.5;
             const wrap = Math.sin(u * 20 + a + k.phase * 2) * Math.max(whaleHold!.length * 0.08, 16);
@@ -935,16 +1139,19 @@ export class AsciiRenderer {
       {
         // Arms fan out and wave; the long tentacles trail out and curl over into loops.
         // Jetting stretches the arms out behind it.
-        const len = (feeder ? S * (1.2 + 0.18 * Math.abs(psi)) : S * (0.4 + 0.2 * Math.sin((a + 0.5) * 1.9) ** 2)) * (1 + 0.3 * k.jet);
+        const hullCoilAge = k.hullStrike ? world.time - k.hullStrike.at : -1;
+        const hullCoil = hullCoilAge < 0 ? 0 : !k.hullStrike?.launched ? smoothstep(0, 1.2, hullCoilAge) : Math.max(0, 1 - (world.time - (k.hullStrike.launchedAt ?? world.time)) / .6);
+        const coil = a < 8 ? hullCoil : 0;
+        const len = (1 + .3 * stretch) * (1 - .35 * coil) * (feeder ? S * (1.2 + 0.18 * Math.abs(psi)) : S * (0.4 + 0.2 * Math.sin((a + 0.5) * 1.9) ** 2)) * (1 + 0.3 * k.jet);
         const ds = len / N;
-        const curl = feeder ? (psi < 0 ? -1 : 1) * (3.4 + 1.2 * Math.abs(psi)) * (1 - 0.6 * k.jet) : -psi * 0.6;
+        const curl = (psi < 0 ? -1 : 1) * coil * 6 + (1 - .7 * stretch) * (feeder ? (psi < 0 ? -1 : 1) * (3.4 + 1.2 * Math.abs(psi)) * (1 - 0.6 * k.jet) : -psi * 0.6);
         let x = rx;
         let y = ry;
         for (let i = 0; i <= N; i++) {
           const t = i / N;
           pts.push(x, y);
           // Arms that aren't holding anything keep moving: a slow wave plus a lazy sway of their own, never frozen.
-        const wave = (Math.sin(k.wave - t * (5 + 4 * k.jet) + a * 0.9) * (feeder ? 0.6 : 0.45) + Math.sin(k.phase * 0.8 + a * 1.7 - t * 2) * (feeder ? 0.3 : 0.12) + Math.sin(k.wave * 1.6 - t * 9 + a * 2) * (feeder ? 0.55 : 0.3) * Math.pow(t, 2.4)) * (1 + (k.stroke !== undefined ? 0.15 : 1.3) * k.jet + 1.6 * hit + 1.1 * anger) * (0.2 + 1.5 * Math.pow(t, 1.4));
+          const wave = (Math.sin(k.wave - t * (5 + 4 * k.jet) + a * 0.9) * (feeder ? 0.6 : 0.45) + Math.sin(k.phase * 0.8 + a * 1.7 - t * 2) * (feeder ? 0.3 : 0.12) + Math.sin(k.wave * 1.6 - t * 9 + a * 2) * (feeder ? 0.55 : 0.3) * Math.pow(t, 2.4)) * (1 + (k.stroke !== undefined ? 0.15 : 1.3) * k.jet + 1.6 * hit + 1.1 * anger) * (0.2 + 1.5 * Math.pow(t, 1.4));
           // Whatever the curl, no limb bends past 135 degrees either side of the line behind the head.
           const ang = armAng + clamp(psi * spreadMul * (feeder ? 0.7 : 0.9 - 0.4 * t) + curl * Math.pow(t, feeder ? 2.2 : 2) - k.bend * 0.9 * Math.pow(t, 1.3) + wave, -KRAKEN_ARC, KRAKEN_ARC);
           x += Math.cos(ang) * ds;
@@ -955,7 +1162,8 @@ export class AsciiRenderer {
       const reach = N;
       let girth = 1;
       if (holds) {
-        for (let q = 0; q < pts.length; q++) pts[q] += (hp[q] - pts[q]) * ease;
+        for (let q = 0; q < pts.length; q++)
+          pts[q] += (hp[q] - pts[q]) * ease;
         // A holding arm also thickens gradually as it lands.
         girth = 0.6 + 0.4 * ease;
       }
@@ -967,7 +1175,8 @@ export class AsciiRenderer {
           const ox = pts[i * 2] - hx;
           const oy = pts[i * 2 + 1] - hy;
           const along = ox * mdx + oy * mdy;
-          if (Math.hypot(ox, oy) < R * 1.05 || (along > 0 && along < S * 0.62 && Math.abs(ox * mpx + oy * mpy) < R * 1.5)) continue;
+          if (Math.hypot(ox, oy) < R * 1.05 || (along > 0 && along < S * 0.62 && Math.abs(ox * mpx + oy * mpy) < R * 1.5))
+            continue;
         }
         const tx = pts[(j + 1) * 2] - pts[j * 2];
         const ty = pts[(j + 1) * 2 + 1] - pts[j * 2 + 1];
@@ -981,7 +1190,8 @@ export class AsciiRenderer {
         const tone = a % 2 ? -42 : 0;
         const apart = Math.hypot(pts[i * 2] - hx, pts[i * 2 + 1] - hy) > R * 1.6;
         if (apart && half > 0) {
-          for (const o of [-half - 1, half + 1]) put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, " ", "#000", true);
+          for (const o of [-half - 1, half + 1])
+            put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, " ", "#000", true);
         }
         for (let o = -half; o <= half; o++) {
           const edge = Math.abs(o) === half && half > 0;
@@ -990,7 +1200,6 @@ export class AsciiRenderer {
         }
       }
     }
-
     // Mantle: a large cone out in front of the head, its tip pointing the way it swims. Hatched with slashes and outlined heavily.
     const Lm = S * 0.62 * pulse;
     // The mantle only leans a little into a turn, the tip leading while the base trails: no wriggling, the head stays steady.
@@ -1008,22 +1217,27 @@ export class AsciiRenderer {
         const inCone = u >= 0 && u <= 1 && Math.abs(across) <= halfAt(u);
         const fu = (u - 0.45) / 0.55;
         const fin = fu > 0 && fu <= 1 && Math.abs(across) <= halfAt(u) + R * 0.9 * Math.sin(Math.PI * fu) && Math.abs(across) > halfAt(u) * 0.85;
-        if (!inHead && !inCone && !fin) continue;
+        if (!inHead && !inCone && !fin)
+          continue;
         const col = Math.floor(x / cw);
         const row = Math.floor(y / ch);
         const band = (col + row) % 4;
         const rel = inCone ? Math.abs(across) / Math.max(halfAt(u), 1) : 0;
         let glyph: string;
-        if (fin && !inCone && !inHead) glyph = across > 0 ? "\\" : "/";
-        else if (inHead) glyph = (col * 3 + row) % 5 === 0 ? "0" : "8";
-        else if (rel > 0.84) glyph = "@";
-        else if (u < 0.12) glyph = "8";
-        else glyph = band === 3 ? "%" : (col + row * 2) % 11 === 0 ? "*" : "/";
+        if (fin && !inCone && !inHead)
+          glyph = across > 0 ? "\\" : "/";
+        else if (inHead)
+          glyph = (col * 3 + row) % 5 === 0 ? "0" : "8";
+        else if (rel > 0.84)
+          glyph = "@";
+        else if (u < 0.12)
+          glyph = "8";
+        else
+          glyph = band === 3 ? "%" : (col + row * 2) % 11 === 0 ? "*" : "/";
         const lum = inHead ? 238 : 232 - 80 * u - (rel > 0.84 ? 0 : 20);
         put(x, y, glyph, bone(lum, 30 * u), true);
       }
     }
-
     // One big hollow eye: a white ring around a black pupil, with a small highlight.
     const re = R * 0.62;
     const ex = hx - mdx * R * 0.1;
@@ -1031,19 +1245,39 @@ export class AsciiRenderer {
     for (let y = ey - re; y <= ey + re; y += ch * 0.7) {
       for (let x = ex - re; x <= ex + re; x += cw * 0.7) {
         const e = Math.hypot(x - ex, y - ey) / re;
-        if (e > 1) continue;
-        if (e > 0.62) put(x, y, "O", boneRage > 0 ? `rgb(255,${Math.round(255 - 50 * boneRage)},${Math.round(255 - 195 * boneRage)})` : "rgb(255,255,255)", true);
-        else if (e < 0.18 && x < ex && y < ey) put(x, y, ".", "rgb(255,255,255)", true);
-        else put(x, y, " ", "rgb(0,0,0)", true);
+        if (e > 1)
+          continue;
+        if (e > 0.62)
+          put(x, y, "O", boneRage > 0 ? `rgb(255,${Math.round(255 - 50 * boneRage)},${Math.round(255 - 195 * boneRage)})` : "rgb(255,255,255)", true);
+        else if (e < 0.18 && x < ex && y < ey)
+          put(x, y, ".", "rgb(255,255,255)", true);
+        else
+          put(x, y, " ", "rgb(0,0,0)", true);
+      }
+    }
+    for (const drone of world.attackDrones) {
+      if (!drone.returned || world.time - drone.returned.at >= DRONE_RELEASE_TIME + .3) continue;
+      const frame = droneArmFrame(world, k, drone);
+      for (let i = 0; i <= 56; i++) {
+        const t = i / 56, v = 1 - t;
+        const x = v * v * frame.rootX + 2 * v * t * frame.controlX + t * t * frame.tipX;
+        const y = v * v * frame.rootY + 2 * v * t * frame.controlY + t * t * frame.tipY;
+        put(x, y, i % 5 === 0 ? "o" : "#", bone(205), true);
+        if (i < 40) put(x + cw * .6, y, ":", bone(130));
+      }
+      if (frame.gripping && world.time - drone.returned.at < DRONE_RELEASE_TIME) {
+        put(drone.x - cw * 1.8, drone.y, "(", bone(235), true);
+        put(drone.x + cw * 1.8, drone.y, ")", bone(235), true);
+        put(drone.x, drone.y, "@", "rgb(255,215,150)", true);
       }
     }
     flush();
   }
-
   /** The white slash that flashes in front of a sawshark as it cuts through the fish ahead. */
   private drawSlices(world: World) {
     const cutting = world.sharks.filter((sh) => (sh.sliceUntil ?? 0) > world.time);
-    if (!cutting.length) return;
+    if (!cutting.length)
+      return;
     const { put, flush } = this.painter();
     for (const sh of cutting) {
       const fade = Math.min(1, (sh.sliceUntil! - world.time) / 0.25);
@@ -1060,11 +1294,11 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   /** The sawshark's blade: a slim, bright white line for a snout. */
   private drawSawBlade(world: World) {
     const saws = world.sharks.filter((sh) => sh.kind === "sawshark");
-    if (!saws.length) return;
+    if (!saws.length)
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     for (const sh of saws) {
@@ -1080,10 +1314,10 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   /** Jellyfish: a round, bulbed bell that pulses, with a frilled rim and short trailing strands. */
   private drawJellies(world: World) {
-    if (!world.jellies.length) return;
+    if (!world.jellies.length)
+      return;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     for (const j of world.jellies) {
@@ -1091,7 +1325,8 @@ export class AsciiRenderer {
       const sq = j.sq ?? 0;
       const ax = j.ax ?? 0;
       const ay = j.ay ?? 1;
-      const rgb = `${Math.round(120 + 80 * j.hue)},${Math.round(205 - 65 * j.hue)},255`;
+      const charged = (j.chargedUntil ?? 0) > world.time;
+      const rgb = charged ? "175,250,255" : `${Math.round(120 + 80 * j.hue)},${Math.round(205 - 65 * j.hue)},255`;
       if (this.night > 0.05) {
         const radius = Math.max(cw * 4, r * 5);
         const halo = this.ctx.createRadialGradient(j.x, j.y, 0, j.x, j.y, radius);
@@ -1106,7 +1341,8 @@ export class AsciiRenderer {
           const nx = (x - j.x) / r;
           const ny = (y - j.y) / (r * 1.5);
           const d = nx * nx + ny * ny;
-          if (d > 1) continue;
+          if (d > 1)
+            continue;
           // Squash along the push and bulge across it, with a slow ripple through the rim.
           let wx = x;
           let wy = y;
@@ -1123,10 +1359,14 @@ export class AsciiRenderer {
           let alpha = 0.5 + 0.3 * world.night;
           if (d > 0.6) {
             alpha = 0.95;
-            if (Math.abs(nx) < 0.45) glyph = "-";
-            else if (ny < -0.4) glyph = ".";
-            else glyph = nx < 0 ? "(" : ")";
-          } else {
+            if (Math.abs(nx) < 0.45)
+              glyph = "-";
+            else if (ny < -0.4)
+              glyph = ".";
+            else
+              glyph = nx < 0 ? "(" : ")";
+          }
+          else {
             glyph = (Math.floor(x / cw) + Math.floor(y / ch)) % 3 === 0 ? "." : ":";
           }
           put(wx, wy, glyph, `rgba(${rgb},${alpha})`, true);
@@ -1151,7 +1391,8 @@ export class AsciiRenderer {
           put(j.x + dx * u - (dy / len) * jag, j.y + dy * u + (dx / len) * jag, i % 2 ? "/" : "\\", `rgba(255,245,130,${(1 - zap / 0.6).toFixed(2)})`, true);
         }
       }
-      for (let x = j.x - r * 0.9; x <= j.x + r * 0.9; x += cw * 0.8) put(x, j.y + r * 0.16, "~", `rgba(${rgb},0.9)`, true);
+      for (let x = j.x - r * 0.9; x <= j.x + r * 0.9; x += cw * 0.8)
+        put(x, j.y + r * 0.16, "~", `rgba(${rgb},0.9)`, true);
       for (let sIdx = 0; sIdx < 5; sIdx++) {
         const len = 3 + (sIdx % 3);
         for (let i = 1; i <= len; i++) {
@@ -1164,15 +1405,47 @@ export class AsciiRenderer {
     }
     flush(this.night * 12);
   }
-
   /**
    * A humpback seen from above: a blunt knobbly head, a long body that tapers to the tail,
    * two long pale flippers swept back, and wide notched flukes that sway as it swims.
    */
   /** Blood clouding out where a megalodon has clamped onto the whale. */
+  /** The clamp: when a megalodon bites or snags something, an impact burst pulses out from its snout. No jaw is drawn; it is a top-down view. */
+  private drawMegaClamp(world: World) {
+    const { cw, ch } = this;
+    let painted: ReturnType<AsciiRenderer["painter"]> | null = null;
+    for (const sh of world.sharks) {
+      if (!sh.mega || sh.grabbed || sh.lifted)
+        continue;
+      const power = megaClamp(sh, world.time);
+      if (power < .04)
+        continue;
+      painted ??= this.painter();
+      const { put } = painted;
+      const sx = sh.nodes[0], sy = sh.nodes[1];
+      const a = Math.atan2(sy - sh.nodes[3], sx - sh.nodes[2]);
+      const age = Math.max(0, world.time - (sh.chompAt ?? -Infinity));
+      const tone = `rgba(255,${Math.round(235 - 110 * (1 - power))},${Math.round(210 - 130 * (1 - power))},${Math.min(1, .3 + power)})`;
+      const px = sx + Math.cos(a) * sh.length * .03, py = sy + Math.sin(a) * sh.length * .03;
+      // A tight ring flashes out from the point of contact, with sparks thrown off it.
+      const radius = sh.hullClamp ? sh.length * .03 : sh.length * (.02 + .09 * Math.min(1, age / .4));
+      const count = Math.min(36, Math.max(10, Math.round(radius * 6.28 / cw)));
+      for (let n = 0; n < count; n++) {
+        const ang = n / count * Math.PI * 2 + world.time * 2;
+        put(px + Math.cos(ang) * radius, py + Math.sin(ang) * radius * (ch / cw) * .75, n % 3 ? "*" : "+", tone, true);
+      }
+      if (age < .25 || sh.hullClamp)
+        for (let n = 0; n < 6; n++) {
+          const ang = n * 1.047 + world.time * 5, r = radius * (1.4 + (n % 2) * .5);
+          put(px + Math.cos(ang) * r, py + Math.sin(ang) * r * .8, "'", tone, true);
+        }
+    }
+    painted?.flush();
+  }
   private drawWhaleBite(world: World) {
     const wf = world.whaleFight;
-    if (!wf || !wf.locked || !world.whales.includes(wf.whale)) return;
+    if (!wf || !wf.locked || !world.whales.includes(wf.whale))
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     const m = wf.mega;
@@ -1189,27 +1462,29 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   /** Seabed and searchlights behind everything, the leviathan mid-water, submarines in front. */
   private drawDeepLayer(world: World, layer: "back" | "mid" | "front") {
     const grid = { cw: this.cw, ch: this.ch, cols: this.cols, rows: this.rows };
     const { put, flush } = this.painter();
-    if (layer === "back") drawSeabed(put, world, grid);
+    if (layer === "back")
+      drawSeabed(put, world, grid);
     else if (layer === "mid") {
       const lv = world.leviathan;
-      if (!lv) return;
+      if (!lv)
+        return;
       // Broad, low blue bloom beneath the translucent glyphs. Yeat brightens the same creature.
       const { ctx } = this;
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       for (let u = 0.04; u < 0.95; u += 0.11) {
         const f = ghostFrame(lv, u);
-        const r = ghostHalfWidth(lv.length, u) * 2.5;
-        if (f.x < -r || f.y < -r || f.x > this.cols * this.cw + r || f.y > this.rows * this.ch + r) continue;
+        const r = ghostHalfWidth(lv.length, u) * 3.2;
+        if (f.x < -r || f.y < -r || f.x > this.cols * this.cw + r || f.y > this.rows * this.ch + r)
+          continue;
         const pulse = 0.85 + 0.15 * Math.sin(world.time * 0.8 - u * 12);
         const glow = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
-        glow.addColorStop(0, `rgba(25,130,255,${((0.18 + this.night * 0.08 + world.yeat * 0.13) * pulse).toFixed(3)})`);
-        glow.addColorStop(0.45, `rgba(30,95,245,${((0.07 + world.yeat * 0.07) * pulse).toFixed(3)})`);
+        glow.addColorStop(0, `rgba(25,130,255,${((0.29 + this.night * 0.15 + world.yeat * 0.13) * pulse).toFixed(3)})`);
+        glow.addColorStop(0.45, `rgba(30,95,245,${((0.13 + this.night * 0.05 + world.yeat * 0.07) * pulse).toFixed(3)})`);
         glow.addColorStop(1, "rgba(20,80,240,0)");
         ctx.fillStyle = glow;
         ctx.fillRect(f.x - r, f.y - r, r * 2, r * 2);
@@ -1217,14 +1492,14 @@ export class AsciiRenderer {
       ctx.restore();
       drawGhost(put, world, grid);
     }
-    else drawSubs(put, world, grid);
+    else
+      drawSubs(put, world, grid);
     flush(layer === "mid" ? 5 + world.yeat * 12 : 0);
   }
-
   private drawWhale(world: World) {
-    for (const w of world.whales) this.drawOneWhale(world, w);
+    for (const w of world.whales)
+      this.drawOneWhale(world, w);
   }
-
   private drawOneWhale(world: World, w: NonNullable<World["whale"]>) {
     const { cw } = this;
     const { put, flush } = this.painter();
@@ -1232,7 +1507,10 @@ export class AsciiRenderer {
     const dx = Math.cos(w.heading);
     const dy = Math.sin(w.heading);
     const W0 = L * 0.095;
-    const centre = (u: number): [number, number] => {
+    const centre = (u: number): [
+      number,
+      number
+    ] => {
       // A travelling S-curve that grows toward the tail, with the head barely moving.
       const bend = Math.sin(w.phase - u * 5.2) * L * (0.016 + 0.046 * Math.pow(u, 1.4));
       const { x: bx, y: by } = world.whalePoint(w, u);
@@ -1248,9 +1526,16 @@ export class AsciiRenderer {
       return { x: x0, y: y0, tx, ty, nx: -ty, ny: tx };
     };
     const half = (u: number) => {
-      if (u < 0.14) { const q = 1 - u / 0.14; return W0 * 0.92 * Math.sqrt(Math.max(0, 1 - q * q)); }
-      if (u < 0.45) return W0 * (0.92 + 0.08 * ((u - 0.14) / 0.31));
-      if (u < 0.85) { const q = (u - 0.45) / 0.4; return W0 * (1 - 0.88 * (0.5 - 0.5 * Math.cos(Math.PI * q))); }
+      if (u < 0.14) {
+        const q = 1 - u / 0.14;
+        return W0 * 0.92 * Math.sqrt(Math.max(0, 1 - q * q));
+      }
+      if (u < 0.45)
+        return W0 * (0.92 + 0.08 * ((u - 0.14) / 0.31));
+      if (u < 0.85) {
+        const q = (u - 0.45) / 0.4;
+        return W0 * (1 - 0.88 * (0.5 - 0.5 * Math.cos(Math.PI * q)));
+      }
       return Math.max(2, W0 * 0.12 * (1 - (u - 0.85) / 0.15));
     };
     const ramp = ":;%8#";
@@ -1324,32 +1609,41 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   /**
    * Thick arm bands drawn over whatever the kraken holds, crossing the body diagonally from one side
    * to the other with a row of suckers down each, like a squid clamped round a shark. They squeeze
    * in and out, harder when the kraken is winning.
    */
   /** Where each held diver was last frame, smoothed into a velocity, so its arm can trail behind a swing. */
-  private heldTrack = new Map<object, { x: number; y: number; t: number; vx: number; vy: number }>();
-
+  private heldTrack = new Map<object, {
+    x: number;
+    y: number;
+    t: number;
+    vx: number;
+    vy: number;
+  }>();
   private drawWraps(world: World) {
     const k = world.kraken;
     // The kraken seizes divers as it swims in too, so its arms are drawn from the moment it arrives.
-    if (!k || k.state === "flee") return;
+    if (!k || k.state === "flee")
+      return;
     const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
     const held = wrapped ? [k.wrapping!] : k.grabbed;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     // Tentacles on divers: one lashes out to a diver it is after, then holds on and coils round it.
     const back = k.heading + Math.PI;
-    const arm = (x1: number, y1: number, seed: number, thick: number, whip = 0, trail?: { x: number; y: number }) => {
+    const arm = (x1: number, y1: number, seed: number, thick: number, whip = 0, trail?: {
+      x: number;
+      y: number;
+    }, origin?: { x: number; y: number }) => {
       // Rooted in the fan of arms on the side facing the diver, never across the head or eye.
       // Arms only reach out from the arm side of the head, 270 degrees in all: it has to turn to face anything beyond.
-      if (Math.abs(angleDiff(back, Math.atan2(y1 - k.y, x1 - k.x))) > KRAKEN_ARC + 0.1 && Math.hypot(x1 - k.x, y1 - k.y) > k.size * 0.35) return;
+      if (!origin && !inKrakenReachArc(k, { x: x1, y: y1 }))
+        return;
       const psi = clamp(angleDiff(back, Math.atan2(y1 - k.y, x1 - k.x)), -1.2, 1.2);
-      const rootX = k.x + Math.cos(back + psi) * k.size * 0.085;
-      const rootY = k.y + Math.sin(back + psi) * k.size * 0.085;
+      const root = origin ?? krakenArmRoot(k, { x: x1, y: y1 });
+      const rootX = root.x, rootY = root.y;
       const dx = x1 - rootX;
       const dy = y1 - rootY;
       const len = Math.hypot(dx, dy) || 1;
@@ -1375,32 +1669,37 @@ export class AsciiRenderer {
         const s2 = trail ? side * 0.6 * env - len * 0.06 * env * (Math.sin(k.wave - u * 3.4 + seed) + 0.5 * Math.sin(k.phase * 0.8 + seed * 1.7 - u * 2)) : 0;
         const x = (1 - u) * (1 - u) * rootX + 2 * (1 - u) * u * cx + u * u * x1 - (dy / len) * (bow - s2);
         const y = (1 - u) * (1 - u) * rootY + 2 * (1 - u) * u * cy + u * u * y1 + (dx / len) * (bow - s2);
-        if (Math.hypot(x - k.x, y - k.y) < k.size * 0.115) continue;
+        if (Math.hypot(x - k.x, y - k.y) < k.size * 0.095)
+          continue;
         {
           const fx = Math.cos(k.heading);
           const fy = Math.sin(k.heading);
           const along = (x - k.x) * fx + (y - k.y) * fy;
-          if (along > 0 && along < k.size * 0.62 && Math.abs((x - k.x) * -fy + (y - k.y) * fx) < k.size * 0.15) continue;
+          if (along > 0 && along < k.size * 0.62 && Math.abs((x - k.x) * -fy + (y - k.y) * fx) < k.size * 0.15)
+            continue;
         }
         // One cell slimmer than the nominal thickness, so an arm that has hold of anything never swells to twice its size.
         const th = Math.max(0, Math.round((thick - 1) * (1 - 0.5 * u)));
         // A thin gap round each arm and an alternating tone keep crossing arms apart.
         const tone = Math.round(seed * 7) % 2 ? -40 : 0;
         if (u > 0.08 && th > 0) {
-          for (const o of [-th - 1, th + 1]) put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, " ", "#000", true);
+          for (const o of [-th - 1, th + 1])
+            put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, " ", "#000", true);
         }
         for (let o = -th; o <= th; o++) {
           put(x - (dy / len) * o * cw * 0.8, y + (dx / len) * o * ch * 0.8, o !== 0 && Math.abs(o) === th ? "O" : (s + o) % 2 ? "8" : "@", o !== 0 && Math.abs(o) === th ? krakenBone(70) : krakenBone(232 + tone), true);
         }
-        if (s % 2 === 0) put(x, y, "o", krakenBone(250), true);
+        if (s % 2 === 0)
+          put(x, y, "o", krakenBone(250), true);
       }
     };
     // The reach: the lead arm grows out from the body to its target along a whipping curve while a pair of shorter
     // arms flares out around it, so the whole mass of tentacles seems to blossom toward the prey.
     const bloom = (tx: number, ty: number, p: number, seed: number, thick: number, strands = 3) => {
+      if (!inKrakenReachArc(k, { x: tx, y: ty })) return;
       const e = p * p * (3 - 2 * p);
-      const rx = k.x + Math.cos(back) * k.size * 0.085;
-      const ry = k.y + Math.sin(back) * k.size * 0.085;
+      const root = krakenArmRoot(k, { x: tx, y: ty });
+      const rx = root.x, ry = root.y;
       const toX = tx - rx;
       const toY = ty - ry;
       const dist = Math.hypot(toX, toY) || 1;
@@ -1410,10 +1709,10 @@ export class AsciiRenderer {
       // rope of strands, not a spray. How many go out fits the target: a lone arm for a diver, two for a shark, three for a saucer.
       for (const [j, side] of (strands >= 3 ? [-1, 1] : strands === 2 ? [seed % 2 < 1 ? -1 : 1] : []).entries()) {
         const ee = e * (0.7 + 0.08 * j);
-        const off = side * Math.min(k.size * 0.05, dist * 0.08) * (1 - 0.5 * e);
-        arm(rx + toX * ee - (toY / dist) * off, ry + toY * ee + (toX / dist) * off, seed + j * 1.7 + 1, Math.max(1, thick - 2), whip);
+        const off = side * Math.min(k.size * 0.05, dist * 0.08) * e * (1 - 0.5 * e);
+        arm(rx + toX * ee - (toY / dist) * off, ry + toY * ee + (toX / dist) * off, seed + j * 1.7 + 1, Math.max(1, thick - 2), whip * e, undefined, root);
       }
-      arm(rx + toX * e, ry + toY * e, seed, thick, whip);
+      arm(rx + toX * e, ry + toY * e, seed, thick, whip * e, undefined, root);
     };
     if (k.strike && k.strike.f.alive) {
       const f = k.strike.f;
@@ -1430,7 +1729,7 @@ export class AsciiRenderer {
       const m = k.harpoon.target;
       bloom(m.nodes[0], m.nodes[1], Math.min(1, (world.time - k.harpoon.at) / 0.5), 5.3, 3, 1);
     }
-    const uf = world.ufo;
+    const uf = k.ufoTarget ?? world.ufo;
     if (uf && k.ufoStrike !== null) {
       bloom(uf.x, uf.y, Math.min(1, (world.time - k.ufoStrike) / STRIKE_TIME), 3, 3, 3);
     }
@@ -1441,6 +1740,32 @@ export class AsciiRenderer {
       for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2 + world.time * 4;
         put(uf.x + Math.cos(a) * half * 1.05, uf.y + Math.sin(a) * ch * 1.4, i % 2 ? "@" : "8", krakenBone(232), true);
+      }
+    }
+    // A seized submarine is taken like a saucer: a lashing arm reaches it, then holds on while coils wind and tighten along the hull.
+    for (const sub of world.subs) {
+      if (!sub.seizedByKraken && sub.krakenReachAt === undefined)
+        continue;
+      const age = world.time - (sub.krakenReachAt ?? sub.seizedAt ?? world.time);
+      if (age < STRIKE_TIME) {
+        bloom(sub.x, sub.y, age / STRIKE_TIME, 4, 3, 3);
+        continue;
+      }
+      arm(sub.x, sub.y, 4, 3);
+      const cell = Math.max(8, Math.min(13, Math.round(world.width / 124)));
+      const crush = clamp(age / Math.max(1, (sub.crushAt ?? age + 1) - (sub.seizedAt ?? 0)), 0, 1);
+      const squeeze = (1 - .22 * crush) * (1 + .06 * Math.sin(world.time * (5 + 9 * crush)));
+      const face = sub.face || 1;
+      for (let band = 0; band < 5; band++) {
+        const along = (band - 2) * cell * 3.4 * face;
+        const wind = world.time * (2.6 + 3 * crush) + band * 1.3;
+        for (let i = 0; i < 18; i++) {
+          const a = (i / 18) * Math.PI * 2 + wind;
+          const front = Math.sin(a) > 0;
+          // Each band leans like a spiral wrap, with the far side of the coil dimmer.
+          const lean = Math.cos(a) * cell * .5 * face;
+          put(sub.x + along + lean, sub.y + Math.sin(a) * cell * 3 * squeeze, front ? (i % 2 ? "@" : "8") : "o", krakenBone(front ? 238 : 150), true);
+        }
       }
     }
     const whaleHeld = k.whaleTarget;
@@ -1508,19 +1833,29 @@ export class AsciiRenderer {
         }
       }
     }
-    if (!held.length) { flush(); return; }
+    if (!held.length) {
+      flush();
+      return;
+    }
     for (const [hi, sh] of held.entries()) {
       // One band closes for each arm that has actually arrived (the first once its arm has landed), so the number of
       // coils always matches the number of arms visibly holding on.
       const since = wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh.grabbedAt ?? -99);
       let bands = 0;
       for (let rk = 0, a = hi; rk < (wrapped ? WRAP_BANDS : holdArmsFor(sh)) && a < (wrapped ? 10 : 6); rk++, a += held.length) {
-        if (since - rk * (wrapped ? WRAP_STAGGER : ARM_STAGGER) >= (wrapped ? 0.6 : 1.0)) bands++;
+        if (since - rk * (wrapped ? WRAP_STAGGER : ARM_STAGGER) >= (wrapped ? 0.6 : 1.0))
+          bands++;
       }
-      if (bands === 0) continue;
+      if (bands === 0)
+        continue;
       const L = sh.length;
       const half = (n: number) => Math.max(9, L * 0.055) * Math.pow(Math.sin(Math.PI * Math.max(0.08, Math.min(0.92, n / (SHARK_NODES - 1)))), 0.7);
-      const at = (n: number): [number, number, number, number] => {
+      const at = (n: number): [
+        number,
+        number,
+        number,
+        number
+      ] => {
         const i = Math.max(0, Math.min(SHARK_NODES - 2, Math.floor(n)));
         const w = n - i;
         const x = sh.nodes[i * 2] * (1 - w) + sh.nodes[i * 2 + 2] * w;
@@ -1545,19 +1880,20 @@ export class AsciiRenderer {
           const thick = Math.max(1, Math.round((L * 0.011 + 1.2) * (1 - 0.35 * Math.abs(u)) / (cw * 0.8)));
           for (let oy = -thick; oy <= thick; oy++) {
             for (let ox = -thick; ox <= thick; ox++) {
-              if (ox * ox + oy * oy > thick * thick + 0.5) continue;
+              if (ox * ox + oy * oy > thick * thick + 0.5)
+                continue;
               const rim = ox * ox + oy * oy > (thick - 1) * (thick - 1) && thick > 1;
               put(px + ox * cw * 0.8, py + oy * ch * 0.8, rim ? "O" : (s + ox) % 2 ? "@" : "8", rim ? krakenBone(95) : krakenBone(232), true);
             }
           }
           // The row of suckers down the middle of the band.
-          if (s % 2 === 0) put(px, py, "o", krakenBone(250), true);
+          if (s % 2 === 0)
+            put(px, py, "o", krakenBone(250), true);
         }
       }
     }
     flush();
   }
-
   /**
    * Says what is going on in a kraken fight: a tug-of-war bar that swings toward whoever is winning,
    * plus floating labels for results ("KRAKEN WINS", "SHARK EATEN", ...).
@@ -1567,10 +1903,15 @@ export class AsciiRenderer {
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     const text = (cx: number, y: number, s: string, rgb: string, alpha = 1) => {
-      for (let i = 0; i < s.length; i++) if (s[i] !== " ") put(cx + (i - s.length / 2) * cw, y, s[i], `rgba(${rgb},${alpha.toFixed(2)})`, true);
+      for (let i = 0; i < s.length; i++)
+        if (s[i] !== " ")
+          put(cx + (i - s.length / 2) * cw, y, s[i], `rgba(${rgb},${alpha.toFixed(2)})`, true);
     };
-    if (k && k.state === "wrap" && k.wrapping && !k.lunging && k.coiled) {
-      const progress = Math.max(0, Math.min(1, (world.time - k.stateAt) / k.wrapFor));
+    const closing = k?.maul && k.biteAt === undefined && k.wrapping;
+    if (closing) {
+      text(clamp(k.x, cw * 15, world.width - cw * 15), Math.max(ch * 2, k.y - k.size * .42), "CLOSING IN", "235,245,255");
+    } else if (k && k.state === "wrap" && k.wrapping && !k.lunging && k.coiled) {
+      const progress = krakenFightProgress(k, world.time);
       const lead = (k.winner === "kraken" ? 1 : -1) * (0.15 + 0.85 * Math.pow(progress, 1.2));
       // A massive fight: the line lurches around, harder during the thrashing, and the divers lean it too.
       const shaking = world.time < k.shakeUntil;
@@ -1582,12 +1923,14 @@ export class AsciiRenderer {
       // White (the kraken's side, on the left) fills toward the right as it wins; blue (the megalodon's) fills toward the left as it wins.
       const mark = Math.round(((1 + pos) / 2) * (width - 1));
       let bar = "";
-      for (let i = 0; i < width; i++) bar += i === mark ? "|" : i < mark ? "#" : "=";
+      for (let i = 0; i < width; i++)
+        bar += i === mark ? "|" : i < mark ? "#" : "=";
       text(cx, y - ch * 1.1, k.maul ? (k.biteAt !== undefined ? "MAULED!!" : "CLOSING IN") : shaking ? "THRASHING!!" : "WRAPPED", "255,255,255", 0.9);
       // The kraken's share is on the left, the megalodon's on the right.
       text(cx - (width / 2 + 5) * cw, y, "KRAKEN", "235,235,240");
       text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
-      for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y, bar[i], i === mark ? "rgb(255,255,255)" : i < mark ? "rgb(235,235,240)" : "rgb(110,150,225)", true);
+      for (let i = 0; i < width; i++)
+        put(cx + (i - width / 2) * cw, y, bar[i], i === mark ? "rgb(255,255,255)" : i < mark ? "rgb(235,235,240)" : "rgb(110,150,225)", true);
     }
     flush();
     // Event labels: big bold coloured text with a dark outline, so they read against any background.
@@ -1629,11 +1972,11 @@ export class AsciiRenderer {
       ctx.restore();
     }
   }
-
   /** The red "!" over a shark that has just spotted a diver: pops in, bobs, and fades. */
   private drawAlerts(world: World) {
     const alerted = world.sharks.filter((sh) => (sh.alertUntil ?? 0) > world.time && sh.target?.diver && sh.target.alive && !sh.target.riding && (sh.fedUntil ?? 0) <= world.time);
-    if (!alerted.length) return;
+    if (!alerted.length)
+      return;
     const { ctx, ch } = this;
     // One small "!" per diver, floating just over the diver being hunted (not over the shark).
     const marked = new Set<object>();
@@ -1641,7 +1984,8 @@ export class AsciiRenderer {
     ctx.font = `700 ${Math.round(ch * 0.5)}px ${this.fontFamily}`;
     for (const sh of alerted) {
       const diver = sh.target!;
-      if (marked.has(diver)) continue;
+      if (marked.has(diver))
+        continue;
       marked.add(diver);
       const age = 1.5 - (sh.alertUntil! - world.time);
       const fade = Math.min(1, (sh.alertUntil! - world.time) / 0.3);
@@ -1650,38 +1994,31 @@ export class AsciiRenderer {
     }
     ctx.restore();
   }
-
-  private drawInteractionArms(world:World) {
-    const held=world.subs.filter(s=>s.seizedByKraken);
-    if(!held.length&&!world.retaliationArcs.length)return;
-    const {put,flush}=this.painter();
-    const k=world.kraken;
-    if(k)for(const sub of held){
-      for(let arm=0;arm<3;arm++){
-        for(let i=0;i<=32;i++){
-          const u=i/32,dx=sub.x-k.x,dy=sub.y-k.y;
-          const sway=Math.sin(u*Math.PI)*this.cw*(arm-1)*2;
-          put(k.x+dx*u-dy/(Math.hypot(dx,dy)||1)*sway,k.y+dy*u+dx/(Math.hypot(dx,dy)||1)*sway,"#",krakenBone(225),true);
-        }
-        for(let a=0;a<Math.PI*2;a+=.25)put(sub.x+(arm-1)*this.cw*4+Math.cos(a)*this.cw*2,sub.y+Math.sin(a)*this.ch*1.8,"o",krakenBone(245),true);
-      }
-    }
-    for(const arc of world.retaliationArcs){
-      const fade=Math.max(0,1-(world.time-arc.born)/.55);
-      const samples=Math.min(70,Math.ceil(Math.hypot(arc.x1-arc.x0,arc.y1-arc.y0)/this.cw));
-      for(let i=0;i<=samples;i++){
-        const u=i/Math.max(1,samples);
-        put(arc.x0+(arc.x1-arc.x0)*u,arc.y0+(arc.y1-arc.y0)*u+Math.sin(u*Math.PI)*this.ch,arc.kraken?"~":">",`rgba(245,225,190,${fade})`,true);
+  private drawInteractionArms(world: World) {
+    if (!world.retaliationArcs.length)
+      return;
+    const { put, flush } = this.painter();
+    for (const arc of world.retaliationArcs) {
+      const age = world.time - arc.born;
+      const fade = Math.max(0, 1 - age / .55);
+      const target = { x: arc.x1, y: arc.y1 };
+      if (arc.kraken && (!world.kraken || !inKrakenReachArc(world.kraken, target))) continue;
+      const root = arc.kraken ? krakenArmRoot(world.kraken!, target) : { x: arc.x0, y: arc.y0 };
+      const reach = arc.kraken ? smoothstep(0, .3, age) : 1;
+      const tip = { x: root.x + (target.x-root.x)*reach, y: root.y + (target.y-root.y)*reach };
+      const samples = Math.min(70, Math.ceil(Math.hypot(tip.x - root.x, tip.y - root.y) / this.cw));
+      for (let i = 0; i <= samples; i++) {
+        const u = i / Math.max(1, samples);
+        put(root.x + (tip.x - root.x) * u, root.y + (tip.y - root.y) * u + Math.sin(u * Math.PI) * this.ch * reach, arc.kraken ? "~" : ">", `rgba(245,225,190,${fade})`, true);
       }
     }
     flush();
   }
-
   /** A saucer with blinking lights and a shimmering green tractor beam when it is lifting something. */
   private drawUfo(world: World) {
-    for (const u of world.ufos) this.drawOneUfo(world, u);
+    for (const u of world.ufos)
+      this.drawOneUfo(world, u);
   }
-
   private drawOneUfo(world: World, u: NonNullable<World["ufo"]>) {
     const { cw, ch } = this;
     const { put, flush } = this.painter();
@@ -1689,25 +2026,27 @@ export class AsciiRenderer {
     const night = world.night;
     if (u.state === "beam") {
       // The pull acts through the whole column; its visible trail must reach it too.
-      const top = Math.max(0, u.y + ch * 0.5);
-      const bottom = tractorBottom(world,u);
-      const reach = TRACTOR_HALF_WIDTH;
+      const top = Math.max(0, u.y + Math.max(40, Math.min(world.width, world.height) * .07) * .18);
+      const bottom = tractorBottom(world, u);
+      const reach = tractorHalfWidth(world, u);
       const { ctx } = this;
       ctx.save();
       const light = ctx.createLinearGradient(u.beamX, top, u.beamX, bottom);
-      light.addColorStop(0, `rgba(65,255,100,${0.07 + night * 0.1})`);
-      light.addColorStop(1, `rgba(35,255,85,${0.025 + night * 0.055})`);
+      light.addColorStop(0, `rgba(65,255,100,${0.055 + night * 0.23})`);
+      light.addColorStop(1, `rgba(35,255,85,${0.025 + night * 0.12})`);
       ctx.fillStyle = light;
+      ctx.shadowColor = "rgb(75,255,120)";
+      ctx.shadowBlur = this.quality === 0 ? night * 14 : 0;
       ctx.beginPath();
-      ctx.moveTo(u.beamX - reach, top);
-      ctx.lineTo(u.beamX + reach, top);
+      ctx.moveTo(u.beamX - 16, top);
+      ctx.lineTo(u.beamX + 16, top);
       ctx.lineTo(u.beamX + reach, bottom);
       ctx.lineTo(u.beamX - reach, bottom);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
       for (let y = top; y < bottom; y += ch * 0.7) {
-        const half = reach;
+        const half = 16 + (reach - 16) * (y - top) / Math.max(1, bottom - top);
         const flow = ((Math.floor(y / ch + t * 8) % 7) + 7) % 7;
         for (let x = u.beamX - half; x <= u.beamX + half; x += cw * 0.7) {
           const edge = Math.abs(x - u.beamX) > half * 0.75;
@@ -1727,69 +2066,62 @@ export class AsciiRenderer {
       ctx.fillStyle = halo;
       ctx.fillRect(u.x - radius, u.y - radius, radius * 2, radius * 2);
     }
-    const half = Math.max(40,Math.min(world.width,world.height)*.07);
-    const piloted=!!u.pilot?.alive;
-    drawSaucerHull(put,u.x,u.y,half,cw,ch,t,false,piloted);
-    if(piloted)put(u.x,u.y-half*.45,"!","rgb(255,170,90)",true);
-    const colors = piloted ? ["rgb(255,90,90)", "rgb(255,170,70)", "rgb(255,90,90)"] : ["rgb(255,222,110)", "rgb(120,255,165)", "rgb(255,120,120)"];
-    let k = 0;
-    for (let x = u.x - half * 0.8; x <= u.x + half * 0.8; x += cw * 1.5, k++) put(x, u.y + ch * 0.9, "o", colors[(k + Math.floor(t * 4)) % 3], true);
-    put(u.x, u.y + ch * 0.7, u.state === "beam" ? "@" : "*", `rgba(160,255,185,${0.65 + night * 0.35})`, true);
     flush();
+    const half = Math.max(40, Math.min(world.width, world.height) * .07);
+    const bank = u.attitude?.bank ?? 0;
+    const hull = this.hullPainter(u.x, u.y + half * .18, 1, bank);
+    const hullPut: Put = (...args) => { if (world.time - (u.hitAt ?? -99) < .3) args[3] = "rgb(255,80,80)"; hull.put(...args); };
+    const piloted = !!u.pilot?.alive;
+    drawClassicSaucer(hullPut, u.x, u.y, half, hull.cw, hull.ch, t, piloted);
+    hull.flush();
   }
-
   /** The pop (a quick expanding ring of sparks) and the bits left behind until a shark eats them. */
   private drawMess(world: World) {
-    if (!world.mess.length && !world.blasts.length) return;
+    if (!world.mess.length && !world.blasts.length)
+      return;
     const { put, flush } = this.painter();
     for (const b of world.blasts) {
       const age = world.time - b.born;
       const fade = 1 - age / 0.8;
-      const r = 80 * (age / 0.8);
+      const diverCw = clamp(Math.round(world.width / 124), 8, 13);
+      const flash = b.diverPop ? this.hullPainter(b.x, b.y, Math.min(1, diverCw / this.cw) * .75) : null;
+      const emit = flash?.put ?? put;
+      const r = (b.diverPop ? diverCw * 2.5 : 80) * (age / 0.8);
       for (let i = 0; i < 16; i++) {
         const a = (i / 16) * Math.PI * 2 + age * 2;
-        put(b.x + Math.cos(a) * r, b.y + Math.sin(a) * r * 0.8, i % 2 ? "*" : "+", `rgba(255,${Math.round(235 - 120 * age)},120,${fade.toFixed(2)})`, true);
+        emit(b.x + Math.cos(a) * r, b.y + Math.sin(a) * r * 0.8, i % 2 ? "*" : "+", `rgba(255,${Math.round(235 - 120 * age)},120,${fade.toFixed(2)})`, true);
       }
-      if (age < 0.25) put(b.x, b.y, "#", `rgba(255,250,220,${(1 - age / 0.25).toFixed(2)})`, true);
+      if (age < 0.25)
+        emit(b.x, b.y, "#", `rgba(255,250,220,${(1 - age / 0.25).toFixed(2)})`, true);
+      flash?.flush();
     }
     for (const m of world.mess) {
-      const fade = Math.min(1, (30 - (world.time - m.born)) / 5);
-      put(m.x, m.y, m.glyph, `rgba(${m.rgb},${fade.toFixed(2)})`, true);
+      const life=m.life??30;
+      const fade = Math.max(0,Math.min(m.life ? .7 : 1, (life - (world.time - m.born)) / Math.min(2,life*.4)));
+      if (m.diverScrap) {
+        const cw = clamp(Math.round(world.width / 124), 8, 13);
+        const scrap = this.hullPainter(m.x, m.y, Math.min(1, cw / this.cw) * .75);
+        scrap.put(m.x, m.y, m.glyph, `rgba(${m.rgb},${fade.toFixed(2)})`, true);
+        scrap.flush();
+      } else put(m.x, m.y, m.glyph, `rgba(${m.rgb},${fade.toFixed(2)})`, true);
     }
     flush();
   }
-
-  /** A ufo cut in half: two pieces tilting apart as they sink, with sparks at the cut. */
+  /** Distinct dome, hull and machinery fragments for each craft class. */
   private drawDebris(world: World) {
-    if (!world.debris.length) return;
-    const { cw, ch } = this;
+    if (!world.debris.length)
+      return;
     const { put, flush } = this.painter();
-    const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
-    for (const d of world.debris) {
-      const age = world.time - d.born;
-      const fade = Math.max(0, 1 - age / 5);
-      const tilt = 0.12 + 0.3 * Math.min(1, age / 2);
-      const rgb = (v: number) => `rgba(${v},${v + 4},${v + 14},${fade.toFixed(2)})`;
-      for (let k = 0; k * cw <= half; k++) {
-        const x = d.x + d.side * k * cw;
-        const dy = k * cw * tilt;
-        put(x, d.y + dy, k === 0 ? (d.side < 0 ? "/" : "\\") : k * cw > half - cw ? (d.side < 0 ? "(" : ")") : "=", rgb(205), true);
-        if (k * cw <= half * 0.5) put(x, d.y - ch + dy, k === 0 ? "|" : "-", `rgba(150,225,255,${fade.toFixed(2)})`, true);
-        if (k % 2 === 1) put(x, d.y + ch * 0.9 + dy, "o", `rgba(255,${Math.floor(200 + 55 * Math.sin(age * 8 + k))},120,${fade.toFixed(2)})`, true);
-      }
-      if (age < 0.6) {
-        for (let i = 0; i < 4; i++) put(d.x - d.side * cw * 0.3 + Math.sin(age * 40 + i * 1.7) * cw * 1.2, d.y + Math.cos(age * 33 + i * 2.1) * ch * 1.1, "*", `rgba(255,235,160,${(1 - age / 0.6).toFixed(2)})`, true);
-      }
-    }
+    drawCraftDebris(put, world, this.cw, this.ch);
     flush();
   }
-
   /** Divers drawn as little people: head, orange suit, silver tank, and kicking blue fins. */
   private drawDivers(world: World) {
-    const cw = clamp(Math.round(world.width / 124),8,13);
-    const { put, flush } = this.painter();
+    const cw = clamp(Math.round(world.width / 124), 8, 13);
     for (const f of world.fish) {
-      if (!f.diver || !f.alive || f.riding) continue;
+      if (!f.diver || !f.alive || f.riding)
+        continue;
+      const { put, flush } = this.hullPainter(f.x, f.y, Math.min(1, cw / this.cw) * .75);
       const sp = Math.hypot(f.vx, f.vy);
       const ang = sp > 1 ? Math.atan2(f.vy, f.vx) : Math.PI / 2;
       const dx = -Math.cos(ang);
@@ -1804,6 +2136,10 @@ export class AsciiRenderer {
       const fin = kind === "snorkel" ? "rgb(240,210,90)" : "rgb(70,120,210)";
       const finTip = kind === "snorkel" ? "rgb(250,225,120)" : "rgb(90,150,235)";
       put(f.x, f.y, out ? "x" : "O", "rgb(255,236,205)", true);
+      put(...at(0, -cw * .7), "(", "rgb(210,230,235)", true);
+      put(...at(0, cw * .7), ")", "rgb(210,230,235)", true);
+      put(...at(-.65), "-", "rgb(120,225,250)", true);
+      put(...at(.6, cw * 1.05), "~", "rgb(160,185,190)", true);
       if (out) {
         // Crackling sparks round a diver that has been zapped.
         for (let i = 0; i < 3; i++) {
@@ -1811,13 +2147,25 @@ export class AsciiRenderer {
           put(f.x + Math.cos(a) * cw * 1.4, f.y + Math.sin(a * 1.3) * cw * 1.2, i % 2 ? "*" : "+", "rgb(255,245,140)", true);
         }
       }
-      for (const back of [0.9, 1.8]) put(...at(back), "#", suit, true);
+      for (const back of [0.9, 1.8])
+        put(...at(back), "#", suit, true);
       put(...at(1.1, cw * 0.95), ":", suit, true);
       put(...at(1.1, -cw * 0.95), ":", suit, true);
-      if (kind === "scuba") put(...at(1.4), "o", "rgb(205,212,222)", true);
-      else if (kind === "treasure") put(...at(1.6, -cw * 1.1), "$", "rgb(255,215,80)", true);
-      else if (kind === "snorkel") put(...at(0.2, cw * 0.9), "/", "rgb(250,225,120)", true);
-      else if (kind === "scooter") { put(...at(-1.1), "=", "rgb(190,198,210)", true); put(...at(-2), ">", "rgb(255,236,120)", true); }
+      put(...at(1.3, -cw * .55), "[", "rgb(205,220,230)", true);
+      put(...at(2, -cw * .55), "]", "rgb(160,185,205)", true);
+      put(...at(1.9, cw * .95), "/", suit, true);
+      put(...at(2.55, cw * .45), "|", suit, true);
+      put(...at(2.55, -cw * .45), "|", suit, true);
+      if (kind === "scuba")
+        put(...at(1.4), "o", "rgb(205,212,222)", true);
+      else if (kind === "treasure")
+        put(...at(1.6, -cw * 1.1), "$", "rgb(255,215,80)", true);
+      else if (kind === "snorkel")
+        put(...at(0.2, cw * 0.9), "/", "rgb(250,225,120)", true);
+      else if (kind === "scooter") {
+        put(...at(-1.1), "=", "rgb(190,198,210)", true);
+        put(...at(-2), ">", "rgb(255,236,120)", true);
+      }
       else if (kind === "bomber") {
         // A pack of explosives on his back; once the fuse is lit a red ! flashes over his head.
         // The pack pulses hot orange to yellow, and a ring of sparks swells out and back, so a bomber stands out from every other diver.
@@ -1837,14 +2185,16 @@ export class AsciiRenderer {
       }
       else if (kind === "tech") {
         put(...at(1.5), "o", "rgb(205,212,222)", true);
-        if (f.salvage) put(...at(-0.4, cw * 1.2), "?", "rgb(120,255,170)", true);
+        if (f.salvage)
+          put(...at(-0.4, cw * 1.2), "?", "rgb(120,255,170)", true);
         else if (world.time < (f.equipUntil ?? 0)) {
           // Sparks fly while he welds the blaster together.
           for (let i = 0; i < 4; i++) {
             const a = world.time * 14 + i * 1.7;
             put(f.x + Math.cos(a) * cw * 1.6, f.y + Math.sin(a * 1.3) * cw * 1.3, i % 2 ? "*" : "+", "rgb(255,240,150)", true);
           }
-        } else {
+        }
+        else {
           // The blaster: a barrel out ahead of him that glows when it fires.
           const flash = world.time - (f.flashAt ?? -9) < 0.2;
           put(...at(-0.9, cw * 1.1), "=", "rgb(215,222,232)", true);
@@ -1852,11 +2202,13 @@ export class AsciiRenderer {
         }
       }
       else {
-        if(kind === "photo") {
-          put(...at(-.1,cw*1.2),"[","rgb(225,235,245)",true);
-          put(...at(-.1,cw*2.2),"o","rgb(120,175,200)",true);
-          put(...at(-.1,cw*3.2),"]","rgb(225,235,245)",true);
-        }else put(...at(0.3, cw * 1.1), "[", "rgb(235,240,245)", true);
+        if (kind === "photo") {
+          put(...at(-.1, cw * 1.2), "[", "rgb(225,235,245)", true);
+          put(...at(-.1, cw * 2.2), "o", "rgb(120,175,200)", true);
+          put(...at(-.1, cw * 3.2), "]", "rgb(225,235,245)", true);
+        }
+        else
+          put(...at(0.3, cw * 1.1), "[", "rgb(235,240,245)", true);
         const age = world.time - (f.flashAt ?? -9);
         if (age < 0.35) {
           const fade = (1 - age / 0.35).toFixed(2);
@@ -1866,48 +2218,64 @@ export class AsciiRenderer {
           }
         }
       }
-      if(world.mothership&&world.diverCombat.has(f)&&kind!=="photo"&&kind!=="tech"){
-        put(...at(-.9,cw*1.1),"=","rgb(195,215,225)",true);
-        put(...at(-1.9,cw*1.1),world.time-(f.flashAt??-99)<.2?"*":"-","rgb(130,245,230)",true);
+      if (world.diverCombat.has(f) && kind !== "photo" && kind !== "tech") {
+        put(...at(-.9, cw * 1.1), "=", "rgb(195,215,225)", true);
+        put(...at(-1.9, cw * 1.1), world.time - (f.flashAt ?? -99) < .2 ? "*" : "-", "rgb(130,245,230)", true);
       }
       put(...at(2.7, kick), "=", fin, true);
       put(...at(3.5, -kick), "=", fin, true);
       put(...at(4.3, kick * 1.3), "~", finTip, true);
+      flush();
     }
-    flush();
   }
-
   /** One event bar: the title in the event's colour, a progress bar, and a short counter to the right of the bar. */
-  private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1) {
+  private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1, tiers?: number[]) {
+    const index = this.eventBarCount++;
+    if (world.settings.eventBars === "one" && index > 0)
+      return;
     const step = this.barStep;
     // Bars are drawn after everything else (see drawHud), so the yeat void, the vignette and the night tint never dim them.
     this.hud.push(() => {
-    const { cw, ch } = this;
-    const t = world.time;
-    const cx = (this.cols * cw) / 2;
-    const y = ch * (3.2 + slot * step);
-    const width = 26;
-    const filled = Math.round(Math.max(0, Math.min(1, progress)) * width);
-    const { put, flush } = this.painter();
-    const dark = this.yeat > 0.05;
-    for (let i = 0; i < title.length; i++) put(cx + (i - title.length / 2) * cw, y, title[i], `rgba(${rgb},${((t % 1 < 0.5 ? 1 : 0.8) * Math.max(0.3, fade)).toFixed(2)})`, true);
-    for (let i = 0; i < width; i++) put(cx + (i - width / 2) * cw, y + ch * 1.4, i < filled ? "#" : "-", i < filled ? `rgb(${rgb})` : dark ? "rgb(135,135,155)" : "rgb(80,80,90)", true);
-    for (let i = 0; i < counter.length; i++) put(cx + (width / 2 + 2 + i) * cw, y + ch * 1.4, counter[i], "rgb(235,235,240)", true);
-    // In yeat mode the bar glows in its own colour against the black, breathing a little; at night it gets a soft halo.
-    flush(Math.max(this.yeat * (12 + 6 * Math.sin(t * 2.4)), this.night * 5));
+      const { cw, ch } = this;
+      const t = world.time;
+      const cx = (this.cols * cw) / 2;
+      const y = ch * (3.2 + slot * step);
+      const width = 26;
+      const filled = Math.round(Math.max(0, Math.min(1, progress)) * width);
+      const { put, flush } = this.painter();
+      const dark = this.yeat > 0.05;
+      for (let i = 0; i < title.length; i++)
+        put(cx + (i - title.length / 2) * cw, y, title[i], `rgba(${rgb},${((t % 1 < 0.5 ? 1 : 0.8) * Math.max(0.3, fade)).toFixed(2)})`, true);
+      // Tiered bars (the mothership's HP) tick each stage boundary, and the tier the bar has fallen into flashes: the lower, the faster.
+      const tier = tiers ? tiers.filter(s => progress <= s).length : 0;
+      const lit = tier === 0 || Math.floor(t * (1 + tier) * 2) % 2 === 0;
+      for (let i = 0; i < width; i++) {
+        const tick = !!tiers?.some(s => Math.round(s * width) === i);
+        const color = tick ? "rgb(235,235,240)" : i < filled ? (lit ? `rgb(${rgb})` : `rgba(${rgb},0.3)`) : dark ? "rgb(135,135,155)" : "rgb(80,80,90)";
+        put(cx + (i - width / 2) * cw, y + ch * 1.4, tick ? "|" : i < filled ? "#" : "-", color, true);
+      }
+      for (let i = 0; i < counter.length; i++)
+        put(cx + (width / 2 + 2 + i) * cw, y + ch * 1.4, counter[i], "rgb(235,235,240)", true);
+      if (world.settings.eventBars === "one" && this.eventBarCount > 1) {
+        const more = `+ ${this.eventBarCount - 1} more`;
+        for (let i = 0; i < more.length; i++)
+          put(cx + (i - more.length / 2) * cw, y + ch * 2.6, more[i], "rgb(170,205,215)", true);
+      }
+      // In yeat mode the bar glows in its own colour against the black, breathing a little; at night it gets a soft halo.
+      flush(Math.max(this.yeat * (12 + 6 * Math.sin(t * 2.4)), this.night * 5));
     });
   }
-
   /** The HUD layer: event bars, drawn on top of every wash and tint. */
   private drawHud() {
-    for (const draw of this.hud) draw();
+    for (const draw of this.hud)
+      draw();
     this.hud.length = 0;
   }
-
   /** The alien invasion bar, with a slow alarm pulse round the screen edges while it lasts. */
   private drawInvasion(world: World, slot: number) {
     const inv = world.invasion;
-    if (!inv) return;
+    if (!inv)
+      return;
     const { ctx, cw, ch } = this;
     const t = world.time;
     const w = this.cols * cw;
@@ -1921,7 +2289,6 @@ export class AsciiRenderer {
     const done = inv.killed + inv.escaped;
     this.drawEventBar(world, "ALIEN INVASION", "150,255,170", done / inv.total, `${done} of ${inv.total}`, slot);
   }
-
   /** The bar for the other big events (blood moon, titans clash, meteor shower, ...), plus the blood moon's red wash. */
   private drawSagaBanner(world: World, sg: World["sagas"][number], slot: number) {
     const { ctx, cw, ch } = this;
@@ -1940,20 +2307,20 @@ export class AsciiRenderer {
     const k = world.kraken;
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
     const left = Math.max(0, Math.ceil(sg.until - t));
-    const progress = sg.kind === "clash" ? (k && k.state === "wrap" ? clamp01((t - k.stateAt) / Math.max(1, k.wrapFor)) : 0)
+    const progress = sg.kind === "clash" ? krakenFightProgress(k, t)
       : sg.kind === "migration" ? clamp01(sg.count / Math.max(1, sg.total))
-      : sg.kind === "bloom" ? clamp01(sg.count / Math.max(1, sg.peak))
-      : clamp01((t - sg.born) / (sg.until - sg.born));
+        : sg.kind === "bloom" ? clamp01(sg.count / Math.max(1, sg.peak))
+          : clamp01((t - sg.born) / (sg.until - sg.born));
     const counter = sg.kind === "migration" ? `${sg.count} of ${sg.total}`
       : sg.kind === "bloom" ? `${sg.count} of ${Math.max(sg.peak, sg.count)}`
-      : sg.kind === "clash" ? ""
-      : `${left}s`;
+        : sg.kind === "clash" ? (k?.maul && k.biteAt === undefined ? "closing in" : "")
+          : `${left}s`;
     this.drawEventBar(world, sg.title, sg.rgb, progress, counter, slot, fade);
   }
-
   /** Meteors: a white-hot head with a long orange tail streaking down through the water. */
   private drawMeteors(world: World) {
-    if (!world.meteors.length) return;
+    if (!world.meteors.length)
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     for (const m of world.meteors) {
@@ -1969,15 +2336,16 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   /** Bomber explosions: a fireball that swells from yellow through orange to red, and a shockwave ring racing outward. */
   private drawBombs(world: World) {
-    if (!world.bombs.length) return;
+    if (!world.bombs.length)
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     for (const b of world.bombs) {
       const age = world.time - b.born;
-      if (age < 0 || age > 1.3) continue;
+      if (age < 0 || age > 1.3)
+        continue;
       const fire = Math.min(1, age / 0.3);
       const fade = Math.max(0, 1 - age / 1.3);
       const coreR = b.r * (b.meteor ? 0.22 : 0.55) * fire;
@@ -2001,19 +2369,90 @@ export class AsciiRenderer {
         }
       }
       // The shockwave: a thin ring of foam that outruns the fire.
-      const wave = b.r * Math.min(1, age / 0.9);
-      const wc = Math.max(10, Math.min(120, Math.round((2 * Math.PI * wave) / (cw * 0.9))));
-      for (let j = 0; j < wc; j++) {
-        const a = (j / wc) * Math.PI * 2;
-        put(b.x + Math.cos(a) * wave, b.y + Math.sin(a) * wave * 0.85, j % 2 ? "o" : ".", `rgba(255,255,255,${(fade * 0.9).toFixed(2)})`, true);
+      for (let front = 0; front < (b.style?.fronts ?? 1); front++) {
+        const local = age - front * .15;
+        if (local < 0)
+          continue;
+        const wave = b.r * Math.min(1, local * (b.style?.rate ?? 1) / .9) * (1 - front * .12);
+        const wc = Math.max(10, Math.min(140, Math.round((2 * Math.PI * wave) / (cw * .9))));
+        for (let j = 0; j < wc; j++) {
+          const a = (j / wc) * Math.PI * 2, rad = wave * (b.style ? meteorRadius(b.style, a) : 1);
+          if (b.style && Math.sin(j * 1.7 + b.style.seed + front) > .94)
+            continue;
+          put(b.x + Math.cos(a) * rad, b.y + Math.sin(a) * rad * (b.style?.aspect ?? .85), j % 2 ? "o" : ".", `rgba(255,255,255,${(fade * .9 / (1 + front * .4)).toFixed(2)})`, true);
+        }
       }
     }
     flush();
   }
-
   /** Blaster bolts: a red streak that leaps from the barrel to its target and fades. */
+  private drawStormElectricity(world: World) {
+    const { put, flush } = this.painter();
+    const night = this.night, energy = 1 + night + this.yeat * .5;
+    for (const bolt of world.lightningBolts) {
+      const age = world.time-bolt.born, fade = Math.max(0,1-age/bolt.duration);
+      const color = bolt.conduit ? "155,255,245" : "205,225,255";
+      for(const [pathIndex,ps] of [bolt.points,...bolt.branches].entries()){
+      const pathFade=fade*(pathIndex===0?1:.38);
+      for(let i=1;i<ps.length;i++) {
+        const a=ps[i-1],b=ps[i],dx=b.x-a.x,dy=b.y-a.y;
+        const steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/Math.min(this.cw,this.ch)));
+        for(let j=0;j<=steps;j++) {
+          const u=j/steps,x=a.x+dx*u,y=a.y+dy*u;
+          put(x,y,Math.abs(dx)<Math.abs(dy)*.4 ? "|" : dx*dy>0 ? "\\" : "/",`rgba(${color},${pathFade})`,true);
+          if(night+this.yeat>.3 && j%3===0)put(x+this.cw,y,".",`rgba(100,185,255,${fade*.4})`,true);
+        }
+        if(pathIndex===0 && i%3===0){
+          const sparkAge=Math.max(0,age-.08),spread=sparkAge*(35+night*90);
+          for(let k=0;k<Math.ceil(energy*2);k++){
+            const ang=i*2.4+k*2.399;
+            const sx=b.x+Math.cos(ang)*spread,sy=b.y+Math.sin(ang)*spread+sparkAge*sparkAge*30;
+            put(sx,sy,k%2?"+":"*",`rgba(${color},${fade*.8})`,true);
+          }
+        }
+      }
+      if(pathIndex===0){const tip=ps[ps.length-1];
+      put(tip.x,tip.y,age<.2?"@":"*",`rgba(230,255,255,${fade})`,true);}
+      }
+    }
+    for(const j of world.jellies)if((j.chargedUntil??0)>world.time){
+      const radius=j.size*(3+Math.sin(world.time*4)*.3);
+      for(let k=0;k<Math.ceil(5*energy);k++){
+        const angle=k*2.399+world.time*.7;
+        put(j.x+Math.cos(angle)*radius,j.y+Math.sin(angle)*radius*.7,k%2?"+":"*",`rgba(150,245,255,${.55+night*.3})`,true);
+      }
+    }
+    for (const j of world.jellies) {
+      const age = world.time - (j.empPulseAt ?? -99);
+      if (age < 0 || age > .6) continue;
+      const radius = clamp(j.size * 6, 75, 160) * Math.min(1, age / .35);
+      for (let i = 0; i < 24; i++) {
+        const a = i / 24 * Math.PI * 2;
+        put(j.x + Math.cos(a) * radius, j.y + Math.sin(a) * radius, i % 3 ? "." : "+", `rgba(150,245,255,${(1-age/.6)*.7})`, true);
+      }
+    }
+    for(const p of [...world.ufos,...world.subs,...world.attackDrones,...(world.mothership?[world.mothership]:[])])if(p.emp){
+      const label=world.time<p.emp.until?"EMP":"REBOOT";
+      for(let i=0;i<label.length;i++)put(p.x+(i-label.length/2)*this.cw,p.y-42,label[i],"rgba(150,220,255,.9)",true);
+      if(Math.sin(world.time*12+p.x)>.45)put(p.x+this.cw*3,p.y,"*","rgba(175,240,255,.9)",true);
+    }
+    for(const b of world.lightningBones){
+      const age=world.time-b.born,fade=Math.max(0,1-age/8);
+      const cw = clamp(Math.round(world.width / 124), 8, 13);
+      const bones = this.hullPainter(b.x, b.y, Math.min(1, cw / this.cw) * .75);
+      const skeleton=[" o ","-|-"," |=","/ " + String.fromCharCode(92)];
+      for(let y=0;y<skeleton.length;y++)for(let x=0;x<skeleton[y].length;x++)if(skeleton[y][x]!==" "){
+        const lx=(x-1)*cw*.75,ly=y*cw*.9;
+        bones.put(b.x+lx*Math.cos(b.angle)-ly*Math.sin(b.angle),b.y+lx*Math.sin(b.angle)+ly*Math.cos(b.angle),skeleton[y][x],`rgba(235,245,245,${fade})`,true);
+      }
+      bones.flush();
+
+    }
+    flush(this.quality === 2 ? 0 : 3 + night * 7 + this.yeat * 9);
+  }
   private drawBolts(world: World) {
-    if (!world.bolts.length) return;
+    if (!world.bolts.length)
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     for (const b of world.bolts) {
@@ -2025,17 +2464,17 @@ export class AsciiRenderer {
       for (let i = 0; i <= steps; i++) {
         const u = (i / steps) * reach;
         const head = i > steps - 3 && age < 0.1;
-        put(b.x0 + (b.x1 - b.x0) * u, b.y0 + (b.y1 - b.y0) * u, head ? "*" : "=", head ? `rgba(255,235,220,${fade.toFixed(2)})` : `rgba(${b.team === "alien" ? "255,70,100" : "110,235,255"},${(fade * 0.9).toFixed(2)})`, true);
+        put(b.x0 + (b.x1 - b.x0) * u, b.y0 + (b.y1 - b.y0) * u, head ? "*" : "=", head ? `rgba(255,235,220,${fade.toFixed(2)})` : `rgba(${b.team === "alien" ? "110,255,135" : b.team === "human" ? "90,190,255" : "180,140,255"},${(fade * 0.9).toFixed(2)})`, true);
       }
     }
     flush();
   }
-
   /** A whirlpool: three spiral arms of foam turning around the centre. */
   /** Drifting patches of living light; passing bodies leave gaps in the flow. */
   private drawCurrent(world: World) {
     const active = world.currentUntil > world.time;
-    if (!active && this.night < 0.1) return;
+    if (!active && this.night < 0.1)
+      return;
     const left = world.currentUntil - world.time;
     const fade = active ? Math.max(0, Math.min(1, (45 - left) / 4, left / 6)) : this.night * 0.7;
     const { put, flush } = this.painter();
@@ -2046,17 +2485,27 @@ export class AsciiRenderer {
       const c1 = Math.min(this.cols - 1, Math.ceil((x + radius) / this.cw));
       const r0 = Math.max(0, Math.floor((y - radius) / this.ch));
       const r1 = Math.min(this.rows - 1, Math.ceil((y + radius) / this.ch));
-      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
-        if ((c * this.cw - x) ** 2 + (r * this.ch - y) ** 2 < radius * radius) blocked[r * this.cols + c] = 1;
-      }
+      for (let r = r0; r <= r1; r++)
+        for (let c = c0; c <= c1; c++) {
+          if ((c * this.cw - x) ** 2 + (r * this.ch - y) ** 2 < radius * radius)
+            blocked[r * this.cols + c] = 1;
+        }
     };
-    for (const f of world.fish) if (f.alive) mask(f.x, f.y, this.cw * 2);
-    for (const sb of world.subs) mask(sb.x, sb.y, this.cw * 7);
-    if (world.leviathan) for (const p of ghostBlobs(world.leviathan)) mask(p.x, p.y, p.r + this.cw);
-    if (world.kraken) mask(world.kraken.x, world.kraken.y, world.kraken.size * 0.45);
-    for (const wh of world.whales) for (let u = 0; u <= 1; u += 0.1) {
-      const p = world.whalePoint(wh, u); mask(p.x, p.y, wh.length * 0.08);
-    }
+    for (const f of world.fish)
+      if (f.alive)
+        mask(f.x, f.y, this.cw * 2);
+    for (const sb of world.subs)
+      mask(sb.x, sb.y, this.cw * 7);
+    if (world.leviathan)
+      for (const p of ghostBlobs(world.leviathan))
+        mask(p.x, p.y, p.r + this.cw);
+    if (world.kraken)
+      mask(world.kraken.x, world.kraken.y, world.kraken.size * 0.45);
+    for (const wh of world.whales)
+      for (let u = 0; u <= 1; u += 0.1) {
+        const p = world.whalePoint(wh, u);
+        mask(p.x, p.y, wh.length * 0.08);
+      }
     const count = this.quality === 2 ? 100 : 190;
     for (let i = 0; i < count; i++) {
       const seed = hash3(i, 17, 53);
@@ -2067,23 +2516,25 @@ export class AsciiRenderer {
         + this.ch * (2 * Math.sin(x * 0.003 + phase + world.time * 0.17) + Math.sin(world.time * 0.31 + phase));
       // A slow envelope makes patches appear and dissolve instead of pulsing as rigid bands.
       const light = Math.max(0, Math.sin(world.time * 0.23 + phase)) ** 2;
-      if (light < 0.15) continue;
+      if (light < 0.15)
+        continue;
       for (let tail = 0; tail < 3; tail++) {
         const px = x - tail * this.cw * 1.5;
         const py = y + this.ch * 0.5 * Math.sin(phase + tail * 0.7 + world.time * 0.2);
         const key = this.cellIndex(px, py);
-        if (key < 0 || blocked[key]) continue;
+        if (key < 0 || blocked[key])
+          continue;
         put(px, py, tail === 0 && light > 0.9 ? "+" : ".", `rgba(${i % 2 ? "145,170,255" : "85,245,220"},${(fade * light * (0.65 - tail * 0.18)).toFixed(3)})`);
       }
     }
     flush(this.quality === 0 ? 4 : 0);
   }
-
   private drawWhirl(world: World) {
-    if (world.whirl) this.drawOneWhirl(world, world.whirl);
-    for (const v of world.vortices) this.drawOneWhirl(world, v);
+    for (const wp of world.whirlpools)
+      this.drawOneWhirl(world, wp);
+    for (const v of world.vortices)
+      this.drawOneWhirl(world, v);
   }
-
   private drawOneWhirl(world: World, wp: NonNullable<World["whirl"]>) {
     const { put, flush } = this.painter();
     const fade = Math.max(0, Math.min(1, (world.time - wp.born) / 2, (wp.until - world.time) / 2));
@@ -2094,44 +2545,45 @@ export class AsciiRenderer {
         const u = i / samples;
         const surge = 1 + 0.06 * Math.sin(world.time * 1.3 - u * 8 + arm);
         const rad = wp.r * 2.3 * u * surge;
-        const ang = wp.dir * (u * 11 + world.time * (0.7 + 80 / (wp.r + 80))) + (arm * Math.PI * 2) / arms;
+        const ang = wp.dir * (u * 11 + (world.time - wp.born) * (wp.spin ?? 1) * (0.7 + 80 / (wp.r + 80))) + (arm * Math.PI * 2) / arms;
         const broken = Math.sin(u * 35 - world.time * 2.2 + arm * 1.7);
-        if (u > 0.3 && broken < -0.6) continue;
+        if (u > 0.3 && broken < -0.6)
+          continue;
         put(wp.x + Math.cos(ang) * rad, wp.y + Math.sin(ang) * rad * 0.8, u < 0.1 ? "." : broken > 0.7 ? "+" : "~", `rgba(110,220,235,${(0.8 * fade * (1 - u * 0.7)).toFixed(2)})`, true);
       }
     }
     flush();
   }
-
   // ── simulation → field ──────────────────────────────────────────────
-
   private cellIndex(x: number, y: number) {
     const c = Math.floor(x / this.cw);
     const r = Math.floor(y / this.ch);
-    if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) return -1;
+    if (c < 0 || r < 0 || c >= this.cols || r >= this.rows)
+      return -1;
     return r * this.cols + c;
   }
-
   private stamp(field: Float32Array, x: number, y: number, radius: number, amount: number) {
     const c0 = Math.floor(x / this.cw);
     const r0 = Math.floor(y / this.ch);
     for (let r = r0 - radius; r <= r0 + radius; r++) {
       for (let c = c0 - radius; c <= c0 + radius; c++) {
-        if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) continue;
+        if (c < 0 || r < 0 || c >= this.cols || r >= this.rows)
+          continue;
         const d = Math.hypot(c - c0, (r - r0) * 1.4);
-        if (d > radius + 0.5) continue;
+        if (d > radius + 0.5)
+          continue;
         const i = r * this.cols + c;
         field[i] = Math.min(1.6, field[i] + amount * (1 - d / (radius + 1)));
       }
     }
   }
-
   private consumeEvents(world: World) {
     for (const e of world.events) {
       if (e.kind === "eat") {
         this.stamp(this.heat, e.x, e.y, 2, 1);
         this.stamp(this.energy, e.x, e.y, 3, 0.9);
-      } else {
+      }
+      else {
         this.stamp(this.energy, e.x, e.y, e.strength && e.strength < 0.5 ? 2 : e.strength && e.strength > 1.5 ? 8 : 6, Math.min(1.6, 1.4 * (e.strength ?? 1)));
       }
     }
@@ -2147,13 +2599,15 @@ export class AsciiRenderer {
       const passes = rp.song ? [[0, 1], [-9, 0.45]] : soft ? [[0, 1], [-2.4, 0.55], [-4.8, 0.28]] : [[0, 1]];
       for (let p = 0; p < passes.length; p++) {
         const r0 = rp.r + passes[p][0] * this.cw;
-        if (r0 < 3) continue;
+        if (r0 < 3)
+          continue;
         const weight = passes[p][1];
         const steps = Math.max(12, Math.ceil((Math.PI * 2 * r0) / this.cw));
         for (let k = 0; k < steps; k++) {
           const a = (k / steps) * Math.PI * 2;
           const amp = rp.amp[Math.floor((k / steps) * rp.amp.length)];
-          if (amp < 0.05) continue;
+          if (amp < 0.05)
+            continue;
           // The edge is never a perfect circle.
           const wob = 1 + 0.035 * Math.sin(3 * a + rp.r * 0.012 + phase) + 0.025 * Math.sin(5 * a - rp.r * 0.017 + phase * 2);
           const x = rp.x + Math.cos(a - Math.PI) * r0 * wob;
@@ -2161,31 +2615,33 @@ export class AsciiRenderer {
           const amount = rp.song ? 0.5 * fade : thick === 0 ? (soft ? 0.9 : 0.8) * fade : Math.min(0.5, 0.2 * fade * rp.strength);
           this.stamp(this.energy, x, y, soft ? Math.max(1, thick) : thick, 0.6 * amount * amp * weight / Math.sqrt(Math.max(1, world.ripples.length / 5)));
           const ci = this.cellIndex(x, y);
-          if (ci >= 0) this.tint[ci] = Math.max(this.tint[ci], Math.max(0.01, 1 - fade + 0.01 - p * 0.1) + (rp.hue ? 10 : 0));
+          if (ci >= 0)
+            this.tint[ci] = Math.max(this.tint[ci], Math.max(0.01, 1 - fade + 0.01 - p * 0.1) + (rp.hue ? 10 : 0));
         }
       }
     }
   }
-
   private depositWake(world: World) {
     const { energy } = this;
     for (const f of world.fish) {
-      if (!f.alive) continue;
+      if (!f.alive)
+        continue;
       const i = this.cellIndex(f.x, f.y);
-      if (i >= 0) energy[i] = Math.min(1.6, energy[i] + 0.012 + f.alarm * 0.03);
+      if (i >= 0)
+        energy[i] = Math.min(1.6, energy[i] + 0.012 + f.alarm * 0.03);
     }
     for (const sh of world.sharks) {
       // The tail sweeps the most water.
       for (let k = SHARK_NODES - 6; k < SHARK_NODES; k++) {
         const i = this.cellIndex(sh.nodes[k * 2], sh.nodes[k * 2 + 1]);
-        if (i >= 0) energy[i] = Math.min(1.6, energy[i] + 0.05 + sh.speed * 0.0012);
+        if (i >= 0)
+          energy[i] = Math.min(1.6, energy[i] + 0.05 + sh.speed * 0.0012);
       }
     }
     if (world.pointer.active) {
       this.stamp(energy, world.pointer.x, world.pointer.y, 1, 0.08);
     }
   }
-
   /** Blur + decay so wakes spread out like ripples and fade. */
   private diffuse(dt: number) {
     const { cols, rows, energy, energyTmp: tmp, heat } = this;
@@ -2205,23 +2661,29 @@ export class AsciiRenderer {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const i = r * cols + c;
-        if (tmp[i] < 0.2) { tint[i] = 0; continue; }
+        if (tmp[i] < 0.2) {
+          tint[i] = 0;
+          continue;
+        }
         let m = tint[i];
-        if (c > 0 && tint[i - 1] > m) m = tint[i - 1];
-        if (c < cols - 1 && tint[i + 1] > m) m = tint[i + 1];
-        if (r > 0 && tint[i - cols] > m) m = tint[i - cols];
-        if (r < rows - 1 && tint[i + cols] > m) m = tint[i + cols];
+        if (c > 0 && tint[i - 1] > m)
+          m = tint[i - 1];
+        if (c < cols - 1 && tint[i + 1] > m)
+          m = tint[i + 1];
+        if (r > 0 && tint[i - cols] > m)
+          m = tint[i - cols];
+        if (r < rows - 1 && tint[i + cols] > m)
+          m = tint[i + cols];
         tint[i] = m;
       }
     }
     this.energy = tmp;
     this.energyTmp = energy;
     const heatDecay = Math.exp(-dt * 2.2);
-    for (let i = 0; i < heat.length; i++) heat[i] *= heatDecay;
+    for (let i = 0; i < heat.length; i++)
+      heat[i] *= heatDecay;
   }
-
   // ── sharks ──────────────────────────────────────────────────────────
-
   /**
    * Classify one point against the current shark (spine/arc already built).
    * Body coordinates: s along the spine (0 snout → 1 tail), v across it.
@@ -2244,7 +2706,8 @@ export class AsciiRenderer {
       // A segment whose bounding box is already farther away cannot be nearest.
       const dx = px < Math.min(ax, ax + sx) ? Math.min(ax, ax + sx) - px : Math.max(0, px - Math.max(ax, ax + sx));
       const dy = py < Math.min(ay, ay + sy) ? Math.min(ay, ay + sy) - py : Math.max(0, py - Math.max(ay, ay + sy));
-      if (dx * dx + dy * dy >= best) continue;
+      if (dx * dx + dy * dy >= best)
+        continue;
       const u = clamp(((px - ax) * sx + (py - ay) * sy) / len2, 0, 1);
       const qx = ax + sx * u;
       const qy = ay + sy * u;
@@ -2255,7 +2718,6 @@ export class AsciiRenderer {
         bestU = u;
       }
     }
-
     const len = this.segmentLength[bestK];
     const sx = this.segmentX[bestK], sy = this.segmentY[bestK];
     bestS = (arc[bestK] + bestU * len) / this.arcTotal;
@@ -2270,7 +2732,6 @@ export class AsciiRenderer {
     this.hitDist = a;
     this.hitS = s;
     this.hitV = a * bestSign;
-
     const head = this.shape.head;
     if (head && u < L * (head.sweep + head.depth + head.notch)) {
       // Cephalofoil: a wide wing across the snout, its tips swept back toward the eyes,
@@ -2286,7 +2747,6 @@ export class AsciiRenderer {
         return true;
       }
     }
-
     if (a <= w) {
       const across = a / (w || 1);
       // Rounded back lit from the top-left; flanks fall off into shadow.
@@ -2297,40 +2757,44 @@ export class AsciiRenderer {
         // First dorsal fin, catching the light.
         flag = FLAG_RIDGE;
         shade = 1;
-      } else if (s > shape.secondDorsal[0] && s < shape.secondDorsal[1] && across < 0.4) {
+      }
+      else if (s > shape.secondDorsal[0] && s < shape.secondDorsal[1] && across < 0.4) {
         shade = Math.max(shade, 0.82);
-      } else if (shape.eye && s > shape.eye[0] && s < shape.eye[1] && across > 0.6) {
+      }
+      else if (shape.eye && s > shape.eye[0] && s < shape.eye[1] && across > 0.6) {
         flag = FLAG_EYE;
         shade = 0;
-      } else if (s > shape.gills[0] && s < shape.gills[1] && across > 0.58) {
+      }
+      else if (s > shape.gills[0] && s < shape.gills[1] && across > 0.58) {
         // Five gill slits.
-        if (Math.floor(((s - shape.gills[0]) / (shape.gills[1] - shape.gills[0])) * 5) % 2 === 0) shade *= 0.45;
-      } else if (s < 0.05) {
+        if (Math.floor(((s - shape.gills[0]) / (shape.gills[1] - shape.gills[0])) * 5) % 2 === 0)
+          shade *= 0.45;
+      }
+      else if (s < 0.05) {
         // Pale snout tip.
         shade = Math.max(shade, 0.7);
-      } else if (shape === SHAPES.zebra && s > 0.08 && s < 0.55 && (across < 0.1 || Math.abs(across - 0.6) < 0.08)) {
+      }
+      else if (shape === SHAPES.zebra && s > 0.08 && s < 0.55 && (across < 0.1 || Math.abs(across - 0.6) < 0.08)) {
         // Zebra sharks carry pale ridges down the back.
         shade = Math.max(shade, 0.8);
-      } else if (this.marked(s, a * bestSign, L, across)) {
+      }
+      else if (this.marked(s, a * bestSign, L, across)) {
         flag = FLAG_MARK;
       }
       this.hitFlag = flag;
       this.hitShade = shade;
       return true;
     }
-
     const mf = this.megaFin;
     if (mf) {
       // Crescent tail fin in the blade's own frame: x along the axis from its base, y across it.
       const dx = px - mf.bx;
       const dy = py - mf.by;
       const fx = dx * mf.c + dy * mf.s;
-      const fy = Math.abs(-dx * mf.s + dy * mf.c);
+      const fy = Math.abs(-dx * mf.s + dy * mf.c - L * mf.flex * clamp(fx / (L * .18), 0, 1) ** 2);
       const reach = L * 0.13;
-      if (
-        inTriangle(fx, fy, -L * 0.02, 0, L * 0.1, 0, L * 0.18, reach) &&
-        !inTriangle(fx, fy, L * 0.1, 0, L * 0.1 + L * 0.08 * 0.33, reach * 0.55, L * 0.18, reach)
-      ) {
+      if (inTriangle(fx, fy, -L * 0.02, 0, L * 0.1, 0, L * 0.18, reach) &&
+        !inTriangle(fx, fy, L * 0.1, 0, L * 0.1 + L * 0.08 * 0.33, reach * 0.55, L * 0.18, reach)) {
         this.hitFlag = FLAG_FIN;
         this.hitShade = 0.34 + 0.16 * (1 - clamp(fy / reach, 0, 1));
         return true;
@@ -2338,40 +2802,37 @@ export class AsciiRenderer {
     }
     const tip = bestSign > 0 ? this.finTipRight : this.finTipLeft;
     const [p0, p1, p2] = shape.pectoral;
-    if (
-      inTriangle(u, a, L * p0, 0, L * p1, 0, L * p2, tip) &&
+    if (inTriangle(u, a, L * p0, 0, L * p1, 0, L * p2, tip) &&
       // Falcate (sickle) fins get a concave trailing edge.
-      !(shape.falcate && inTriangle(u, a, L * p1, 0, L * (p1 + (p2 - p1) * 0.33), tip * 0.55, L * p2, tip))
-    ) {
+      !(shape.falcate && inTriangle(u, a, L * p1, 0, L * (p1 + (p2 - p1) * 0.33), tip * 0.55, L * p2, tip))) {
       this.hitFlag = this.marked(s, a * bestSign, L, 0) ? FLAG_MARK : FLAG_FIN;
       this.hitShade = 0.38 + 0.22 * (1 - clamp(a / tip, 0, 1));
       return true;
     }
     const [v0, v1, v2, vr] = shape.pelvic;
-    if (
-      inTriangle(u, a, L * v0, 0, L * v1, 0, L * v2, L * vr) ||
+    if (inTriangle(u, a, L * v0, 0, L * v1, 0, L * v2, L * vr) ||
       // Forked caudal fin.
-      (shape.caudal > 0 && !mf && inTriangle(u, a, L * 0.86, 0, L * 0.95, 0, L, L * shape.caudal))
-    ) {
+      (shape.caudal > 0 && !mf && inTriangle(u, a, L * 0.86, 0, L * 0.95, 0, L, L * shape.caudal))) {
       this.hitFlag = FLAG_FIN;
       this.hitShade = 0.36;
       return true;
     }
     return false;
   }
-
   /** Whether a body point (s along, v across) falls on a dark marking. */
   private marked(s: number, v: number, L: number, across: number) {
     if (this.shape === SHAPES.tiger) {
       // Wavy vertical bars over the back half, fading out toward the head.
-      if (s < 0.2 || s > 0.9 || across > 0.85) return false;
+      if (s < 0.2 || s > 0.9 || across > 0.85)
+        return false;
       const wobble = 0.35 * Math.sin((v / L) * 25 + s * 5);
       const bar = Math.sin(s * Math.PI * 2 * 9 + wobble);
       return bar > 0.65 - 0.5 * smoothstep(0.2, 0.42, s) + 0.4 * smoothstep(0.8, 0.9, s);
     }
     if (this.shape === SHAPES.zebra) {
       // Leopard spots on a jittered grid, so they ride along with the skin.
-      if (s < 0.07) return false;
+      if (s < 0.07)
+        return false;
       const gu = (s * L) / (L * 0.06);
       const gv = v / (L * 0.045);
       const cu = Math.floor(gu);
@@ -2382,17 +2843,17 @@ export class AsciiRenderer {
     }
     return false;
   }
-
   /**
    * Build a smooth, undulating render spine from the sim spine, then
    * supersample every cell in the shark's bounding box against the shape.
    * Fully covered cells become solid skin; partial cells become edge glyphs.
    */
-  private rasterizeSharks(sharks: Shark[], t: number) {
+  private rasterizeSharks(sharks: Shark[], t: number, world: World) {
     const { sharkFlag, sharkShade, sharkKey, sharkDepth, sharkKind, sharkShadow, spine, arc, cw, ch, cols, rows } = this;
     sharkFlag.fill(0);
     sharkShadow.fill(0);
-
+    this.sharpSharkCount = 0;
+    this.megaCells.clear();
     for (const sh of sharks) {
       const L = sh.length;
       const N = SHARK_NODES;
@@ -2400,7 +2861,6 @@ export class AsciiRenderer {
       this.shape = SHAPES[sh.kind];
       this.sharkId = sh.id;
       const kindIndex = KINDS.indexOf(sh.kind);
-
       // Travelling body wave, growing toward the tail.
       for (let k = 0; k < N; k++) {
         const s = k / (N - 1);
@@ -2430,16 +2890,13 @@ export class AsciiRenderer {
         this.segmentLength[k] = Math.sqrt(this.segmentLength2[k]);
       }
       this.arcTotal = arc[N - 1] || 1;
-
       this.megaFin = sh.mega ? megaFinFrame(sh, spine, N) : null;
-
       // Bank into turns: the inside fin foreshortens, the outside one spreads.
       const bank = clamp(sh.turn * 0.45, -0.35, 0.35);
       const flex = 1 + 0.06 * Math.sin(sh.phase * 0.5);
       const reachFin = this.shape.pectoral[3];
       this.finTipRight = L * reachFin * flex * (1 - bank);
       this.finTipLeft = L * reachFin * flex * (1 + bank);
-
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
@@ -2455,33 +2912,39 @@ export class AsciiRenderer {
       const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
       const r0 = Math.max(0, Math.floor((minY - reach) / ch));
       const r1 = Math.min(rows - 1, Math.floor((maxY + reach) / ch));
-      if (c0 > c1 || r0 > r1) continue;
-
+      if (c0 > c1 || r0 > r1)
+        continue;
+      const intakeUfo = sh.lifted ? world.ufos.find(u => u.state === "beam" && u.targetShark === sh) : undefined;
       const skipBeyond = reach + Math.hypot(cw, ch);
       const shadowDc = Math.round((L * 0.035) / cw) + 1;
       const shadowDr = Math.round((L * 0.02) / ch) + 1;
-
       for (let r = r0; r <= r1; r++) {
         for (let c = c0; c <= c1; c++) {
           const x = c * cw;
           const y = r * ch;
+          if (intakeUfo && y + ch / 2 < tractorIntake(world, intakeUfo)) continue;
           const centerHit = this.sampleShark(x + cw / 2, y + ch / 2, L);
-          if (!centerHit && this.hitDist > skipBeyond) continue;
+          if (!centerHit && this.hitDist > skipBeyond)
+            continue;
           const flag = this.hitFlag;
           const shade = this.hitShade;
           const s = this.hitS;
           const v = this.hitV;
-
           let hits = centerHit ? 1 : 0;
-          if (this.quality < 2) {
+          if (this.quality < 2 && sh.mega) {
             for (let k = 0; k < SUBSAMPLES.length; k += 2) {
-              if (this.sampleShark(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch, L)) hits++;
+              if (this.sampleShark(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch, L))
+                hits++;
             }
           }
-          if (hits === 0) continue;
-          const coverage = this.quality < 2 ? hits / 5 : 1;
-
+          if (hits === 0)
+            continue;
+          const coverage = this.quality < 2 && sh.mega ? hits / 5 : 1;
           const i = r * cols + c;
+          if (sh.mega)
+            this.megaCells.add(i);
+          else
+            this.megaCells.delete(i);
           // Body-anchored key so each glyph rides along with the skin.
           const key = (hash3(Math.round(s * 52), Math.round(v / (cw * 0.9)), sh.id) * 4294967295) >>> 0;
           sharkKey[i] = key;
@@ -2489,24 +2952,44 @@ export class AsciiRenderer {
           sharkKind[i] = kindIndex;
           const xray = sh.mega && this.yeat > 0.5;
           this.sharkXray[i] = xray ? (centerHit && coverage >= 0.6 ? 1 : 2) : 0;
+          this.sharkHit[i] = sh.mega ? Math.round(255 * clamp(1 - (t - (sh.hitAt ?? -99)) / .4, 0, 1)) : 0;
           this.sharkRage[i] = sh.mega ? Math.round(255 * clamp((sh.rageLevel ?? 0) * (0.9 + 0.1 * Math.sin(t * 5)), 0, 1)) : 0;
-
           if (centerHit && coverage >= 0.6) {
             sharkFlag[i] = flag;
             const flicker = (hash3(c, r, Math.floor(t * 6)) - 0.5) * 0.06;
             sharkShade[i] = clamp(shade + flicker, 0, 1);
             const sc = c + shadowDc;
             const sr = r + shadowDr;
-            if (sc < cols && sr < rows) sharkShadow[sr * cols + sc] = 1;
-          } else {
+            if (sc < cols && sr < rows)
+              sharkShadow[sr * cols + sc] = 1;
+          }
+          else {
             sharkFlag[i] = FLAG_EDGE;
             sharkShade[i] = coverage;
           }
         }
       }
+      if (!sh.mega) {
+        const step = this.quality === 2 ? .72 : .5, fx = cw * step, fy = ch * step;
+        for (let y = Math.max(0, Math.floor((minY - reach) / fy) * fy); y <= Math.min(this.height, maxY + reach); y += fy) {
+          for (let x = Math.max(0, Math.floor((minX - reach) / fx) * fx); x <= Math.min(this.width, maxX + reach); x += fx) {
+            if (!this.sampleShark(x + fx * .5, y + fy * .5, L))
+              continue;
+            const flag = this.hitFlag, shade = this.hitShade;
+            const i = this.sharpSharkCount++;
+            const point = this.sharpSharks[i] ?? (this.sharpSharks[i] = { x: 0, y: 0, flag: 0, shade: 0, key: 0, tint: this.shape.tint, captured: false });
+            point.x = x + fx * .5;
+            point.y = y + fy * .5;
+            point.flag = flag;
+            point.shade = shade;
+            point.key = Math.floor(this.hitS * 53) + sh.id * 97;
+            point.tint = this.shape.tint;
+            point.captured = this.captured.has(sh);
+          }
+        }
+      }
     }
   }
-
   /**
    * Yeat mode: random things swell with a white glow for a few seconds, then fade. Each shark, diver,
    * jelly, the kraken, ufo and whale gets its own slow clock, so who is glowing keeps changing, and a
@@ -2514,7 +2997,8 @@ export class AsciiRenderer {
    */
   private drawYeatGlows(world: World, t: number) {
     const yeat = this.yeat;
-    if (yeat <= 0 || this.quality > 0) return;
+    if (yeat <= 0 || this.quality > 0)
+      return;
     const { ctx } = this;
     const hash = (n: number) => {
       const x = Math.sin(n * 127.1) * 43758.5453;
@@ -2523,9 +3007,11 @@ export class AsciiRenderer {
     const glowAt = (x: number, y: number, r: number, seed: number, chance = 0.45, period = 7) => {
       const clock = t / period + seed * 0.37;
       const slot = Math.floor(clock);
-      if (hash(seed * 13.7 + slot * 3.1) > chance) return;
+      if (hash(seed * 13.7 + slot * 3.1) > chance)
+        return;
       const env = Math.pow(Math.sin(Math.PI * (clock - slot)), 0.7) * yeat;
-      if (env < 0.02) return;
+      if (env < 0.02)
+        return;
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, `rgba(255,255,255,${(0.34 * env).toFixed(3)})`);
       g.addColorStop(1, "rgba(255,255,255,0)");
@@ -2534,14 +3020,24 @@ export class AsciiRenderer {
     };
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    for (const sh of world.sharks) glowAt(sh.nodes[16], sh.nodes[17], sh.length * (sh.mega ? 0.3 : 0.45), sh.id, sh.mega ? 0.8 : 0.4);
-    world.fish.forEach((f, i) => { if (f.diver && f.alive && !f.riding) glowAt(f.x, f.y, 60, i + 31, 0.5, 5); });
+    for (const sh of world.sharks)
+      glowAt(sh.nodes[16], sh.nodes[17], sh.length * (sh.mega ? 0.3 : 0.45), sh.id, sh.mega ? 0.8 : 0.4);
+    world.fish.forEach((f, i) => {
+      if (f.diver && f.alive && !f.riding)
+        glowAt(f.x, f.y, 60, i + 31, 0.5, 5);
+    });
     world.jellies.forEach((j, i) => glowAt(j.x, j.y, j.size * 7, i + 71, 0.6, 6));
     const k = world.kraken;
-    if (k) glowAt(k.x, k.y, k.size * 0.55, 211, 0.7, 6);
+    if (k)
+      glowAt(k.x, k.y, k.size * 0.55, 211, 0.7, 6);
     world.ufos.forEach((u, i) => glowAt(u.x, u.y, 130, 223 + i * 17, 0.8, 4));
+    if (world.mothership) {
+      const b = world.mothership;
+      glowAt(b.x, b.y, b.size * .85, 419, 1, 5);
+    }
     const wh = world.whale;
-    if (wh) glowAt(wh.x - Math.cos(wh.heading) * wh.length * 0.4, wh.y - Math.sin(wh.heading) * wh.length * 0.4, wh.length * 0.35, 239, 0.6, 9);
+    if (wh)
+      glowAt(wh.x - Math.cos(wh.heading) * wh.length * 0.4, wh.y - Math.sin(wh.heading) * wh.length * 0.4, wh.length * 0.35, 239, 0.6, 9);
     // Stray flares drifting in the fog.
     const w = this.cols * this.cw;
     const h = this.rows * this.ch;
@@ -2551,19 +3047,20 @@ export class AsciiRenderer {
     }
     ctx.restore();
   }
-
   /**
    * Yeat mode is an x-ray: the megalodon keeps its (dimmed, grayscale) skin so the shape reads, with its skeleton showing through: a vertebral column,
    * ribs, a toothed skull with empty sockets, fin bones and a fan of tail rays.
    */
   private drawMegaSkeleton(world: World) {
     const alpha = clamp((this.yeat - 0.4) / 0.4, 0, 1);
-    if (alpha <= 0) return;
+    if (alpha <= 0)
+      return;
     const { cw } = this;
     const { put, flush } = this.painter();
     const bone = (a: number) => `rgba(240,240,234,${(a * alpha).toFixed(2)})`;
     for (const sh of world.sharks) {
-      if (!sh.mega) continue;
+      if (!sh.mega)
+        continue;
       const L = sh.length;
       const N = SHARK_NODES;
       const n = sh.nodes;
@@ -2596,7 +3093,8 @@ export class AsciiRenderer {
       const half = (s: number) => L * 0.08 * Math.sin(Math.PI * Math.pow(clamp(s, 0, 1), 0.75));
       const line = (x0: number, y0: number, x1: number, y1: number, glyph: string, a: number) => {
         const steps = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / (cw * 0.7)));
-        for (let i = 0; i <= steps; i++) put(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, glyph, bone(a), true);
+        for (let i = 0; i <= steps; i++)
+          put(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, glyph, bone(a), true);
       };
       const ds = (cw * 0.8) / L;
       // Spine.
@@ -2656,7 +3154,10 @@ export class AsciiRenderer {
       }
       // Tail: rays fanning out through the same pitching crescent the skin is drawn with.
       const fin = megaFinFrame(sh, sp, N);
-      const finAt = (fx: number, fy: number): [number, number] => [fin.bx + fx * fin.c - fy * fin.s, fin.by + fx * fin.s + fy * fin.c];
+      const finAt = (fx: number, fy: number): [
+        number,
+        number
+      ] => [fin.bx + fx * fin.c - fy * fin.s, fin.by + fx * fin.s + fy * fin.c];
       const [rx0, ry0] = finAt(L * 0.03, 0);
       for (let r = -3; r <= 3; r++) {
         const t = r / 3;
@@ -2666,13 +3167,15 @@ export class AsciiRenderer {
     }
     flush();
   }
-
   private drawSharks(t: number) {
     const { ctx, cols, rows, cw, ch, sharkFlag, sharkShade, sharkKey, sharkDepth, sharkKind } = this;
     const n = cols * rows;
     for (let i = 0; i < n; i++) {
       const flag = sharkFlag[i];
-      if (!flag) continue;
+      if (!flag)
+        continue;
+      if (!this.megaCells.has(i))
+        continue;
       const col = i % cols;
       const row = (i / cols) | 0;
       const x = col * cw;
@@ -2692,11 +3195,17 @@ export class AsciiRenderer {
         tb = tb * (1 - 0.85 * rg);
         deep = 1 - 0.3 * rg;
       }
-
+      // A laser strike flashes the hide bright red for an instant, like an impact flash.
+      const hf = this.sharkHit[i] / 255;
+      if (hf > 0) {
+        tr = tr + (1.7 - tr) * hf;
+        tg = tg * (1 - 0.8 * hf);
+        tb = tb * (1 - 0.85 * hf);
+        deep = Math.max(deep, 1) * (1 + 0.3 * hf);
+      }
       // Colours re-roll on a staggered clock so the hide shimmers.
       const tick = Math.floor(t * 2.4 + (key % 997) / 97);
       const roll = hash3(key, tick, 7);
-
       if (flag === FLAG_EDGE) {
         // Soft, anti-aliased silhouette: no block, just a light glyph.
         const set = shade >= 0.5 || xr === 2 ? EDGE_HEAVY : EDGE_LIGHT;
@@ -2708,22 +3217,25 @@ export class AsciiRenderer {
         ctx.fillText(set[(key >>> 8) % set.length], x + cw / 2, y + ch / 2 + 1);
         continue;
       }
-
       let level: number;
       let glyph: string;
       if (flag === FLAG_RIDGE) {
         level = 226;
         glyph = RIDGE_GLYPHS[(key >>> 8) % RIDGE_GLYPHS.length];
-      } else if (flag === FLAG_EYE) {
+      }
+      else if (flag === FLAG_EYE) {
         level = 12;
         glyph = "o";
-      } else if (flag === FLAG_MARK) {
+      }
+      else if (flag === FLAG_MARK) {
         level = 24 + shade * 22;
         glyph = MARK_GLYPHS[(key >>> 8) % MARK_GLYPHS.length];
-      } else if (flag === FLAG_FIN) {
+      }
+      else if (flag === FLAG_FIN) {
         level = 40 + shade * 120;
         glyph = FIN_GLYPHS[(key >>> 8) % FIN_GLYPHS.length];
-      } else {
+      }
+      else {
         level = 46 + shade * 160;
         const jitter = ((key >>> 4) % 3) - 1;
         glyph = SKIN_RAMP[clamp(Math.floor((1 - shade) * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
@@ -2732,21 +3244,39 @@ export class AsciiRenderer {
       // Tinted per species; the classic tint is a cool blue-grey, like a back seen through deep water.
       ctx.fillStyle = `rgb(${Math.min(255, Math.round(level * tr))},${Math.min(255, Math.round(level * tg))},${Math.min(255, Math.round(level * tb + 4))})`;
       ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
-
       let color: string;
-      if (flag === FLAG_EYE) color = rg > 0.15 ? "#ffcc33" : "#9aa0ad";
-      else if (flag === FLAG_MARK) color = `rgb(${Math.round(70 * tr)},${Math.round(70 * tg)},${Math.round(70 * tb)})`;
-      else if (rg > 0.15 && roll < 0.11) color = "#ffc53a";
-      else if (roll < 0.09) color = ACCENTS[key % ACCENTS.length];
-      else if (roll < 0.13) color = "#ffffff";
-      else color = shade > 0.55 ? "#0e0f13" : "#1b1d24";
+      if (flag === FLAG_EYE)
+        color = rg > 0.15 ? "#ffcc33" : "#9aa0ad";
+      else if (flag === FLAG_MARK)
+        color = `rgb(${Math.round(70 * tr)},${Math.round(70 * tg)},${Math.round(70 * tb)})`;
+      else if (rg > 0.15 && roll < 0.11)
+        color = "#ffc53a";
+      else if (roll < 0.09)
+        color = ACCENTS[key % ACCENTS.length];
+      else if (roll < 0.13)
+        color = "#ffffff";
+      else
+        color = shade > 0.55 ? "#0e0f13" : "#1b1d24";
       ctx.fillStyle = color;
       ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
     }
+    const step = this.quality === 2 ? .72 : .5, fw = cw * step, fh = ch * step;
+    ctx.save();
+    ctx.font = `${Math.round(fh * .87)}px ${this.fontFamily}`;
+    for (let pointIndex = 0; pointIndex < this.sharpSharkCount; pointIndex++) {
+      const p = this.sharpSharks[pointIndex];
+      if (this.megaCells.has(Math.floor(p.y / ch) * cols + Math.floor(p.x / cw)))
+        continue;
+      const [r, g, b] = p.captured ? [.55, 1.45, .7] : p.tint;
+      const light = 55 + p.shade * 140;
+      ctx.fillStyle = `rgb(${Math.round(light * r)},${Math.min(255, Math.round(light * g))},${Math.round(light * b)})`;
+      ctx.fillRect(p.x - fw * .46, p.y - fh * .46, fw * .92, fh * .92);
+      ctx.fillStyle = p.captured ? "rgb(140,255,170)" : p.flag === FLAG_EYE ? "#d7edfa" : p.flag === FLAG_RIDGE ? "#d3e3ed" : "#202a32";
+      ctx.fillText(p.flag === FLAG_EYE ? "o" : p.flag === FLAG_RIDGE ? "/" : p.flag === FLAG_FIN ? ":" : SKIN_RAMP[p.key % SKIN_RAMP.length], p.x, p.y);
+    }
+    ctx.restore();
   }
-
   // ── fish, dots, heat ────────────────────────────────────────────────
-
   /**
    * Snap each fish to a cell and bucket it by brightness: far fish are dim,
    * near fish brighter, and turning or panicking fish glint. Nearer fish
@@ -2755,12 +3285,15 @@ export class AsciiRenderer {
   private markFish(world: World) {
     const { fishStamp, fishBuckets, sharkFlag } = this;
     const frame = ++this.frameId;
-    for (const bucket of fishBuckets) bucket.length = 0;
+    for (const bucket of fishBuckets)
+      bucket.length = 0;
     for (let pass = 0; pass < 2; pass++) {
       for (const f of world.fish) {
-        if (!f.alive || f.diver || (f.depth > 0.78 ? 0 : 1) !== pass) continue;
+        if (!f.alive || f.diver || (f.depth > 0.78 ? 0 : 1) !== pass)
+          continue;
         const i = this.cellIndex(f.x, f.y);
-        if (i < 0 || fishStamp[i] === frame || sharkFlag[i]) continue;
+        if (i < 0 || fishStamp[i] === frame || sharkFlag[i])
+          continue;
         fishStamp[i] = frame;
         const glint = clamp(Math.abs(f.turn) / 3.5, 0, 1);
         const v = 0.3 + (0.4 * (f.depth - 0.55)) / 0.45 + 0.3 * Math.max(glint, f.alarm);
@@ -2768,13 +3301,13 @@ export class AsciiRenderer {
       }
     }
   }
-
   private drawFish() {
     const { ctx, cw, ch, cols, fishBuckets } = this;
     ctx.globalAlpha = 1 - this.night * 0.4;
     for (let b = 0; b < fishBuckets.length; b++) {
       const bucket = fishBuckets[b];
-      if (!bucket.length) continue;
+      if (!bucket.length)
+        continue;
       ctx.fillStyle = this.fishStyles[b];
       for (const i of bucket) {
         ctx.fillText("-", (i % cols) * cw + cw / 2, ((i / cols) | 0) * ch + ch / 2 + 1);
@@ -2782,19 +3315,18 @@ export class AsciiRenderer {
     }
     ctx.globalAlpha = 1;
   }
-
   private drawHeat() {
     const { ctx, heat, cols, cw, ch } = this;
     for (let i = 0; i < heat.length; i++) {
       const h = heat[i];
-      if (h < 0.08) continue;
+      if (h < 0.08)
+        continue;
       const col = i % cols;
       const row = (i / cols) | 0;
       ctx.fillStyle = h > 0.5 ? `rgba(255,120,60,${h.toFixed(2)})` : `rgba(220,40,40,${(h * 1.6).toFixed(2)})`;
       ctx.fillText(h > 0.6 ? "*" : "·", col * cw + cw / 2, row * ch + ch / 2 + 1);
     }
   }
-
   /**
    * Every cell's dot twinkles on its own clock, is modulated by slow
    * caustic light bands, and flares cyan where the wake field is strong.
@@ -2806,7 +3338,6 @@ export class AsciiRenderer {
     const n = cols * rows;
     const SKIP = bucketCounts.length - 1;
     bucketCounts.fill(0);
-
     for (let i = 0; i < n; i++) {
       // After dark a few dots flare like bioluminescence.
       const spark = this.night > 0.2 && (i * 13) % 97 < 9 && Math.sin(t * dotFreq[i] * 0.7 + dotPhase[i] * 3) > 0.97;
@@ -2822,34 +3353,37 @@ export class AsciiRenderer {
         const tv = this.tint[i];
         const color = tv >= 10 ? ORANGE_BASE + Math.min(RIPPLE_STEPS - 1, Math.floor((tv - 10.01) * RIPPLE_STEPS)) : tv > 0 ? RIPPLE_BASE + Math.min(RIPPLE_STEPS - 1, Math.floor((tv - 0.01) * RIPPLE_STEPS)) : WAKE;
         bucket = color * ALPHA_LEVELS + level;
-      } else {
+      }
+      else {
         const col = i % cols;
         const row = (i / cols) | 0;
         // Dots stay bright and crisp; the twinkle is a gentle breathe, not a fade.
         const twinkle = 0.5 + 0.5 * Math.sin(t * dotFreq[i] + dotPhase[i]);
         const caustic = 0.85 + 0.15 * Math.sin(col * 0.11 + t * 0.35) * Math.sin(row * 0.17 - t * 0.27);
         let v = clamp((0.55 + 0.45 * twinkle) * caustic + e * 2, 0, 1) * (1 - 0.4 * this.night) * (1 - 0.75 * this.yeat);
-        if (sharkShadow[i]) v *= 0.2;
+        if (sharkShadow[i])
+          v *= 0.2;
         bucket = (kind - 1) * ALPHA_LEVELS + clamp(Math.floor(v * ALPHA_LEVELS), 0, ALPHA_LEVELS - 1);
       }
       bucketOf[i] = bucket;
       bucketCounts[bucket]++;
     }
-
     // Counting sort cells by bucket.
     const starts = new Int32Array(bucketCounts.length);
-    for (let b = 1; b < bucketCounts.length; b++) starts[b] = starts[b - 1] + bucketCounts[b - 1];
+    for (let b = 1; b < bucketCounts.length; b++)
+      starts[b] = starts[b - 1] + bucketCounts[b - 1];
     const cursor = starts.slice();
     for (let i = 0; i < n; i++) {
       const b = bucketOf[i];
-      if (b !== SKIP) bucketOrder[cursor[b]++] = i;
+      if (b !== SKIP)
+        bucketOrder[cursor[b]++] = i;
     }
-
     const small = Math.max(2, Math.round(cw * 0.19));
     const large = small + 1;
     for (let b = 0; b < SKIP; b++) {
       const count = bucketCounts[b];
-      if (!count) continue;
+      if (!count)
+        continue;
       ctx.fillStyle = this.dotStyles[b];
       const size = b >= WAKE * ALPHA_LEVELS ? large : small;
       const start = starts[b];

@@ -1,12 +1,23 @@
+import { SpawnKeyRepeater } from "./src/spawn-keys";
 import { parseAquariumCommand } from './src/commands';
 import { OceanEngine } from './src';
-import { dramatic, flavor, isBoss, isGhost, isClash, oneLine } from './src/lines';
-
+import { dramatic, flavor, pickLine, bossPresence, isBoss, isGhost, isClash, oneLine } from './src/lines';
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
 ]);
-type Source = { active: number; stale: number; lastFinished: number; seen: boolean; attention: number; planAt: number; subagentAt?: number };
-type State = { claude: Source; codex: Source };
+type Source = {
+  active: number;
+  stale: number;
+  lastFinished: number;
+  seen: boolean;
+  attention: number;
+  planAt: number;
+  subagentAt?: number;
+};
+type State = {
+  claude: Source;
+  codex: Source;
+};
 const message = document.querySelector('#message')!;
 let initialized = false;
 let lastFinished = 0;
@@ -16,7 +27,6 @@ let bothSince = 0;
 let bothFired = false;
 let celebrationUntil = 0;
 let timer: ReturnType<typeof setTimeout>;
-
 // App icon: the cat gets a glowing dot per active assistant (orange Claude, purple Codex),
 // like a notification badge. Chromium uses the favicon for the window and taskbar icon.
 const cat = new Image();
@@ -30,34 +40,56 @@ let pulseTimer: ReturnType<typeof setInterval> | undefined;
 function drawIcon() {
   const g = iconCanvas.getContext('2d')!;
   g.clearRect(0, 0, 64, 64);
-  if (cat.complete) g.drawImage(cat, 0, 0, 64, 64);
-  const dots: [number, number, string][] = [];
-  if (badges.claude) dots.push([48, 48, '224,123,60']);
-  if (badges.codex) dots.push([badges.claude ? 16 : 48, 48, '180,139,230']);
+  if (cat.complete)
+    g.drawImage(cat, 0, 0, 64, 64);
+  const dots: [
+    number,
+    number,
+    string
+  ][] = [];
+  if (badges.claude)
+    dots.push([48, 48, '224,123,60']);
+  if (badges.codex)
+    dots.push([badges.claude ? 16 : 48, 48, '180,139,230']);
   for (const [x, y, rgb] of dots) {
     const glow = g.createRadialGradient(x, y, 4, x, y, 20);
     glow.addColorStop(0, `rgba(${rgb},${0.55 + 0.3 * pulse})`);
     glow.addColorStop(1, `rgba(${rgb},0)`);
-    g.fillStyle = glow; g.fillRect(x - 20, y - 20, 40, 40);
-    g.fillStyle = '#071216'; g.beginPath(); g.arc(x, y, 14, 0, Math.PI * 2); g.fill();
-    g.fillStyle = `rgb(${rgb})`; g.beginPath(); g.arc(x, y, 11, 0, Math.PI * 2); g.fill();
+    g.fillStyle = glow;
+    g.fillRect(x - 20, y - 20, 40, 40);
+    g.fillStyle = '#071216';
+    g.beginPath();
+    g.arc(x, y, 14, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = `rgb(${rgb})`;
+    g.beginPath();
+    g.arc(x, y, 11, 0, Math.PI * 2);
+    g.fill();
   }
   iconLink.href = iconCanvas.toDataURL('image/png');
 }
 cat.onload = drawIcon;
 function setBadges(claude: boolean, codex: boolean) {
-  if (claude === badges.claude && codex === badges.codex) return;
+  if (claude === badges.claude && codex === badges.codex)
+    return;
   badges = { claude, codex };
   clearInterval(pulseTimer);
   pulse = 0;
-  if (claude || codex) pulseTimer = setInterval(() => { pulse = 1 - pulse; drawIcon(); }, 900);
+  if (claude || codex)
+    pulseTimer = setInterval(() => { pulse = 1 - pulse; drawIcon(); }, 900);
   drawIcon();
-  try { void ((navigator as any).setAppBadge?.call(navigator) ?? null); if (!claude && !codex) void (navigator as any).clearAppBadge?.(); } catch {}
+  try {
+    void ((navigator as any).setAppBadge?.call(navigator) ?? null);
+    if (!claude && !codex)
+      void (navigator as any).clearAppBadge?.();
+  }
+  catch { }
 }
 async function refresh() {
   try {
     const response = await fetch('/api/state', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Offline');
+    if (!response.ok)
+      throw new Error('Offline');
     const state: State = await response.json();
     const active = state.claude.active + state.codex.active;
     const stale = state.claude.stale + state.codex.stale;
@@ -68,7 +100,8 @@ async function refresh() {
     }
     // A plan was just presented: the whale glides through.
     const plan = Math.max(state.claude.planAt, state.codex.planAt);
-    if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started') showToast('a plan is ready!');
+    if (initialized && plan > lastPlan && Date.now() - plan < 15000 && engine.trigger('whale') === 'started')
+      showToast('a plan is ready!');
     lastPlan = plan;
     // Anything waiting on you rings from its dot until you answer.
     engine.setAttention(state.claude.attention > 0, state.codex.attention > 0);
@@ -76,17 +109,30 @@ async function refresh() {
       const source = state[name], last = lastSignals[name];
       const child = source.subagentAt || 0;
       if (initialized) {
-        if (source.attention > 0 && !last.attention) engine.activityPulse(name, 'question');
-        if (child > last.subagent && Date.now() - child < 15000) engine.activityPulse(name, 'subagent');
-        if (source.lastFinished > last.finished && Date.now() - source.lastFinished < 15000) engine.activityPulse(name, 'done');
+        if (source.attention > 0 && !last.attention)
+          engine.activityPulse(name, 'question');
+        if (child > last.subagent && Date.now() - child < 15000)
+          engine.activityPulse(name, 'subagent');
+        if (source.lastFinished > last.finished && Date.now() - source.lastFinished < 15000)
+          engine.activityPulse(name, 'done');
       }
-      last.attention = source.attention > 0; last.subagent = child; last.finished = source.lastFinished;
+      last.attention = source.attention > 0;
+      last.subagent = child;
+      last.finished = source.lastFinished;
     }
     // Both assistants working at once: a bait ball frenzy, once per overlap.
     if (state.claude.active > 0 && state.codex.active > 0) {
       bothSince ||= Date.now();
-      if (!bothFired && Date.now() - bothSince > 4000) { bothFired = true; if (engine.trigger('bait') === 'started') showToast('two at once!'); }
-    } else { bothSince = 0; bothFired = false; }
+      if (!bothFired && Date.now() - bothSince > 4000) {
+        bothFired = true;
+        if (engine.trigger('bait') === 'started')
+          showToast('two at once!');
+      }
+    }
+    else {
+      bothSince = 0;
+      bothFired = false;
+    }
     initialized = true;
     lastFinished = finished;
     engine.setWorking(active > 0);
@@ -105,7 +151,8 @@ async function refresh() {
     setBadges(state.claude.active > 0, state.codex.active > 0);
     document.querySelector('#connection')!.textContent = 'LOCAL';
     document.title = `ASCII Aquarium · ${message.textContent}`;
-  } catch {
+  }
+  catch {
     engine.setWorking(false);
     setBadges(false, false);
     document.body.dataset.mode = 'offline';
@@ -116,13 +163,18 @@ async function refresh() {
 }
 document.addEventListener('visibilitychange', () => { clearTimeout(timer); void refresh(); });
 void refresh();
-
-// Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / the last 15 events, S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall, T ghost leviathan, X submarine.
-const keyEvents: Record<string, [Parameters<typeof engine.trigger>[0], string]> = {
+// Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / command line, Tab the last 15 events, I alien invasion, S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall, T ghost leviathan, X submarine.
+const keyEvents: Record<string, [
+  Parameters<typeof engine.trigger>[0],
+  string
+]> = {
+  i: ['invasion', 'the aliens are invading!'],
   z: ['mothership', 'the mothership has eclipsed the surface...'],
   l: ['current', 'living light drifts through the deep...'],
   k: ['kraken', "you feel like you're being watched..."], m: ['mega', 'something stirs from below...'], c: ['saga', 'the deep has awoken...'],
   r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
+  a: ['smite', 'smite happens.'],
+  q: ['storm', 'thunder rolls over the sea...'],
   w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
   f: ['fight', 'a fight breaks out! teeth out!'], o: ['moon', 'the sky darkens...'], s: ['maelstrom', 'the sea begins to turn...'], g: ['bloom', 'a faint glow rises from below...'], p: ['migration', 'the whole sea starts to move...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
   t: ['leviathan', 'something vast stirs below...'], x: ['sub', 'a submarine dips in...'],
@@ -146,29 +198,6 @@ const DIVER_LINES = [
 ];
 const DIVER_SPAM = ['more divers...?', 'the boat is just throwing them in now.', 'is anyone counting these?', 'the sharks have started taking numbers.', 'at this point it is a buffet.', 'the horror of man!', 'please. stop. they have families.'];
 const DIVER_FULL = ['no more divers... :(', 'the water is full of divers!', 'there is no room left to drown in...', 'the divers are going to need a bigger tank.'];
-// Saucers and whales get a different line for the first, the second and the cap, and a line never comes round again until its
-// whole pool has been used.
-const COUNT_LINES: Record<string, string[]> = {
-  ufo1: ['something hovers above... we are not alone...', 'a saucer drifts in, humming softly.', 'a light in the sky. it is looking at you.', 'one lonely saucer wanders over.', 'a visitor from above... take me to your fish.'],
-  ufo2: ['a second saucer! they brought a friend.', 'two lights now. this is a pattern.', 'the first saucer waves. the second one blinks back.', 'two saucers, one tank. awkward.', 'company arrives... the sky is getting crowded.'],
-  ufo3: ['a THIRD saucer... this is an invasion!', 'three saucers! the aliens have a plan.', 'the sky is full of lights... brace yourselves!', 'they came in force. three, and counting.', 'the fleet has arrived!'],
-  ufoCap: ['three saucers is the limit... for now.', 'no room left in the sky for another!', 'the saucers are circling. the sky is full.', 'the mothership says: enough, enough.'],
-  whale1: ['a whale is coming... listen closely...', 'a low song rolls in from the deep...', 'something huge and gentle glides in.', 'the water hums. a whale approaches.', 'a whale surfaces from the blue...'],
-  whale2: ['and here comes a second whale!', 'a duet! two whales now.', 'the first whale calls. the second answers.', 'two whales share the deep.', 'a calf? no, a whole second whale!'],
-  whaleCap: ['two whales is the limit...', 'the tank cannot fit a third whale!', 'two whales already. that is plenty.', 'the whales politely decline a third.'],
-};
-const countDecks: Record<string, string[]> = {};
-function countLine(key: string) {
-  const deck = countDecks[key] ??= [];
-  if (!deck.length) {
-    deck.push(...COUNT_LINES[key]);
-    for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
-    // Never the line that closed the previous deck.
-    if (deck[deck.length - 1] === lastCountLine[key] && deck.length > 1) deck.unshift(deck.pop()!);
-  }
-  return (lastCountLine[key] = deck.pop()!);
-}
-const lastCountLine: Record<string, string> = {};
 let lastDiverLine = '';
 let diverStreak = 0;
 let lastDiverAt = 0;
@@ -182,65 +211,100 @@ function diverToast(result: string) {
   return lastDiverLine;
 }
 // Each toast gets a tone, a small glyph and its own entrance, so a quick run of them does not read as one grey line.
-const TONES: [RegExp, string, string][] = [
-  [/meteor|fire|burn|falling|streaks|make a wish|bomb|boom|kaboom|blast|dud|blew up|fumbled/i, 'fire', '*** '],
-  [/^(?!.*diver).*(shark|hammerhead|mako|thresher|nurse|zebra|tiger|pack)/i, 'shark', '>< '],
-  [/eaten|crushed|swallowed|lost|horror|ow. just|gone. just|boom|squeezed|ate /i, 'danger', '(!) '],
-  [/really...|wow|oh come on|well. that|bold of him|nobody saw|did he really|he was warned|he lit it|counting|buffet|taking numbers|brave|warn him|plan is not/i, 'quip', '(?) '],
-  [/invad|aliens|ufo|saucer|mothership|diver/i, 'alien', '<o> '],
-  [/whale|song/i, 'whale', '~o~ '],
-  [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
-  [/light|glow|jelly|ribbon|luminous|shimmer|reef/i, 'glow', '*~ '],
-  [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd|leviathan|torpedo|roar|submarine|sonar|individual lives return/i, 'event', '>>> '],
-];
+const TONES: [
+  RegExp,
+  string,
+  string
+][]= [
+    [/^claude /i, 'claude', '>>> '],
+    [/^codex /i, 'codex', '>>> '],
+    [/lightning|thunder|skeleton|reactor|supercharged|jellyfish.*volt|see-through|sky.*equipment|odds|electric chemistry|glow.*welcome|charged.*visit/i, 'event', '*** '],
+    [/meteor|fire|burn|falling|streaks|make a wish|bomb|boom|kaboom|blast|dud|blew up|fumbled/i, 'fire', '*** '],
+    [/^(?!.*diver).*(shark|hammerhead|mako|thresher|nurse|zebra|tiger|pack)/i, 'shark', '>< '],
+    [/eaten|crushed|swallowed|lost|horror|ow. just|gone. just|boom|squeezed|ate /i, 'danger', '(!) '],
+    [/really...|wow|oh come on|well. that|bold of him|nobody saw|did he really|he was warned|he lit it|counting|buffet|taking numbers|brave|warn him|plan is not/i, 'quip', '(?) '],
+    [/invad|aliens|ufo|saucer|mothership|diver/i, 'alien', '<o> '],
+    [/whale|song/i, 'whale', '~o~ '],
+    [/repelled|safe|saved|crossed|made it|freed|rally/i, 'good', '(+) '],
+    [/light|glow|jelly|ribbon|luminous|shimmer|reef/i, 'glow', '*~ '],
+    [/maelstrom|whirl|storm|moon|meteor|titans|clash|kraken|megalodon|bloom|migration|herd|leviathan|torpedo|roar|submarine|sonar|individual lives return/i, 'event', '>>> '],
+  ];
 const SPECIAL: Record<string, string> = {};
 // Diver quips keep their punchlines: everything else is cut to one sentence.
-const QUIP = TONES.find(([, tone]) => tone === 'quip')![0];
-// Notices stack up bottom-left like a game log: the newest at the bottom, at most five at once, each holding for a while and
-// then fading away slowly. The oldest is dropped when a sixth arrives.
+const QUIP = new RegExp(TONES.find(([, tone]) => tone === 'quip')![0].source + '|lightning|skeleton|reactor|core.*critical|sky.*equipment|odds|thunder.*applaud|jellyfish.*volt|electric chemistry|glow.*welcome|charged.*visit', 'i');
+// Notices stack up bottom-left like a game log: the newest at the bottom, at most eight at once, each holding for a while and
+// then fading away slowly. The oldest is dropped when a ninth arrives.
 const log = document.createElement('div');
 log.id = 'toasts';
 document.body.append(log);
-const LOG_MAX = 5;
+const LOG_MAX = 8;
 const lives = new WeakMap<HTMLElement, Animation>();
-// The last 15 major moments, kept for the "/" panel (diver quips and plain chatter stay out of it).
+// The last 15 major moments, kept for the Tab history (diver quips and plain chatter stay out of it).
 const HISTORY_MAX = 15;
-const history: { text: string; tone: string; at: number }[] = [];
+const history: {
+  text: string;
+  tone: string;
+  at: number;
+}[] = [];
 const commandPrompt = document.createElement('input');
-commandPrompt.id = 'command-prompt'; commandPrompt.type = 'text'; commandPrompt.autocomplete = 'off';
-commandPrompt.spellcheck = false; commandPrompt.placeholder = '';
+commandPrompt.id = 'command-prompt';
+commandPrompt.type = 'text';
+commandPrompt.autocomplete = 'off';
+commandPrompt.spellcheck = false;
+commandPrompt.placeholder = '';
 commandPrompt.addEventListener('input', () => { commandPrompt.style.width = `${Math.max(1, Math.min(32, commandPrompt.value.length + 1))}ch`; });
 commandPrompt.setAttribute('aria-label', 'Entry');
 document.body.append(commandPrompt);
 function runAquariumCommand(text: string) {
   const kind = parseAquariumCommand(text);
-  if (!kind) return 'unknown';
+  if (!kind)
+    return 'unknown';
   return engine.trigger(kind);
 }
 Object.defineProperty(window, 'aquarium', { value: Object.freeze({ command: runAquariumCommand }), configurable: true });
 commandPrompt.addEventListener('keydown', e => {
   e.stopPropagation();
-  if (e.key === 'Escape' || (e.key === '/' && !commandPrompt.value)) { e.preventDefault(); commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur(); return; }
-  if (e.key !== 'Enter') return;
+  if (e.key === 'Escape' || (e.key === '/' && !commandPrompt.value)) {
+    e.preventDefault();
+    commandPrompt.classList.remove('open');
+    historyPanel.classList.remove('open');
+    commandPrompt.blur();
+    return;
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    commandPrompt.classList.remove('open');
+    commandPrompt.blur();
+    historyPanel.classList.toggle('open');
+    renderHistory();
+    return;
+  }
+  if (e.key !== 'Enter')
+    return;
   const result = runAquariumCommand(commandPrompt.value);
   commandPrompt.value = '';
   commandPrompt.style.width = '1ch';
-  if (result === 'unknown' || result === 'off') return;
-  commandPrompt.classList.remove('open'); historyPanel.classList.remove('open'); commandPrompt.blur();
+  if (result === 'unknown' || result === 'off')
+    return;
+  commandPrompt.classList.remove('open');
+  historyPanel.classList.remove('open');
+  commandPrompt.blur();
 });
 const historyPanel = document.createElement('div');
 historyPanel.id = 'history';
 document.body.append(historyPanel);
 function recordHistory(text: string, tone: string) {
   const last = history[history.length - 1];
-  if (last && last.text === text && Date.now() - last.at < 4000) return;
+  if (last && last.text === text && Date.now() - last.at < 4000)
+    return;
   history.push({ text, tone, at: Date.now() });
-  if (history.length > HISTORY_MAX) history.shift();
-  if (historyPanel.classList.contains('open')) renderHistory();
+  if (history.length > HISTORY_MAX)
+    history.shift();
+  if (historyPanel.classList.contains('open'))
+    renderHistory();
 }
 function renderHistory() {
   // The same lines, in the same spot and size as the live toasts, just held in place with no fade, header or ages.
-  const focused = document.activeElement === commandPrompt;
   historyPanel.replaceChildren();
   for (const h of history) {
     const row = document.createElement('div');
@@ -248,14 +312,10 @@ function renderHistory() {
     row.textContent = h.tone === 'boss' || h.tone === 'clash' ? h.text.replace(/!+/g, '').trim() : h.tone === 'whale' ? h.text.replace(/[.!~\s]+$/, '') + '~' : h.text;
     historyPanel.append(row);
   }
-  const entryRow = document.createElement('div');
-  entryRow.className = 'toast';
-  entryRow.append(commandPrompt);
-  historyPanel.append(entryRow);
-  if (focused) commandPrompt.focus();
 }
 function showToast(text: string, forced?: string, key = text, whole = false) {
-  if (!whole && !QUIP.test(text)) text = oneLine(text);
+  if (!whole && !QUIP.test(text))
+    text = oneLine(text);
   // The same line never shows twice: a repeat (say, "already happening!" or a third whale knocking) refreshes the one on
   // screen and bumps its count, so spamming a key adds a "×n" to one line instead of bloating the log.
   const same = [...log.children].find((c) => (c as HTMLElement).dataset.key === key) as HTMLElement | undefined;
@@ -263,7 +323,10 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
     const n = Number(same.dataset.count ?? 1) + 1;
     same.dataset.count = String(n);
     let badge = same.querySelector('b');
-    if (!badge) { badge = document.createElement('b'); same.append(badge); }
+    if (!badge) {
+      badge = document.createElement('b');
+      same.append(badge);
+    }
     badge.textContent = ' ×' + n;
     try {
       lives.get(same)?.cancel();
@@ -271,14 +334,16 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
       life.onfinish = () => same.remove();
       lives.set(same, life);
       same.animate([{ transform: 'scale(1.06)' }, { transform: 'none' }], { duration: 180, easing: 'ease-out' });
-    } catch { /* the line simply stays */ }
+    }
+    catch { /* the line simply stays */ }
     log.append(same);
     return;
   }
   const [, tone] = (text === 'Disgusting...' || text === 'Congratulations...') ? [0, 'eoe', ''] : forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
-  const capMilestone=forced==='rainbow'||forced==='insist';
-  const diverChatter=whole||[...DIVER_LINES,...DIVER_SPAM,...DIVER_FULL].some(line=>line===text||oneLine(line)===text);
-  if(capMilestone||(!diverChatter&&tone!=='quip'&&tone!=='plain'&&!forced))recordHistory(text,tone);
+  const capMilestone = forced === 'rainbow' || forced === 'insist';
+  const diverChatter = whole || [...DIVER_LINES, ...DIVER_SPAM, ...DIVER_FULL].some(line => line === text || oneLine(line) === text);
+  if (capMilestone || (!diverChatter && tone !== 'quip' && tone !== 'plain' && !forced))
+    recordHistory(text, tone);
   const el = document.createElement('div');
   el.className = 'toast t-' + tone;
   // Boss and clash lines are bare: no leading marks and no exclamation marks (ellipses stay), like an announcement in Terraria.
@@ -286,107 +351,228 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
   el.dataset.key = key;
   el.dataset.count = '1';
   log.append(el);
-  while (log.children.length > LOG_MAX) log.firstElementChild!.remove();
+  while (log.children.length > LOG_MAX)
+    log.firstElementChild!.remove();
   try {
     // Danger shakes, quips drop in, everything else slides up; then a long hold and a slow fade.
     const enter = tone === 'danger'
       ? [{ transform: 'translateX(-6px)', opacity: 0 }, { transform: 'translateX(5px)' }, { transform: 'translateX(-3px)' }, { transform: 'none', opacity: 1 }]
       : tone === 'quip' ? [{ transform: 'translateY(-8px)', opacity: 0 }, { transform: 'none', opacity: 1 }]
-      : [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }];
+        : [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }];
     el.animate(enter, { duration: tone === 'danger' ? 340 : 260, easing: 'ease-out' });
     const life = el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
     life.onfinish = () => el.remove();
     lives.set(el, life);
-  } catch { setTimeout(() => el.remove(), 9000); }
+  }
+  catch {
+    setTimeout(() => el.remove(), 9000);
+  }
 }
-setInterval(() => { for (let n = engine.takeNotice(); n; n = engine.takeNotice()) { const line = flavor(n); showToast(dramatic(line, QUIP.test(line)), undefined, n); } }, 400);
+setInterval(() => {
+  for (let n = engine.takeNotice(); n; n = engine.takeNotice()) {
+    const line = flavor(n);
+    showToast(dramatic(line, QUIP.test(line)), undefined, n);
+  }
+}, 400);
 // The window is a fixed little tank: no browser zoom and no find bar. F11 and the window buttons are untouched.
+const spawnKeys = new SpawnKeyRepeater();
+addEventListener('keyup', e => spawnKeys.release(e.key));
+addEventListener('blur', () => spawnKeys.clear());
 addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && (['+', '-', '=', '_', '0', 'f', 'F'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract' || e.code === 'Numpad0')) e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && (['+', '-', '=', '_', '0', 'f', 'F'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract' || e.code === 'Numpad0'))
+    e.preventDefault();
 }, { capture: true });
-addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
-for (const g of ['gesturestart', 'gesturechange', 'gestureend']) addEventListener(g, e => e.preventDefault());
+addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey)
+    e.preventDefault();
+}, { passive: false });
+for (const g of ['gesturestart', 'gesturechange', 'gestureend'])
+  addEventListener(g, e => e.preventDefault());
 addEventListener('keydown', e => {
   if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLElement && e.target.closest('input,select,textarea'))) {
     e.preventDefault();
-    const open=historyPanel.classList.toggle('open');
-    commandPrompt.classList.toggle('open',open);
-    if(open){renderHistory();commandPrompt.focus();}
-  } else if (e.key === 'Escape') { historyPanel.classList.remove('open'); commandPrompt.classList.remove('open'); }
-  else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !(e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) {
-    if (engine.spawnShark() === 'full') showToast('the tank is wall to wall with sharks...', 'shark');
+    historyPanel.classList.remove('open');
+    commandPrompt.classList.add('open');
+    commandPrompt.focus();
+  }
+  else if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.repeat && !document.querySelector('#panel.open') && !(e.target instanceof HTMLElement && e.target.closest('input,select,textarea'))) {
+    e.preventDefault();
+    historyPanel.classList.toggle('open');
+    commandPrompt.classList.remove('open');
+    renderHistory();
+  }
+  else if (e.key === 'Escape') {
+    historyPanel.classList.remove('open');
+    commandPrompt.classList.remove('open');
+  }
+  else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) {
+    if (!spawnKeys.accept('h', e.repeat, performance.now())) return;
+    if (engine.spawnShark() === 'full')
+      showToast('the tank is wall to wall with sharks...', 'shark');
   }
 });
+const WHALE_LIMIT_LINES = ["two whales are already passing through...", "the whale duet is already complete...", "two sets of flukes. give them a little water...", "the whales have filled both seats in the choir..."];
+const YEAT_OFF_LINES = ["the bass fades into the deep...", "the sea remembers its colors...", "the reactor settles. the ocean exhales...", "the last pulse slips beneath the water..."];
+const manualPresses = new Map<string, { count: number; at: number; line: number }>();
+const REPEAT_LINES: Partial<Record<Parameters<typeof engine.trigger>[0], string[]>> = {
+  chase: ['another chase! swim, little fish!', 'more fish make a run for it...', 'the chase has company.', 'the sharks are working overtime.'],
+  current: ['more living light drifts through...', 'the glowing tide lingers a little longer.', 'another ribbon of light joins the current.', 'the deep keeps its lights on.'],
+  night: ['night settles over the sea again...', 'a little more darkness. a little more glow.', 'the deep takes another midnight breath.', 'the night shift is still here.'],
+  invasion: ['more alien reinforcements arrive...', 'the invasion has another wave.', 'someone called for more saucers.', 'the sky gets a little busier.'],
+  storm: ['more thunder... the sky is showing off.', 'another electrical problem rolls in.', 'the ocean has become a very bad place for a metal tank.', 'the lightning has a connecting flight.'],
+  whirl: ['another whirlpool opens... the sea has a drain problem.', 'more spinning water. fewer escape routes.', 'the whirlpools are taking over.', 'hold on... that current has company.'],
+  whale: ['another whale swims in... make a little room.', 'the whale choir has another voice~', 'more flukes on the horizon~', 'a whale heard the others singing~'],
+  ufo: ['another saucer... apparently word got out.', 'the sky has a parking problem.', 'more visitors. nobody brought an invitation.', 'the aliens keep sending reinforcements.'],
+  sub: ['another submarine dives in...', 'the deep is getting rush-hour traffic.', 'more periscopes. less personal space.', 'someone sent another research team.'],
+  jelly: ['more jellyfish... watch where you swim.', 'the glow has reinforcements~', 'another little fleet of stings.', 'the sea has become a lava lamp.'],
+  bait: ['another bait ball gathers... dinner has options.', 'the fish form another emergency meeting.', 'more fish, more circling teeth.', 'the buffet has opened another table.'],
+  fight: ['another pair squares off... teeth out.', 'more sharks have a disagreement.', 'the undercard has started.', 'another circle of very bad intentions.'],
+  meteor: ['more meteors... the sky is not finished.', 'another shower. none of it is rain.', 'keep looking up. actually, swim.', 'the sky has more rocks to throw.'],
+  maelstrom: ['another storm rolls in... brace yourself.', 'the ocean has started arguing with itself.', 'more funnels. nowhere dry to stand.', 'the current has reinforcements.'],
+  migration: ['another herd swims in... a busy crossing.', 'the migration has another wave.', 'more travelers. the sharks noticed.', 'the whole sea seems to be going somewhere.'],
+  bloom: ['another glowing tide rises...', 'the jellyfish bloom gets company.', 'more lights. mind the stings.', 'the deep has ordered extra glow.'],
+};
 addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || (e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea'))) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || (e.target instanceof HTMLElement && e.target.closest('button,input,select,textarea')))
+    return;
   const entry = keyEvents[e.key.toLowerCase()];
-  if (!entry) return;
+  if (!entry)
+    return;
+  if (!spawnKeys.accept(e.key, e.repeat, performance.now())) return;
   const result = engine.trigger(entry[0]);
-  // Yeat mode announces itself with one of its ad-libs (queued by the world, so random starts get one too).
-  if (entry[0] === 'yeat' && result === 'started') { showToast(engine.takeNotice() ?? 'lüh twïzzy...'); return; }
-  if (entry[0] === 'diver' && (result === 'started' || result === 'full')) { showToast(diverToast(result), undefined, undefined, true); return; }
-  if (result === 'cake') { showToast('let them have their cake!', 'rainbow'); return; }
-  if (result === 'insist') { showToast('fine...if you insist...', 'insist'); return; }
-  if ((entry[0] === 'ufo' || entry[0] === 'whale') && (result === 'started' || result === 'already' || result === 'full')) {
-    const n = engine.count(entry[0]);
-    const cap = entry[0] === 'ufo' ? 3 : 2;
-    // Keyed by the count, so repeat presses at the cap collapse into one line with a count, whichever line it first showed.
-    const kind = result === 'started' ? entry[0] + Math.max(1, Math.min(n, cap)) : entry[0] + 'Cap';
-    showToast(countLine(kind), undefined, kind);
+  if (result === 'already' && entry[0] === 'whale') { showToast(pickLine(WHALE_LIMIT_LINES)); return; }
+  if (result === 'already' && ['kraken','mega','mothership','leviathan','saga'].includes(entry[0])) {
+    showToast(bossPresence(entry[0]));return;
+  }
+  const previous = manualPresses.get(entry[0]);
+  const press = previous && performance.now() - previous.at < 20000 ? previous : { count: 0, at: 0, line: 0 };
+  press.count++; press.at = performance.now(); manualPresses.set(entry[0], press);
+  const repeats = REPEAT_LINES[entry[0]];
+  if (result === 'started' && press.count > 1 && repeats) {
+    showToast(repeats[press.line++ % repeats.length]);
     return;
   }
-  // The kraken, the megalodon and the clash announce themselves from the world, so the key adds no line of its own.
-  if (result === 'started' && ['kraken', 'mega', 'saga', 'leviathan', 'mothership', 'eoe'].includes(entry[0])) return;
-  showToast(result === 'ended' ? 'yeat mode off...' : result === 'queued' ? 'queued up...' : result === 'full' ? (entry[0] === 'sub' ? 'the sea has enough submarines...' : 'no more divers... :(') : result === 'started' ? oneLine(flavor(entry[1])) : result === 'already' ? 'already happening!' : result === 'off' ? 'turned off in opts...' : 'not enough room right now...');
+  // The world owns any entrance it announces; the key supplies a fallback only.
+  if (result === 'started' && engine.triggerAnnounced)
+    return;
+  if (entry[0] === 'diver' && (result === 'started' || result === 'full')) {
+    showToast(diverToast(result), undefined, undefined, true);
+    return;
+  }
+  if (result === 'cake') {
+    showToast('let them have their cake!', 'rainbow');
+    return;
+  }
+  if (result === 'insist') {
+    showToast('fine...if you insist...', 'insist');
+    return;
+  }
+  showToast(result === 'ended' ? pickLine(YEAT_OFF_LINES) : result === 'queued' ? 'queued up...' : result === 'full' ? (entry[0] === 'sub' ? 'the sea has enough submarines...' : 'no more divers... :(') : result === 'started' ? oneLine(flavor(entry[1])) : result === 'already' ? `${entry[0] === 'saga' ? 'the titan clash' : entry[0]} is already here... one is plenty.` : result === 'off' ? 'turned off in opts...' : 'not enough room right now...');
 });
-
 // Options panel: a few cycling toggles, plus an events list where each event can be ticked on or off. Remembered between runs.
 type EventKind = Parameters<typeof engine.trigger>[0];
-const eventCatalog: [EventKind, string][] = [
-  ['current', 'living light'], ['whale', 'whales'], ['jelly', 'jellyfish'], ['bloom', 'jellyfish bloom'], ['migration', 'great migration'],
-  ['whirl', 'whirlpool'], ['maelstrom', 'maelstrom'], ['meteor', 'meteor shower'], ['moon', 'blood moon'], ['kraken', 'kraken'],
-  ['mega', 'megalodon'], ['saga', 'titans clash'], ['ufo', 'flying saucers'], ['diver', 'divers'], ['chase', 'chases'],
-  ['leviathan', 'ghost leviathan'], ['sub', 'submarines'], ['mothership', 'mothership'],
-  ['bait', 'bait balls'], ['fight', 'shark duels'], ['night', 'nightfall events'], ['yeat', 'yeat mode'],
-];
-const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], lighting: ['auto', 'day', 'night'], motion: ['smooth', 'saver'], quality: ['auto', 'high', 'saver'], speed: ['1x', '2x', '4x'] };
-const chosen: Record<string, string> = { events: 'normal', lighting: 'auto', motion: 'smooth', quality: 'auto', speed: '1x' };
+const eventCatalog: [
+  EventKind,
+  string
+][] = [
+    ['current', 'living light'], ['whale', 'whales'], ['jelly', 'jellyfish'], ['bloom', 'jellyfish bloom'], ['migration', 'great migration'],
+    ['smite', 'manual lightning'], ['storm', 'thunderstorm'], ['whirl', 'whirlpool'], ['maelstrom', 'maelstrom'], ['meteor', 'meteor shower'], ['moon', 'blood moon'], ['kraken', 'kraken'],
+    ['mega', 'megalodon'], ['saga', 'titans clash'], ['ufo', 'flying saucers'], ['diver', 'divers'], ['chase', 'chases'],
+    ['leviathan', 'ghost leviathan'], ['sub', 'submarines'], ['mothership', 'mothership'], ['invasion', 'alien invasion'],
+    ['bait', 'bait balls'], ['fight', 'shark duels'], ['night', 'nightfall events'], ['yeat', 'yeat mode'],
+  ];
+const choices: Record<string, string[]> = { events: ['off', 'calm', 'normal', 'busy'], lighting: ['auto', 'day', 'night'], motion: ['smooth', 'saver'], quality: ['auto', 'high', 'saver'], speed: ['1x', '2x', '4x'], eventBars: ['one', 'more'] };
+const chosen: Record<string, string> = { events: 'normal', lighting: 'auto', motion: 'smooth', quality: 'auto', speed: '1x', eventBars: 'one' };
 const enabled: Record<string, boolean> = {};
 try {
   const saved = JSON.parse(localStorage.getItem('aq-options') || '{}');
-  if (!saved.lighting && saved.night) saved.lighting = saved.night === 'off' ? 'day' : 'auto';
-  for (const key of Object.keys(choices)) if (choices[key].includes(saved?.[key])) chosen[key] = saved[key];
-} catch { /* Invalid preferences fall back to defaults. */ }
+  if (!saved.lighting && saved.night)
+    saved.lighting = saved.night === 'off' ? 'day' : 'auto';
+  for (const key of Object.keys(choices))
+    if (choices[key].includes(saved?.[key]))
+      chosen[key] = saved[key];
+}
+catch { /* Invalid preferences fall back to defaults. */ }
 try {
   const stored = JSON.parse(localStorage.getItem('aq-events') || '{}');
-  for (const [kind] of eventCatalog) enabled[kind] = stored?.[kind] !== false;
-} catch { /* Invalid preferences fall back to defaults. */ }
+  for (const [kind] of eventCatalog)
+    enabled[kind] = stored?.[kind] !== false;
+}
+catch { /* Invalid preferences fall back to defaults. */ }
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const eventList = document.querySelector<HTMLElement>('#event-list')!;
 const eventsButton = document.querySelector<HTMLButtonElement>('#event-toggle')!;
 for (const [kind, name] of eventCatalog) {
   engine.setEventEnabled(kind, enabled[kind]);
-  const row = document.createElement('label'); row.className = 'event-row';
-  const box = document.createElement('input'); box.type = 'checkbox'; box.checked = enabled[kind];
-  const text = document.createElement('span'); text.textContent = name;
-  row.append(box, text); eventList.append(row);
+  const row = document.createElement('label');
+  row.className = 'event-row';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = enabled[kind];
+  const text = document.createElement('span');
+  text.textContent = name;
+  row.append(box, text);
+  eventList.append(row);
   box.addEventListener('change', () => {
-    enabled[kind] = box.checked; engine.setEventEnabled(kind, box.checked);
-    try { localStorage.setItem('aq-events', JSON.stringify(enabled)); } catch {}
+    enabled[kind] = box.checked;
+    engine.setEventEnabled(kind, box.checked);
+    try {
+      localStorage.setItem('aq-events', JSON.stringify(enabled));
+    }
+    catch { }
   });
 }
 eventsButton.addEventListener('click', () => {
   const open = eventList.classList.toggle('open');
   eventsButton.querySelector('b')!.textContent = open ? 'hide' : 'show';
+  eventsButton.setAttribute('aria-expanded', String(open));
+  if (open) toggleKeys(false);
 });
+const keyList = document.querySelector<HTMLElement>('#key-list')!;
+const keysButton = document.querySelector<HTMLButtonElement>('#key-toggle')!;
+const eventNames = new Map(eventCatalog);
+const shortcuts: [string, string][] = [
+  ['h', 'another shark'],
+  ...Object.entries(keyEvents).map(([key, [kind]]) => [key, eventNames.get(kind) ?? kind] as [string, string]),
+  ['Tab', 'event history'], ['/', 'command prompt'], ['Escape', 'close panels'],
+];
+for (const [key, label] of shortcuts) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  const name = document.createElement('span'); name.textContent = label;
+  const badge = document.createElement('kbd'); badge.textContent = key === 'Escape' ? 'Esc' : key.length === 1 ? key.toUpperCase() : key;
+  row.append(name, badge);
+  row.title = `${label} (${badge.textContent})`;
+  row.addEventListener('click', () => {
+    panel.classList.remove('open');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+  });
+  keyList.append(row);
+}
+
+function toggleKeys(open: boolean) {
+  keyList.classList.toggle('open', open);
+  keysButton.querySelector('b')!.textContent = open ? 'hide' : 'show';
+  keysButton.setAttribute('aria-expanded', String(open));
+  if (open) {
+    eventList.classList.remove('open');
+    eventsButton.querySelector('b')!.textContent = 'show';
+    eventsButton.setAttribute('aria-expanded', 'false');
+  }
+}
+keysButton.addEventListener('click', () => toggleKeys(!keyList.classList.contains('open')));
 function applyOptions() {
   engine.setEventLevel(chosen.events as 'off' | 'calm' | 'normal' | 'busy');
   engine.setLighting(chosen.lighting as 'auto' | 'day' | 'night');
   engine.setFps(chosen.motion === 'saver' ? 15 : 30);
   engine.setSpeed(parseInt(chosen.speed, 10) || 1);
   engine.setQuality(chosen.quality as 'auto' | 'high' | 'saver');
+  engine.setEventBars(chosen.eventBars as 'one' | 'more');
   panel.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach(button => { button.querySelector('b')!.textContent = chosen[button.dataset.opt!]; });
-  try { localStorage.setItem('aq-options', JSON.stringify(chosen)); } catch {}
+  try {
+    localStorage.setItem('aq-options', JSON.stringify(chosen));
+  }
+  catch { }
 }
 panel.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach(button => button.addEventListener('click', () => {
   const list = choices[button.dataset.opt!];
@@ -394,6 +580,12 @@ panel.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach(button => 
   applyOptions();
 }));
 document.querySelector('#opts')!.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('open'); });
-addEventListener('click', e => { if (!panel.contains(e.target as Node)) panel.classList.remove('open'); });
-addEventListener('keydown', e => { if (e.key === 'Escape') panel.classList.remove('open'); });
+addEventListener('click', e => {
+  if (!panel.contains(e.target as Node))
+    panel.classList.remove('open');
+});
+addEventListener('keydown', e => {
+  if (e.key === 'Escape')
+    panel.classList.remove('open');
+});
 applyOptions();
