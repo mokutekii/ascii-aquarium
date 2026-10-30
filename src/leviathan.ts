@@ -1,4 +1,4 @@
-import { clamp } from "./math";
+import { angleDiff, clamp } from "./math";
 import type { Leviathan } from "./deep";
 
 /** A moving cross-section of the ghost's long, gently undulating body. */
@@ -58,3 +58,43 @@ export function ghostRayHit(lv: Leviathan, ax: number, ay: number, bx: number, b
   return hit;
 }
 
+
+/** The head lays a path; each body section follows that same path at a fixed distance. */
+export function stepGhostSwim(lv: Leviathan, want: number, dt: number) {
+  const trail = lv.trail ??= lv.spine.map(p => ({ ...p }));
+  // The turning circle is longer than the animal: its head cannot curl back into its trunk.
+  const maxTurn = Math.min(lv.state === "charge" ? .45 : .25, lv.speed / (lv.length * .38)) * dt;
+  const turn = clamp(angleDiff(lv.heading, want), -maxTurn, maxTurn);
+  const look = lv.speed * 2 + lv.length * .06;
+  const clearance = (a: number) => {
+    const x = lv.x + Math.cos(a) * look, y = lv.y + Math.sin(a) * look;
+    let score = 0;
+    for (let u = .22; u < .98; u += .04) {
+      const p = ghostFrame(lv, u), safe = ghostHalfWidth(lv.length, u) + lv.length * .07;
+      score += Math.max(0, safe - Math.hypot(x - p.x, y - p.y));
+    }
+    return score;
+  };
+  let chosen = lv.heading + turn, score = clearance(chosen);
+  for (const side of [-1, 1]) {
+    const candidate = lv.heading + side * maxTurn, risk = clearance(candidate);
+    if (risk < score) { chosen = candidate; score = risk; }
+  }
+  lv.heading = chosen;
+  lv.x += Math.cos(chosen) * lv.speed * dt;
+  lv.y += Math.sin(chosen) * lv.speed * dt;
+  if (Math.hypot(lv.x-trail[0].x, lv.y-trail[0].y) > .001) trail.unshift({ x: lv.x, y: lv.y });
+  lv.spine[0] = { x: lv.x, y: lv.y };
+  const gap = lv.length / (lv.spine.length - 1);
+  let j = 1, walked = 0;
+  for (let i = 1; i < lv.spine.length; i++) {
+    const distance = gap * i;
+    while (j < trail.length - 1 && walked + Math.hypot(trail[j].x-trail[j-1].x, trail[j].y-trail[j-1].y) < distance) {
+      walked += Math.hypot(trail[j].x-trail[j-1].x, trail[j].y-trail[j-1].y); j++;
+    }
+    const a = trail[j-1], b = trail[j], segment = Math.hypot(b.x-a.x,b.y-a.y) || 1;
+    const t = (distance-walked)/segment;
+    lv.spine[i] = { x: a.x+(b.x-a.x)*t, y: a.y+(b.y-a.y)*t };
+  }
+  trail.length = Math.min(trail.length, j + 2);
+}

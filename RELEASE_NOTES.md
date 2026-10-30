@@ -2,7 +2,7 @@
 
 the kraken fights are rebuilt, the sharks have personalities, and submarines share the deep with a luminous ghost leviathan.
 
-Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/archive/refs/tags/v1.4.4.zip).
+Latest release: [v1.4.5](https://github.com/mokutekii/ascii-aquarium/releases/tag/v1.4.5) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/releases/download/v1.4.5/ascii-aquarium-v1.4.5.zip).
 
 **v1.4.0**
 - **ordered wrap:** the kraken turns, thrusts in arms first and lands, and is only "wrapped" once the arms have closed.
@@ -26,7 +26,7 @@ Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4)
 - **jellyfish:** they have a hitbox now: sharks, whales and the kraken knock them aside, and titans toss them far harder.
 - **bombers:** the explosive pack pulses orange to yellow with a ring of sparks so they stand out, and popping or crushing one sets the whole pack off.
 
-**v1.4.2 — submarines and the deep**
+**v1.4.2  -  submarines and the deep**
 - **submarines (X):** research subs patrol with a conning tower, periscope, nose searchlight and sonar pings. They pitch as they dive and climb, flee danger, and fire torpedoes in self-defence against attacking sharks.
 - **activity crews:** Claude Code and Codex each keep a crewed submarine in the tank while working. When work finishes, the crew surfaces and leaves a little treasure. The existing local activity listeners remain supported.
 - **ghost leviathan (T):** an immense, translucent blue titan now glides through ordinary water. A broad, gently swaying hammerhead, a fuller ribbed body, blue muscle ribbons, orange nerve lights, trailing fins and a slow shimmer give it a majestic silhouette. Its blue glow intensifies in Yeat mode; its shape, scale and temperament stay the same.
@@ -67,3 +67,51 @@ Latest source: [v1.4.4](https://github.com/mokutekii/ascii-aquarium/tree/v1.4.4)
 - **alien salvage:** the wreck scatters drifting metal. Once the main pressure fronts pass, divers retrieve it and equip visible alien armor that absorbs one encounter shot or teleport collision hit.
 - **unstable drone cores:** destroyed drones drop pulsing capacitors with a four-second fuse. Nearby divers can retrieve them for armor before discharge; abandoned cores release smaller pressure waves. Surviving escorts also shed cores when the mothership collapses.
 - **regression checks:** attack teleport timing, diver and submarine impacts, stunned-drone clearance, collapse progression, capacitor salvage versus discharge, one push per pressure front, effect cleanup and fully faded hull rendering. These run with `npm test`; browser inspection also checked the disc silhouette.
+
+**v1.4.5 - an ocean that fights back**
+
+A living ASCII ocean with sharks, titans, submarines and alien encounters. Runs locally with no account, API key or prompt storage.
+
+**[Download v1.4.5 ZIP](https://github.com/mokutekii/ascii-aquarium/releases/download/v1.4.5/ascii-aquarium-v1.4.5.zip)** | [Controls](https://github.com/mokutekii/ascii-aquarium/blob/v1.4.5/GUIDE.md) | [Complete wiki](https://github.com/mokutekii/ascii-aquarium/blob/v1.4.5/WIKI.md)
+
+## Install
+
+Extract the ZIP somewhere permanent. On Windows, double-click **Install.cmd**. Setup builds and opens the aquarium, then creates Desktop and Start Menu shortcuts. On macOS or Linux, run `sh install.sh`, then `npm start`.
+
+Requires Node.js 18+ and Chrome, Chromium or Brave. First setup needs internet. Edge is not supported. Activity hooks are optional and require a separate opt-in.
+
+## Lightning and supercharged jellyfish
+
+- **Q** starts a thunderstorm. **A** or `/smite` calls one strike with a smite quip. Bolts vary in duration, with quick bursts and longer pauses between strikes.
+- Lightning chains through conductive craft and favors nearby jellyfish. Dense jelly clusters can sustain up to 16 hits. Destroying a craft breaks the circuit.
+- Direct strikes deal two damage to UFOs, submarines and drones, or 6% of a mothership's maximum hull. Surviving craft lose power, sink briefly and recover.
+- Supercharged jellyfish pulse a small EMP every 2.5 seconds while charged. Nearby craft lose engines and weapons for 1-2 seconds, without hull damage. This pulse does not create a damaging lightning chain.
+- Direct lightning and charged jellyfish stings bypass diver shields. Zap skeletons, diver scrap and pop flashes now match live-diver proportions. Old sting targets no longer produce stretched yellow bolts.
+
+## Titans and ocean life
+
+- Megalodon actively hunts the mothership, pursues Kraken and makes accelerating power dives. Bites require real jaw contact, without moving Kraken into place.
+- Kraken reaches from its tentacle roots, coils around prey and allocates arms between crushing the mothership and catching drones. Missed lunges disengage. Ink escapes, chases and harpoon retrievals remain possible.
+- Ghost Leviathan's body follows its head's traveled path. Broad turns and forward body avoidance keep its head out of its trunk. It remains peaceful until provoked.
+- Mothership and Kraken active visits randomly last 150-300 seconds. Megalodon lasts 100-180 seconds. Defeat or escape can end visits earlier; timer expiry starts a natural departure even during rage or attachment.
+- Whales enter and leave fully offscreen, turn broadly and flee nearby titans. Whirlpool size, spin and suction vary. Meteor impacts follow full bodies and hulls.
+
+## Motherships, drones and defenders
+
+- Up to **16 active drones**, with faster replenishment. Allied explosions spare them; hostile collateral blasts can chip their health but cannot kill them. Direct attacks and thrown impacts remain lethal.
+- Defender numbers scale with active drones. Casualties free reinforcement slots, arrivals favor armed divers and defenders fire more often.
+- The mothership has slightly less starting hull and slower volleys. At 50% health it calls reserves; below 33%, jumps and rim defenses accelerate; at 10%, sweeps make three turns.
+- Above half health, five undamaged seconds starts regeneration at 1.5% of maximum hull per second. Damage stops healing. Regeneration is disabled at or below half health and during EMP outages.
+- Teleports leave drones to fly back. Defensive sweeps fire radial lasers and push nearby bodies. Defeat triggers collapse, a core blast and wreckage; timed departures use a jet or warp and a final rim blast.
+
+## Fleets and controls
+
+- **I** starts an invasion; **U** calls one UFO. Invasions enroll existing craft, count outcomes once and use faster captures, bombing and independent weapon timers.
+- Hold **H / D / U / X** for repeated creature arrivals. Manual sharks, divers, UFOs and submarines stack. Whales are capped at two; each event and named titan has one active instance.
+- UFOs finish mixed tractor catches before leaving. Hijacked UFOs fight alongside defenders. Arrivals use separate lanes, while wreckage has bounded debris and varied buoyancy.
+- Click water for a light splash. Carry and throw free divers or ordinary craft; the mothership cannot be picked up. Click it to launch an escort.
+- **Tab** shows recent events; **/** opens commands. Settings include clickable shortcuts, bounded scrolling and one or multiple event bars. Optional activity crews retain radio messages, sonar and surfacing treasure.
+
+## Validation
+
+Build, typecheck, installer checks and 16 automated suites pass. Two existing checks still fail: combat spin contact and sawshark craft damage. Visual movement and balance remain subject to playtesting.

@@ -1,6 +1,6 @@
 {
   "name": "ascii-aquarium",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "An ASCII aquarium that reacts to Claude Code and Codex activity. Runs locally; no API keys.",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node verify.cjs && node verify-encounters.cjs"
+    "test": "node verify.cjs && node verify-encounters.cjs && node dev-tests/battle-balance.mjs && node dev-tests/titan-lifetimes-and-snake.mjs && node dev-tests/combat-movement.mjs && node dev-tests/physics-and-events.mjs && node dev-tests/titan-contact.mjs && node dev-tests/whale-peace.mjs && node dev-tests/whale-whirlpool.mjs && node dev-tests/manual-and-motion.mjs && node dev-tests/thunderstorm.mjs && node dev-tests/invasion-and-storm.mjs && node dev-tests/meteor-and-controls.mjs && node dev-tests/swim-and-capture.mjs && node dev-tests/core-blast.mjs && node dev-tests/drone-safety.mjs && node dev-tests/mega-hunt.mjs && node dev-tests/mega-clamp.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

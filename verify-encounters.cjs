@@ -14,8 +14,8 @@ const diver=(x,y)=>({x,y,vx:0,vy:0,alive:true,diver:true,phase:0,alarm:0});
 function world(width=1280,height=720){return {width,height,time:0,settings:{events:'off'},nextEoeAt:Infinity,
   fish:[],subs:[],sharks:[],whales:[],ufos:[],attackDrones:[],encounterShots:[],alienScrap:[],capacitorWaves:[],mothershipWreck:null,
   diverCombat:new WeakMap(),isEventEnabled:()=>true,notices:[],callout(){},splash(){},
-  popDiver(f){f.alive=false;},destroySub(s){this.subs=this.subs.filter(x=>x!==s);}};}
-// Offensive warp: one impact, even while fading back in; stunned escorts remain outside the hull.
+  absorbDiverShield(){return false;},diverQuip(){},popDiver(f){f.alive=false;},destroySub(s){this.subs=this.subs.filter(x=>x!==s);}};}
+// Offensive warp: one impact, even while fading back in; stunned escorts remain at their old positions.
 for(const [width,height] of [[480,360],[1280,720],[2560,1440]]){
   const w=world(width,height);encounter.startMothership(w);const b=w.mothership;
   b.phase='battle';b.nextDrone=Infinity;b.nextShot=Infinity;b.nextTeleport=0;
@@ -25,7 +25,7 @@ for(const [width,height] of [[480,360],[1280,720],[2560,1440]]){
   f.x=warp.x;f.y=warp.y;w.subs[0].x=warp.x;w.subs[0].y=warp.y;
   w.time=1.21;encounter.stepEncounters(w,1/60);
   assert.equal(w.diverCombat.get(f).hits,1);assert.equal(w.subs[0].hull,3);
-  assert(w.attackDrones[0].y>=b.y+b.size*.255+55);
+  assert.equal(w.attackDrones[0].y,0,'escorts do not teleport with the mothership');
   w.time=1.4;encounter.stepEncounters(w,1/60);assert.equal(w.subs[0].hull,3);
   b.warp=undefined;b.hp=0;b.nextTeleport=Infinity;w.time=3;encounter.stepEncounters(w,1/60);
   assert.equal(b.phase,'collapse');
