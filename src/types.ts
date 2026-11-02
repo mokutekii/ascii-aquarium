@@ -15,18 +15,24 @@ export const DEFAULT_SHARKS: SharkSpec[] = [
   { kind: "classic", size: 0.84 },
   { kind: "classic", size: 0.77 },
 ];
-export type DiverKind = "scuba" | "photo" | "treasure" | "snorkel" | "scooter" | "tech" | "bomber";
+export type DiverKind = "scuba" | "photo" | "treasure" | "snorkel" | "scooter" | "tech" | "bomber" | "support";
 /** How heavy a diver is (0 light → 1 heavy): heavier ones swing slower in the kraken's arms. */
 export const DIVER_MASS: Record<DiverKind, number> = {
-  snorkel: 0, photo: 0.25, scuba: 0.5, bomber: 0.5, tech: 0.65, scooter: 0.8, treasure: 1,
+  support: .6, snorkel: 0, photo: 0.25, scuba: 0.5, bomber: 0.5, tech: 0.65, scooter: 0.8, treasure: 1,
 };
 /** Drones resist forces about as much as a bomber diver. */
 export const DRONE_MASS = 1 + DIVER_MASS.bomber * .4;
 /** Suit colour (r,g,b) per kind of diver; the renderer and the popped bits share it. */
 export const DIVER_SUIT: Record<DiverKind, string> = {
-  scuba: "255,150,60", photo: "60,200,190", treasure: "190,150,85", snorkel: "240,110,150", scooter: "120,225,120", tech: "175,100,255", bomber: "255,235,50",
+  support: "100,235,220", scuba: "255,150,60", photo: "60,200,190", treasure: "190,150,85", snorkel: "240,110,150", scooter: "120,225,120", tech: "175,100,255", bomber: "255,235,50",
 };
 export interface Fish {
+  engineerFor?: import("./deep").Sub;
+  docked?: boolean;
+  supportDuty?: boolean;
+  weldAt?: number;
+  repairTarget?: import("./deep").Sub | Ufo;
+  deathCause?: string;
   x: number;
   y: number;
   vx: number;
@@ -70,6 +76,10 @@ export interface Fish {
   equipUntil?: number;
   /** Salvaged alien plating: absorbs one incoming encounter hit. */
   alienArmor?: boolean;
+  /** A tech diver now and then circles a saucer while firing: until when, which way, and the angle round it. */
+  circleUntil?: number;
+  circleDir?: number;
+  circleAng?: number;
   shieldUntil?: number;
   nextShot?: number;
   /** Tech divers get one roll at blasting themselves free of a grab: undefined = not rolled, false = used up. */
@@ -80,6 +90,7 @@ export interface Fish {
   migrate?: 1 | -1;
   /** Held in the kraken's arms, thrashed about until crushAt. */
   seized?: true;
+  sande?: import("./sandevistan").Sande;
   crushAt?: number;
   /** Scooter divers: already had a go at freeing a shark from the kraken. */
   tried?: true;
@@ -144,6 +155,23 @@ export interface Shark {
   /** A provoked megalodon is enraged until this time; rageLevel (0-1, set every step) is what the renderer reads. */
   rageUntil?: number;
   rageLevel?: number;
+  /** Aggression bonus from kills (decays over ~25s) and when it was last added. */
+  killSpike?: number;
+  killSpikeAt?: number;
+  /** The enraged toast has been shown for this spell of anger. */
+  enragedNoted?: boolean;
+  /** Megalodon hunt: phase, prey, and when the phase started (see mega-hunt.ts). */
+  hunt?: import("./mega-hunt").MegaHunt;
+  /** Next time the deliberate tail strike may be used. */
+  nextWhipAt?: number;
+  /** Hunt bookkeeping: next prey pick, next passing-fish snap, next bow wave. */
+  huntPickAt?: number;
+  /** Last hunt/clamp toast (they are rationed). */
+  noteAt?: number;
+  nextSnapAt?: number;
+  bowAt?: number;
+  /** A head shake in progress (amplitude 0-1, oscillation phase), driven by mega-hunt.ts and read by the spine. */
+  shake?: { amp: number; phase: number };
   /** Frame of mind (see sharks.ts), sprint stamina (0 spent to 1 fresh; `winded` until it recovers) and the tail amplitude the renderer reads. */
   mood?: SharkMood;
   stamina?: number;
@@ -273,6 +301,7 @@ export interface Kraken {
   harpoon?: {
     target: Shark;
     at: number;
+    hookedAt?: number;
   };
   harpoonAt?: number;
   /** The retreating megalodon the harpoon chance has already been rolled for. */
@@ -282,6 +311,11 @@ export interface Kraken {
   ambush?: boolean;
   /** The arms have actually closed round the megalodon (a moment after it lands): only then is it declared wrapped and the tug of war starts. */
   coiled?: boolean;
+  megaGrip?: { target: Shark; side: number; attempt: number; reachAt?: number; reach?: number };
+  /** A committed swim past a titan, held while its arms reach back for the flank. */
+  clashPass?: { target: Shark; at: number; x: number; y: number };
+  /** Forward speed shared by roaming, attacks, escapes and attached struggles. */
+  swimSpeed?: number;
   /** The megalodon has the kraken's head in its jaws and is whipping it about (a pounce or a run-down), with its arms flailing loose. */
   maul?: boolean;
   /** When the jaws actually closed on the kraken; until then the megalodon is still swimming in. */
@@ -292,6 +326,11 @@ export interface Kraken {
   inkShown?: boolean;
   /** Until when it is enraged (set by a blast in its arms), and when it was last blown about. */
   rageUntil?: number;
+  /** Aggression bonus from kills (decays over ~25s) and when it was last added. */
+  killSpike?: number;
+  killSpikeAt?: number;
+  /** The enraged toast has been shown for this spell of anger. */
+  enragedNoted?: boolean;
   /** It stays until this time: pushed out while enraged, so it only starts to leave a few seconds after it calms down. */
   calmUntil?: number;
   /** Winner stays to challenge the remaining tank for one minute. */
@@ -332,7 +371,7 @@ export interface Kraken {
   nextDefenseAt?: number;
   /** Next time it may snatch a drone while holding a whale. */
   nextSnatchAt?: number;
-  hullStrike?: { target: import("./encounters").Mothership; at: number; launched?: boolean; launchedAt?: number; heading?: number; reachAt?: number; evadeChecked?: boolean };
+  hullStrike?: { target: import("./encounters").Mothership; at: number; launched?: boolean; launchedAt?: number; heading?: number; reachAt?: number; gripAngle?: number; evadeChecked?: boolean };
   /** What it does to a whale it has reached: jab at it, or squeeze it. */
   whaleMode?: "poke" | "squeeze";
   whaleStart?: number;
@@ -433,6 +472,7 @@ export interface CraftAttitude {
 }
 
 export interface Ufo {
+  blink?: import("./ufo-blink").UfoBlink;
   emp?: import("./thunderstorm").EmpState;
   /** Hull damage accumulated toward the shared craft hull budget. */
   hits?: number;
@@ -505,6 +545,7 @@ export interface Saga {
   peak: number;
 }
 export interface Whirl {
+  motion?: { heading:number; speed:number; turn:number; phase:number; growth:number };
   spin?: number;
   suction?: number;
   baseR?: number;

@@ -1,7 +1,8 @@
+import { expireToast } from "./src/toast-life";
 import { SpawnKeyRepeater } from "./src/spawn-keys";
 import { parseAquariumCommand } from './src/commands';
 import { OceanEngine } from './src';
-import { dramatic, flavor, pickLine, bossPresence, isBoss, isGhost, isClash, oneLine } from './src/lines';
+import { dramatic, flavor, pickLine, bossPresence, isBoss, isGhost, isClash, oneLine, toastText } from './src/lines';
 const engine = new OceanEngine(document.querySelector('canvas')!, [
   { kind: 'hammerhead', size: 0.8 }, { kind: 'sawshark', size: 0.95 }, { kind: 'nurse', size: 0.7 }, { kind: 'mako', size: 0.6 },
 ]);
@@ -17,6 +18,7 @@ type Source = {
 type State = {
   claude: Source;
   codex: Source;
+  sessions: { source: "claude" | "codex"; id: string }[];
 };
 const message = document.querySelector('#message')!;
 let initialized = false;
@@ -136,7 +138,7 @@ async function refresh() {
     initialized = true;
     lastFinished = finished;
     engine.setWorking(active > 0);
-    engine.setWorkers(state.claude.active > 0, state.codex.active > 0);
+    engine.setWorkers(state.sessions ?? []);
     document.body.dataset.mode = active ? 'working' : Date.now() < celebrationUntil ? 'done' : 'idle';
     message.textContent = active ? `${active} ${active === 1 ? 'session' : 'sessions'} at work` :
       Date.now() < celebrationUntil ? 'Work finished · a little splash' : stale ? 'An activity signal is stale' : 'Calm waters';
@@ -163,7 +165,7 @@ async function refresh() {
 }
 document.addEventListener('visibilitychange', () => { clearTimeout(timer); void refresh(); });
 void refresh();
-// Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / command line, Tab the last 15 events, I alien invasion, S maelstrom, G jellyfish bloom, P great migration, O blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, B bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall, T ghost leviathan, X submarine.
+// Keys (any casing, all optional: every event also runs on its own): H a random shark swims in, / command line, Tab the last 15 events, I alien invasion, S maelstrom, O jellyfish bloom, P great migration, B blood moon, E meteor shower, K kraken, M megalodon, C kraken + megalodon, R chase, Q bait ball, J jellyfish, W whale, V whirlpool, F fight, U ufo, D diver, Y yeat mode (again to end), N nightfall, G ghost leviathan, T thunderstorm, X submarine.
 const keyEvents: Record<string, [
   Parameters<typeof engine.trigger>[0],
   string
@@ -172,15 +174,15 @@ const keyEvents: Record<string, [
   z: ['mothership', 'the mothership has eclipsed the surface...'],
   l: ['current', 'living light drifts through the deep...'],
   k: ['kraken', "you feel like you're being watched..."], m: ['mega', 'something stirs from below...'], c: ['saga', 'the deep has awoken...'],
-  r: ['chase', 'a chase! run, little fish, run!'], b: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
+  r: ['chase', 'a chase! run, little fish, run!'], q: ['bait', 'a bait ball forms... dinner is served!'], j: ['jelly', 'jellyfish drifting in... glowing softly~'],
   a: ['smite', 'smite happens.'],
-  q: ['storm', 'thunder rolls over the sea...'],
+  t: ['storm', 'thunder rolls over the sea...'],
   w: ['whale', 'a whale is coming... listen closely...'], v: ['whirl', 'a whirlpool opens... hold on!'], n: ['night', 'night falls... sweet dreams~'],
-  f: ['fight', 'a fight breaks out! teeth out!'], o: ['moon', 'the sky darkens...'], s: ['maelstrom', 'the sea begins to turn...'], g: ['bloom', 'a faint glow rises from below...'], p: ['migration', 'the whole sea starts to move...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
-  t: ['leviathan', 'something vast stirs below...'], x: ['sub', 'a submarine dips in...'],
+  f: ['fight', 'a fight breaks out! teeth out!'], b: ['moon', 'the sky darkens...'], s: ['maelstrom', 'the sea begins to turn...'], o: ['bloom', 'a faint glow rises from below...'], p: ['migration', 'the whole sea starts to move...'], e: ['meteor', 'something burns across the sky!'], u: ['ufo', 'something hovers above... we are not alone...'], d: ['diver', 'a diver slips in... what could go wrong?'], y: ['yeat', ''],
+  g: ['leviathan', 'something vast stirs below...'], x: ['sub', 'a submarine dips in...'],
 };
 // Pressing D again and again gets a different line every time, and the lines get more resigned the longer it goes on.
-const DIVER_LINES = [
+const DIVER_LINES = ['a diver arrives with a very small fish for the very large predator...','he tells the shark to calm down. it is not calm...','a diver jumps in without looking. the sea looks back...','he brought a ruler to measure the megalodon...','a diver whistles for the kraken like it is a dog...','he checks his oxygen. he checks his courage. one is lower...','a diver waves goodbye to the surface early...','he heard there was treasure down here. there is. it is him...','a diver tries to make friends with the nearest shark. bold...','he tips the boat captain. the boat captain looks sorry...','a diver swims in a perfect straight line. toward the teeth...','he says the water is lovely. the water is listening...','a diver arrives with a snorkel. the wrong sea for that...','he tells everyone it is just a little shark. it is not...','a diver takes a selfie with the abyss behind him...','he reads the signs. the signs say do not enter. he enters...','a diver sprints in slow motion. it does not help...','he left the stove on. he will not be going home to it...',
   'a diver slips in... what could go wrong?', 'another diver. brave. or lost.', 'splash! a diver arrives.', 'he says he knows what he is doing...',
   'a diver jumps in, camera first.', 'fresh from the boat, still dry behind the ears.', 'someone should really warn him.', 'he waves at the sharks. oh no.',
   'a diver descends with great confidence.', 'a wild diver appears!', 'he brought snacks. for the sharks, apparently.', 'this one has a plan. it is not a good plan.',
@@ -196,8 +198,8 @@ const DIVER_LINES = [
   'his flippers are on the wrong feet. he has not noticed...', 'a diver takes a bow for no one...', 'he saw a documentary once. that is the whole résumé...', 'a diver dives in to "check on something"...',
   'he is humming. the whale is humming back. this is fine...', 'a diver arrives and the fish quietly leave...', 'he whispers a goodbye to the surface...', 'a diver cannonballs in. subtle...',
 ];
-const DIVER_SPAM = ['more divers...?', 'the boat is just throwing them in now.', 'is anyone counting these?', 'the sharks have started taking numbers.', 'at this point it is a buffet.', 'the horror of man!', 'please. stop. they have families.'];
-const DIVER_FULL = ['no more divers... :(', 'the water is full of divers!', 'there is no room left to drown in...', 'the divers are going to need a bigger tank.'];
+const DIVER_SPAM = ['the sea is running out of room for divers.','the boat has stopped counting.','they keep coming. the sharks keep eating.','a conga line of divers into the deep.','the megalodon is going to need a bigger appetite.','at this rate the reef is a restaurant.','the lifeguard has quit.','more divers...?', 'the boat is just throwing them in now.', 'is anyone counting these?', 'the sharks have started taking numbers.', 'at this point it is a buffet.', 'the horror of man!', 'please. stop. they have families.'];
+const DIVER_FULL = ['the boat is out of divers... and the sea is out of room.','no vacancies in the water.','the divers have filled the tank to the brim.','no more divers... :(', 'the water is full of divers!', 'there is no room left to drown in...', 'the divers are going to need a bigger tank.'];
 let lastDiverLine = '';
 let diverStreak = 0;
 let lastDiverAt = 0;
@@ -232,12 +234,11 @@ const TONES: [
 const SPECIAL: Record<string, string> = {};
 // Diver quips keep their punchlines: everything else is cut to one sentence.
 const QUIP = new RegExp(TONES.find(([, tone]) => tone === 'quip')![0].source + '|lightning|skeleton|reactor|core.*critical|sky.*equipment|odds|thunder.*applaud|jellyfish.*volt|electric chemistry|glow.*welcome|charged.*visit', 'i');
-// Notices stack up bottom-left like a game log: the newest at the bottom, at most eight at once, each holding for a while and
-// then fading away slowly. The oldest is dropped when a ninth arrives.
+// Important outcomes take priority; repeated commands share a counted row.
 const log = document.createElement('div');
 log.id = 'toasts';
 document.body.append(log);
-const LOG_MAX = 8;
+const LOG_MAX = 4;
 const lives = new WeakMap<HTMLElement, Animation>();
 // The last 15 major moments, kept for the Tab history (diver quips and plain chatter stay out of it).
 const HISTORY_MAX = 15;
@@ -309,18 +310,38 @@ function renderHistory() {
   for (const h of history) {
     const row = document.createElement('div');
     row.className = 'toast t-' + h.tone;
-    row.textContent = h.tone === 'boss' || h.tone === 'clash' ? h.text.replace(/!+/g, '').trim() : h.tone === 'whale' ? h.text.replace(/[.!~\s]+$/, '') + '~' : h.text;
+    row.textContent = toastText(h.text,h.tone);
     historyPanel.append(row);
   }
 }
+// Toasts flood in through a queue: each fresh line gets its own row and the next one follows a beat later. A "×n" only
+// appears when the queue backs up past its cap, so identical keys merge instead of piling up.
+const QUEUE_CAP = 8;
+const pending: { text: string; forced?: string; key: string; whole: boolean; count: number; at: number }[] = [];
 function showToast(text: string, forced?: string, key = text, whole = false) {
+  const queued = pending.length >= QUEUE_CAP ? pending.find((p) => p.key === key) : undefined;
+  if (queued) { queued.count++; return; }
+  if (pending.length >= QUEUE_CAP * 2) pending.shift();
+  pending.push({ text, forced, key, whole, count: 1, at: performance.now() });
+}
+function onScreen(text: string) {
+  return [...log.children].some((c) => (c as HTMLElement).dataset.text === text) || pending.some((p) => p.text === text);
+}
+/** Pick a wording that is not already on screen or waiting, so a run of one event never shows the same sentence twice. */
+function freshLine(make: () => string) {
+  let line = make();
+  for (let i = 0; i < 6 && onScreen(line); i++) line = make();
+  return line;
+}
+function presentToast(item: { text: string; forced?: string; key: string; whole: boolean; count: number }) {
+  let { text } = item;
+  const { forced, key, whole, count } = item;
   if (!whole && !QUIP.test(text))
     text = oneLine(text);
-  // The same line never shows twice: a repeat (say, "already happening!" or a third whale knocking) refreshes the one on
-  // screen and bumps its count, so spamming a key adds a "×n" to one line instead of bloating the log.
-  const same = [...log.children].find((c) => (c as HTMLElement).dataset.key === key) as HTMLElement | undefined;
+  // An identical sentence already on screen is refreshed with a count rather than shown twice.
+  const same = [...log.children].find((c) => (c as HTMLElement).dataset.text === text) as HTMLElement | undefined;
   if (same) {
-    const n = Number(same.dataset.count ?? 1) + 1;
+    const n = Number(same.dataset.count ?? 1) + count;
     same.dataset.count = String(n);
     let badge = same.querySelector('b');
     if (!badge) {
@@ -330,29 +351,36 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
     badge.textContent = ' ×' + n;
     try {
       lives.get(same)?.cancel();
-      const life = same.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
-      life.onfinish = () => same.remove();
-      lives.set(same, life);
+      expireToast(same,lives);
       same.animate([{ transform: 'scale(1.06)' }, { transform: 'none' }], { duration: 180, easing: 'ease-out' });
     }
     catch { /* the line simply stays */ }
+
     log.append(same);
-    return;
+    return true;
   }
   const [, tone] = (text === 'Disgusting...' || text === 'Congratulations...') ? [0, 'eoe', ''] : forced ? [0, forced, SPECIAL[forced] ?? ''] : isGhost(text) ? [0, 'ghost', ''] : isClash(text) ? [0, 'clash', '!!! '] : isBoss(text) ? [0, 'boss', '!!! '] : TONES.find(([re]) => re.test(text)) ?? [0, 'plain', ''];
+  const priority = ['boss', 'clash', 'ghost', 'eoe'].includes(tone) ? 3 : /destroy|lost|death|rescue|free|breach|crush|core/i.test(text) ? 2 : 1;
+  if (log.children.length >= LOG_MAX && [...log.children].every(c => Number((c as HTMLElement).dataset.priority ?? 0) > priority)) return false;
   const capMilestone = forced === 'rainbow' || forced === 'insist';
   const diverChatter = whole || [...DIVER_LINES, ...DIVER_SPAM, ...DIVER_FULL].some(line => line === text || oneLine(line) === text);
   if (capMilestone || (!diverChatter && tone !== 'quip' && tone !== 'plain' && !forced))
     recordHistory(text, tone);
   const el = document.createElement('div');
   el.className = 'toast t-' + tone;
-  // Boss and clash lines are bare: no leading marks and no exclamation marks (ellipses stay), like an announcement in Terraria.
-  el.textContent = tone === 'boss' || tone === 'clash' ? text.replace(/!+/g, '').trim() : tone === 'whale' ? text.replace(/[.!~\s]+$/, '') + '~' : text;
+  // Preserve classification while presenting the quiet lowercase boss voice.
+  el.textContent = toastText(text,tone);
   el.dataset.key = key;
-  el.dataset.count = '1';
+  el.dataset.text = text;
+  el.dataset.count = String(count);
+  el.dataset.priority = String(priority);
+  if (count > 1) { const badge = document.createElement('b'); badge.textContent = ' ×' + count; el.append(badge); }
   log.append(el);
-  while (log.children.length > LOG_MAX)
-    log.firstElementChild!.remove();
+  while (log.children.length > LOG_MAX) {
+    const lowest = [...log.children].reduce((a, b) => Number((a as HTMLElement).dataset.priority ?? 0) <= Number((b as HTMLElement).dataset.priority ?? 0) ? a : b);
+    lives.get(lowest as HTMLElement)?.cancel();
+    lowest.remove();
+  }
   try {
     // Danger shakes, quips drop in, everything else slides up; then a long hold and a slow fade.
     const enter = tone === 'danger'
@@ -360,18 +388,22 @@ function showToast(text: string, forced?: string, key = text, whole = false) {
       : tone === 'quip' ? [{ transform: 'translateY(-8px)', opacity: 0 }, { transform: 'none', opacity: 1 }]
         : [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }];
     el.animate(enter, { duration: tone === 'danger' ? 340 : 260, easing: 'ease-out' });
-    const life = el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }], { duration: 9000, fill: 'forwards' });
-    life.onfinish = () => el.remove();
-    lives.set(el, life);
+    expireToast(el,lives);
   }
-  catch {
-    setTimeout(() => el.remove(), 9000);
-  }
+  catch { expireToast(el,lives); }
+  return true;
 }
+// One queued toast every beat; a full, higher-priority log makes the next one wait (and give up after a few seconds).
+setInterval(() => {
+  const item = pending[0];
+  if (!item) return;
+  if (presentToast(item) || performance.now() - item.at > 6000) pending.shift();
+}, 420);
+
 setInterval(() => {
   for (let n = engine.takeNotice(); n; n = engine.takeNotice()) {
-    const line = flavor(n);
-    showToast(dramatic(line, QUIP.test(line)), undefined, n);
+    const line = freshLine(() => { const l = flavor(n); return dramatic(l, QUIP.test(l)); });
+    showToast(line, undefined, n);
   }
 }, 400);
 // The window is a fixed little tank: no browser zoom and no find bar. F11 and the window buttons are untouched.
@@ -440,23 +472,23 @@ addEventListener('keydown', e => {
     return;
   if (!spawnKeys.accept(e.key, e.repeat, performance.now())) return;
   const result = engine.trigger(entry[0]);
-  if (result === 'already' && entry[0] === 'whale') { showToast(pickLine(WHALE_LIMIT_LINES)); return; }
+  if (result === 'already' && entry[0] === 'whale') { showToast(pickLine(WHALE_LIMIT_LINES), undefined, "limit:whale"); return; }
   if (result === 'already' && ['kraken','mega','mothership','leviathan','saga'].includes(entry[0])) {
-    showToast(bossPresence(entry[0]));return;
+    showToast(bossPresence(entry[0]), undefined, `limit:${entry[0]}`);return;
   }
   const previous = manualPresses.get(entry[0]);
   const press = previous && performance.now() - previous.at < 20000 ? previous : { count: 0, at: 0, line: 0 };
   press.count++; press.at = performance.now(); manualPresses.set(entry[0], press);
   const repeats = REPEAT_LINES[entry[0]];
   if (result === 'started' && press.count > 1 && repeats) {
-    showToast(repeats[press.line++ % repeats.length]);
+    showToast(repeats[press.line++ % repeats.length], undefined, `command:${entry[0]}:started`);
     return;
   }
   // The world owns any entrance it announces; the key supplies a fallback only.
   if (result === 'started' && engine.triggerAnnounced)
     return;
   if (entry[0] === 'diver' && (result === 'started' || result === 'full')) {
-    showToast(diverToast(result), undefined, undefined, true);
+    showToast(diverToast(result), undefined, `command:diver:${result}`, true);
     return;
   }
   if (result === 'cake') {
@@ -467,7 +499,7 @@ addEventListener('keydown', e => {
     showToast('fine...if you insist...', 'insist');
     return;
   }
-  showToast(result === 'ended' ? pickLine(YEAT_OFF_LINES) : result === 'queued' ? 'queued up...' : result === 'full' ? (entry[0] === 'sub' ? 'the sea has enough submarines...' : 'no more divers... :(') : result === 'started' ? oneLine(flavor(entry[1])) : result === 'already' ? `${entry[0] === 'saga' ? 'the titan clash' : entry[0]} is already here... one is plenty.` : result === 'off' ? 'turned off in opts...' : 'not enough room right now...');
+  showToast(result === 'ended' ? pickLine(YEAT_OFF_LINES) : result === 'queued' ? 'queued up...' : result === 'full' ? (entry[0] === 'sub' ? 'the sea has enough submarines...' : 'no more divers... :(') : result === 'started' ? oneLine(flavor(entry[1])) : result === 'already' ? `${entry[0] === 'saga' ? 'the titan clash' : entry[0]} is already here... one is plenty.` : result === 'off' ? 'turned off in opts...' : 'not enough room right now...', undefined, `command:${entry[0]}:${result}`);
 });
 // Options panel: a few cycling toggles, plus an events list where each event can be ticked on or off. Remembered between runs.
 type EventKind = Parameters<typeof engine.trigger>[0];

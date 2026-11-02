@@ -1,3 +1,4 @@
+import { subGeometry, subPoint } from "./sub-geometry";
 import { SHARK_NODES, type World } from "./world";
 import { isCraftHeld, isCraftDriven, moveCraft } from "./handling";
 import { angleDiff, clamp } from "./math";
@@ -38,10 +39,10 @@ export function separateTraffic(w: World, dt: number) {
     });
   }
   for (const s of w.subs) {
-    const angle = Math.max(-.4, Math.min(.4, Math.atan2(s.vy, Math.max(30, Math.abs(s.vx))) * .9)) + Math.sin(w.time * 1.3 + s.bob) * .05;
-    const c = Math.cos(angle) * s.face, n = Math.sin(angle);
+    const geometry = subGeometry(w.width,s);
+    const sail = subPoint(w.width,s,-geometry.halfLength*.12,-geometry.halfHeight-geometry.ch);
     add({
-      kind: "sub", ref: s, inverseMass: s.seizedByKraken || isCraftHeld(w, s) ? 0 : .5, points: [...[-1, 0, 1].map(v => ({ x: s.x + c * v * cell * 8, y: s.y + n * v * cell * 8, r: cell * 3.6 })), { x: s.x - c * cell * .7 + Math.sin(angle) * s.face * cell * 5.2, y: s.y - n * cell * .7 - Math.cos(angle) * cell * 5.2, r: cell * 2.5 }],
+      kind: "sub", ref: s, inverseMass: s.seizedByKraken || s.commanderHold || isCraftHeld(w, s) ? 0 : s.crew ? .25 : .5, points: [...bodyPoints(w,s),{...sail,r:cell*1.7}],
       move: (x, y) => { s.x += x; s.y += y; }, velocity: (x, y) => { s.vx += x; s.vy += y; }
     });
   }

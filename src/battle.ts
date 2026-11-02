@@ -80,7 +80,7 @@ export function nearestOpponent<T extends Combatant>(w: World, from: {
 export function ufoOpponent(w: World, u: Ufo) {
   return nearestOpponent<Combatant>(w, u, u.pilot?.alive
     ? [...w.ufos.filter(v => v !== u && !v.pilot?.alive), ...w.attackDrones.filter(d => d.hp > 0), ...(w.mothership?.phase === "battle" ? [w.mothership] : [])]
-    : [...w.ufos.filter(v => v !== u && v.pilot?.alive), ...w.subs.filter(s => !s.leaving), ...w.fish.filter(f => f.diver && f.alive && !f.riding && !f.held && !f.seized && !w.ufos.some(v=>v.cargo?.has(f)))]);
+    : [...w.ufos.filter(v => v !== u && v.pilot?.alive), ...w.subs.filter(s => !s.leaving), ...w.fish.filter(f => f.diver && f.alive && !f.docked && !f.riding && !f.held && !f.seized && !w.ufos.some(v=>v.cargo?.has(f)))]);
 }
 
 export function fireUfoBattle(w: World, u: Ufo) {
@@ -130,7 +130,7 @@ export function stepTractorDefense(w: World) {
   if (!beams.length)
     return;
   for (const f of w.fish) {
-    if (!f.diver || !f.alive || f.riding || f.held || f.seized || f.dragger || !["tech", "scuba", "scooter"].includes(f.dkind ?? "scuba"))
+    if (!f.diver || !f.alive || f.docked || f.riding || f.held || f.seized || f.dragger || !["tech", "scuba", "scooter"].includes(f.dkind ?? "scuba"))
       continue;
     const u = beams.find(u => !u.pilot?.alive && (tractorContains(w, u, f) || f.dkind === "tech" && Math.hypot(u.x - f.x, u.y - f.y) < 420));
     if (!u)
@@ -178,7 +178,7 @@ export function stepBattles(w: World, dt: number) {
     for (const member of squad.members)
       claimed.add(member);
   const available: Combatant[] = [
-    ...w.fish.filter(f => f.diver && f.alive && !f.riding && !f.seized && !f.dragger && !f.held),
+    ...w.fish.filter(f => f.diver && f.alive && !f.docked && !f.riding && !f.seized && !f.dragger && !f.held),
     ...w.subs.filter(sub => !sub.leaving && !sub.seizedByKraken), ...w.ufos.filter(u => u.pilot?.alive),
   ];
   for (const target of enemies) {

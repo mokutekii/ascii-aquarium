@@ -234,7 +234,7 @@ export function stepMothershipFx(w: World, dt: number) {
     if (age < 0 || age > 1.2) continue;
     let hit = blastHits.get(bomb);
     if (!hit) { hit = new Set(); blastHits.set(bomb, hit); }
-    pressure(w, bomb.x, bomb.y, 0, bomb.r * Math.min(1, age / .65), 170, hit, bomb.source, true, bomb.meteor ? bomb.style : undefined);
+    pressure(w, bomb.x, bomb.y, 0, bomb.r * Math.min(1, age / .65), bomb.profile === "nuke" ? 520 : 170, hit, bomb.source, true, bomb.meteor || bomb.profile === "nuke" ? bomb.style : undefined);
     damageCraftInBlast(w, bomb, bomb.r * Math.min(1, age / .65));
   }
   const wreck = w.mothershipWreck;
@@ -275,7 +275,7 @@ export function stepMothershipFx(w: World, dt: number) {
       s.born = -Infinity;
     }
   }
-  w.alienScrap = w.alienScrap.filter(s => w.time - s.born < 24);
+  w.alienScrap = w.alienScrap.filter(s => w.time - s.born < 30);
   for (const wave of w.capacitorWaves) {
     const a = w.time - wave.born;
     wave.hit ??= [new Set()];

@@ -84,11 +84,11 @@ try {
     for (let i = 0; i < 8; i++) stepHandling(w, 1 / 60);
     w.notices = [];
     stepSharkCraftContacts(w);
-    const damage = vehicle === 'sub' ? 6 - craft.hull : craft.hits;
-    assert.equal(damage, kind === 'sawshark' ? 5 : kind === 'hammerhead' ? 3 : 1, 'hammers and saws hit 1.5x harder (rounded up)');
-    assert.equal(w.notices.length, 1, 'contact and destruction share one notice');
+    const damage = vehicle === 'sub' ? 6 - craft.hull : (craft.hits ?? 0);
+    assert.equal(damage, kind === 'classic' ? 0 : 1, 'specialist head strikes damage hulls; ordinary shark overlap is passive');
+    assert.equal(w.notices.length, kind === 'classic' ? 0 : 1, 'contact and destruction share one notice');
     stepSharkCraftContacts(w);
-    assert.equal(w.notices.length, 1, 'contact cooldown suppresses repeated damage');
+    assert.equal(w.notices.length, kind === 'classic' ? 0 : 1, 'contact cooldown suppresses repeated damage');
   }
   {
     const w = make(), a = ufo(w);
@@ -132,7 +132,7 @@ try {
     try {
       const w = make(width, height);
       for (let i = 0; i < 3; i++) { w.spawnUfo(); w.spawnSub(); }
-      w.setWorkers(true, true);
+      w.setWorkers([{source:'claude',id:'test-claude'},{source:'codex',id:'test-codex'}]);
       const craft = [...w.ufos, ...w.subs];
       for (let i = 0; i < craft.length; i++) for (let j = i + 1; j < craft.length; j++)
         assert.ok(!bodiesOverlap(bodyPoints(w, craft[i]), bodyPoints(w, craft[j])), 'incoming UFOs, subs and activity crews spawn in distinct spaces');
@@ -192,7 +192,7 @@ try {
     const mega = shark(w); mega.mega = true;
     w.spawnKraken(); const k = w.kraken; Object.assign(k, { x: 1200, y: 950 });
     pushRim(w, new Set(), 1000, 900, 600);
-    assert.equal(w.provocations.get(mega)?.target, b, 'rim provokes megalodon retaliation');
+    assert.ok(mega.blastFlee.until > w.time, 'rim makes a megalodon recover and flee the pressure front');
     assert.equal(w.provocations.get(k)?.target, b, 'rim provokes kraken retaliation');
   }
   {
@@ -228,20 +228,25 @@ try {
     k.gripArms = 8;
     w.attackDrones = Array.from({ length: 4 }, (_, id) => ({ id, x: k.x + 50, y: k.y, hp: 3, stunned: 0, nextShot: 99, aggressor: k }));
     for (let i = 0; i < 5; i++) { api.allocateKrakenArms(w, k); w.time += .5; }
-    assert.equal(k.gripArms, 4, 'drone threats free arms while four keep crushing');
+    assert.equal(k.gripArms, 10, 'a calm kraken keeps every arm on the hull');
+    k.rageUntil = w.time + 10;
+    for (let i = 0; i < 5; i++) { api.allocateKrakenArms(w, k); w.time += .5; }
+    assert.equal(k.gripArms, 7, 'an enraged kraken frees at most three arms while maintaining its grip');
     const d = w.attackDrones[0];
     d.returned = { at: w.time - .55, vx: 100, vy: 0, arm: 8, dodge: true, startX: d.x, startY: d.y };
     api.stepReturningDrones(w, 1 / 60); assert.equal(d.returned, undefined, 'a successful dodge escapes before the grip closes');
   }
   for (const kind of ['sub', 'ufo']) {
     const w = make(); w.fish = []; w.spawnKraken(true); const k = w.kraken;
-    Object.assign(k, { x: 1200, y: 900, state: 'grab' });
+    Object.assign(k, { x: 1200, y: 900, heading: Math.PI, state: 'grab', until: Infinity, nextHunt: Infinity });
     let a;
     if (kind === 'sub') { w.spawnSub(undefined, true); a = w.subs[0]; }
     else { w.spawnUfo(true); w.spawnUfo(true); a = w.ufos[1]; }
     Object.assign(a, { x: 1210, y: 900 }); kickCraft(w, a, 200, 0);
     api.stepProvocations(w, 1 / 60);
-    assert.ok(kind === 'sub' ? a.seizedByKraken : a.held, 'a thrown craft is caught on contact');
+    assert.ok(!(kind === 'sub' ? a.seizedByKraken : a.held), 'a catch begins with a visible reach rather than instant attachment');
+    for (let i = 0; i < 25 && !(kind === 'sub' ? a.seizedByKraken : a.held); i++) { w.time += .1; api.stepProvocations(w, .1); if (kind === 'ufo') w.stepKraken(.1); }
+    assert.ok(kind === 'sub' ? a.seizedByKraken : a.held, 'the extended arm finishes catching the thrown craft');
     assert.equal(api.isCraftDriven(w, a), false, 'catch cancels throw momentum');
     if (kind === 'ufo') assert.equal(k.ufoTarget, a, 'the grip tracks the actual UFO among multiple craft');
   }
@@ -255,13 +260,10 @@ try {
     Object.assign(sub, { x: sh.nodes[mid], y: sh.nodes[mid + 1], hull: 8 });
     const d = { id: 1, x: sh.nodes[mid], y: sh.nodes[mid + 1], hp: 3, stunned: 0, nextShot: 99 }; w.attackDrones = [d];
     api.stepTitanCraftContacts(w);
-    assert.equal(u.hits, 2, 'the middle of the megalodon damages a UFO');
-    assert.ok(w.ufos.includes(u), 'a fresh UFO survives one body impact');
-    assert.equal(sub.hull, 6, 'body contact damages submarine hulls');
-    assert.equal(d.hp, 0, 'body contact smashes drones');
-    api.stepTitanCraftContacts(w); assert.equal(sub.hull, 6, 'persistent contact cannot damage every frame');
-    w.time += 2.1; api.stepTitanCraftContacts(w);
-    assert.ok(!w.ufos.includes(u), 'a second body impact breaks the UFO');
+    // v1.5: the megalodon's whole body is lethal. Ordinary craft and drones are destroyed outright by body contact.
+    assert.ok(!w.ufos.includes(u), 'the middle of the megalodon destroys a UFO');
+    assert.ok(!w.subs.includes(sub), 'body contact destroys an ordinary submarine');
+    assert.equal(d.hp, 0, 'body contact destroys a drone');
   }
   console.log('PASS: shark stacking/crossings, dragged UFO solidity, shark attacks against all craft, sustained momentum, rim recoil, scaled titans, single announcements, safe spawns, boss phases and merger pops');
 } finally { Math.random = random; }

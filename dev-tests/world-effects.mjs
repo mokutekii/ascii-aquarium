@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 const bundle = await build({ stdin: { contents: 'export { World } from "./src/world"; export { AsciiRenderer } from "./src/renderer";', resolveDir: process.cwd() }, bundle: true, format: 'esm', platform: 'node', write: false });
 const { World, AsciiRenderer } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
-process.on('uncaughtException', error => { console.error(error.message); process.exitCode = 1; });
+process.on('uncaughtException', error => { console.error(error.stack); process.exitCode = 1; });
 const make = () => { const w = new World([{ kind: 'classic', size: 0.8 }], 5); w.resize(1800, 1200, 13, 19); w.settings.events = 'off'; return w; };
 const w = make();
 const f = w.fish[0]; Object.assign(f, { x: 1150, y: 600, vx: 0, vy: 0, alive: true });
@@ -22,13 +22,18 @@ const scrapX = w.mess[0].x; const jellyX = w.jellies[0].x;
 w.spawnMegalodon(); w.spawnKraken(); w.spawnLeviathan();
 const titanState = () => JSON.stringify([w.sharks.filter(s => s.mega).map(s => [...s.nodes]), w.kraken, w.leviathan]);
 const titans = titanState();
-w.pullWhirlObjects(whirl, 1);
+const scrap = w.mess[0];
+// Inspect drift before the scrap reaches the consuming core. A whole second can consume it outright.
+w.pullWhirlObjects(whirl, .1);
 assert.ok(w.mess[0].x < scrapX && w.jellies[0].x < jellyX, 'scrap and jellyfish spiral inward');
+w.pullWhirlObjects(whirl, 1);
+assert.ok(!w.mess.includes(scrap), 'scrap entering the funnel core is consumed');
 assert.equal(titanState(), titans, 'whirlpool object pull does not move titans');
 // The same funnel affects craft, large wildlife and projectiles according to weight.
 const current = make(); current.time = 5;
 current.spawnSub(); current.spawnUfo(); current.spawnWhale(true);
 const sb = current.subs[0], saucer = current.ufos[0], whale = current.whales[0];
+assert.ok(sb && saucer && whale, 'current fixtures contain a submarine, UFO and whale');
 const funnel = { x: 900, y: 600, r: 150, born: 0, until: 20, dir: 1, rippleAt: 0 };
 for (const actor of [sb, saucer, whale]) Object.assign(actor, { x: 1000, y: 600 });
 saucer.hy = 600; saucer.beamX = 1000;
@@ -64,7 +69,7 @@ const context = new Proxy({}, { get: (obj, key) => obj[key] ?? (String(key).star
 globalThis.document = { createElement: () => ({ getContext: () => context }) };
 const r = new AsciiRenderer({ style: {}, getContext: () => context }); r.resize(1800,1200,1);
 const points = []; r.painter = () => ({ put: (x,y,glyph,color) => points.push({x,y,glyph,color}), flush: noop });
-const g = make(); g.spawnUfo(); const u = g.ufos[0]; Object.assign(g.fish[0],{x:900,y:500}); Object.assign(u, { x: 900, y: 100, beamX: 900, state: 'beam', aim:{x:900,y:500}, beamTarget:g.fish[0] });
+const g = make(); g.spawnUfo(); const u = g.ufos[0]; assert.ok(u, 'night beam fixture contains a UFO'); Object.assign(g.fish[0],{x:900,y:500}); Object.assign(u, { x: 900, y: 100, beamX: 900, state: 'beam', aim:{x:900,y:500}, beamTarget:g.fish[0] });
 g.lighting = 'night'; r.drawOneUfo(g,u);
 const beam = points.filter(p => p.color.startsWith('rgba(85,255,120') || p.color.startsWith('rgba(185,255,195'));
 assert.ok(Math.max(...beam.map(p => p.y)) > 500 && Math.max(...beam.map(p=>p.y)) <= 525, 'tractor trail follows the capture target depth');

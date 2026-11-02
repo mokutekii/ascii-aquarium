@@ -17,7 +17,7 @@ const steps=(w,n)=>{for(let i=0;i<n;i++){w.time+=.05;stepThunderstorms(w,.05);}}
  assert.equal(a.emp,undefined);assert.ok(Math.abs(a.y-600)<6,'craft climbs back at its individual recovery speed');
 }
 {
- const w=make(),a=ufo(w,700),s=sub(w,950);a.hits=6;strikeLightning(w,a);steps(w,15);
+ const w=make(),a=ufo(w,700),s=sub(w,950);a.hits=6;a.blink={until:0,readyAt:Infinity,nextHop:0,ghosts:[]};strikeLightning(w,a);steps(w,15);
  assert.ok(!w.ufos.includes(a));assert.equal(s.hull,8,'destroying a craft opens the circuit and stops the chain');assert.equal(w.lightningBolts.length<=1,true);
 }
 {

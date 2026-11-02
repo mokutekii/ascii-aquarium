@@ -1,8 +1,39 @@
+## v1.5 - clearer crews, encounters and combat
+
+Version 1.5 combines distinct assistant crews with physical titan encounters, varied currents, evasive equipment and clearer lighting and messages.
+
+Latest release: [v1.5.0](https://github.com/mokutekii/ascii-aquarium/releases/tag/v1.5.0) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/releases/download/v1.5.0/ascii-aquarium-v1.5.0.zip).
+
+**v1.5.0 — released November 5, 2026**
+
+- **separate commanders:** every active Claude Code or Codex parent chat gets a distinct 16 HP submarine, two engineers and supporting divers. Child agents stay with their parent. Engineers need uninterrupted contact to repair; movement, damage, grabs and EMP interrupt their work.
+- **commander rescues and missiles:** titan holds give commanders four seconds before hold damage starts. Rescue fire can force release. Each commander carries one mothership-only deterrent missile, reloads after four minutes and shares a 30-second fleet launch cooldown. The impact interrupts weapons, displaces nearby life and vaporizes nearby drones.
+- **deliberate Megalodon movement:** one movement policy coordinates cruising, interception, committed attacks, recovery, pursuit and escape. Moving prey is led, missed passes have a recovery interval, and speed responds to alignment, available water and braking distance. Nearby prey cannot force the head to swivel into a convenient bite.
+- **continuous tail strokes:** the rear body coils, strikes and recovers as a continuous bend. The fin follows the physical tail stalk instead of its own oscillator, and the swept tail delivers damage during the strike. A curved fin and connected stalk replace the disconnected blade appearance.
+- **physical Kraken reaches** use the existing limb curves for simulation and drawing. All ten roots sit outside the eye. The visible tip must touch before capture, harpoon pull-back or a drone throw. Reach stays within the limb geometry, and missed or released reaches return continuously to rest. Held limbs remain reserved for their target.
+- **titan approaches and counterattacks** keep the Kraken swimming through committed passes, forceful flings, chases and holds. Megalodon leads its swimming path, adapts its own approach and recovers after a missed pass. Grips distribute tension between the moving animals. Ink, rescues, harpoon retrievals and rematches remain, including the returning challenger's 25% struggle penalty.
+- **tractor obstruction:** the widening beam meets motherships, titans, whales and other craft at their collision outline, including overlap at the emitter. Drawing, target checks and capture use the same obstruction boundary, so captives cannot be pulled through a blocker. Full shark captures still wait for the entire shark to enter.
+- **evasive equipment:** damaged UFOs can phase away from impending grabs, shots, impacts and lightning when the drive is ready. Phase destinations and Sandevistan reflexes consider occupied water rather than hopping blindly into another hull. Only a saucer that phased can sometimes drop a drive. A diver's acquired drive lasts until death, with at most two elites; armor and other buffs stack.
+- **visible water hazards** have bright ASCII spirals and cores across lighting and quality settings. Small, medium and large funnels vary independently in suction, rotation, drift and spawn region. Ordinary funnels start at 10-24 simulation pixels per second, maelstrom funnels at 15-38. Gentle funnels have a shorter reach.
+- **currents and flings:** water accelerates swimmers rather than snapping them onto a prescribed circle. Most captured fish and divers are flung clear before expiry, with persistent momentum and a short recapture respite. Maelstrom core entries can still be lethal. Sharks retain their spin-and-fling interaction, and craft in a funnel lose 1 HP per second.
+- **lightning contact and laser penetration:** jagged lightning checks its actual path against craft, meets the first conducting hull and can chain onward from its surface. Destruction breaks the circuit. Lasers can burn through small fish before meeting a solid body; fish behind that body remain protected. Direct lightning, charged jellyfish and EMP behavior remain distinct from ordinary blasts.
+- **readable light:** creature, craft, projectile and explosion lights respond to day, night and Yeat. Important emitters are drawn before ambient pulses consume the lighting budget. Yeat creature pulses remain visible in balanced and saver quality, with bounded work per frame.
+- **messages:** boss and clash announcements are lowercase in live toasts and history, with restored colored halos and smooth fades. At most four toasts appear; repeats are grouped and cannot keep a notification alive indefinitely. Ordinary chatter and local death labels remain separate from major event history.
+- **combat effects:** holding A repeats lightning up to four times per second. Torpedoes produce real explosions, thrown craft can damage other hulls and drone clusters, meteor cores kill while rims throw, and wreckage can extend a chain reaction. Laser and lightning visuals remain ASCII glyphs.
+- **controls and compatibility:** G calls the Ghost Leviathan, T the thunderstorm, B the Blood Moon, O the jellyfish bloom and Q the bait ball. The embedded localhost preview handles placeholder browser dimensions without enlarging all controls fourfold.
+- **privacy:** assistant activity contains source labels, flags, timestamps and anonymous session hashes. Prompts, replies, transcripts and file paths are not saved or sent.
+
+Megalodon uses the same follow-the-leader spine, immediate bounded head steering and overhead body wave as the smaller sharks, scaled up with a slower cadence. Size-aware joint limits keep the neck gradual and prevent an accumulated crescent; the body settles straight after a turn. The former separate body solver and delayed turn filter are removed; combat strokes are layered over the shared swimming pose, and collision outlines follow that visible pose. Open-water attack speed is about 175-190 simulation pixels per second, with only a small aggression increase. Ink loss first sends it coasting on its existing course; the escape announcement waits until Kraken has opened a real gap. Boss notification halos are softer. Event-bar titles, phase labels and counters remain uppercase; the lowercase styling applies to boss toasts and history. Megalodon may swim beyond the visible edge and return on a broad course; the viewport is not a glass wall. Uncollected alien armor remains for 30 seconds, uncollected Sandevistan drives for 15 seconds, and UFO wreck fragments and loose scrap for 15 seconds. Collected drives still last until the diver dies; unstable capacitors retain their fuses.
+
+Mothership grabs grow out of moving passes and preserve the Kraken's arrival heading. The grip follows the banked hull as tension builds, with brighter near coils and occluded far coils. Craft grips reserve existing limbs, and commander coils grow around the hull. Head-on craft anticipate crossings and change lanes using hull dimensions. Shark reactions steer through normal swimming. Ordinary whirlpool expiry flings only captured swimmers.
+
+Verified with all 32 automated test commands, typecheck, production build and an extracted installer check. Regression coverage includes 15/30/60 Hz titan pursuit, shared arm curves, roots outside the eye, continuous release, contact-gated harpoon pulls and the returning challenger penalty. Desktop visual inspection was unavailable because Windows browser access was blocked.
+
 ## v1.4 - immersive oceans!
 
 the kraken fights are rebuilt, the sharks have personalities, and submarines share the deep with a luminous ghost leviathan.
 
-Latest release: [v1.4.5](https://github.com/mokutekii/ascii-aquarium/releases/tag/v1.4.5) - [Download ZIP](https://github.com/mokutekii/ascii-aquarium/releases/download/v1.4.5/ascii-aquarium-v1.4.5.zip).
+The v1.4 release history follows. Its features are part of the v1.5 ocean.
 
 **v1.4.0**
 - **ordered wrap:** the kraken turns, thrusts in arms first and lands, and is only "wrapped" once the arms have closed.
@@ -114,4 +145,4 @@ Requires Node.js 18+ and Chrome, Chromium or Brave. First setup needs internet. 
 
 ## Validation
 
-Build, typecheck, installer checks and 16 automated suites pass. Two existing checks still fail: combat spin contact and sawshark craft damage. Visual movement and balance remain subject to playtesting.
+The current v1.5.0 release passes all 32 automated test commands, typecheck, build and installer checks. Visual movement and balance remain subject to playtesting.

@@ -6,11 +6,13 @@ import { rand, randInt, clamp } from './math';
 import { UFO_HITS_TO_BREAK } from './types';
 import { interruptTractor } from './tractor';
 import { kickCraft, cancelCraftMotion, isCraftDriven } from './handling';
+import { bodyPoints, segmentHit } from './collision-bodies';
+import { evadeThreat } from './evasion';
 export interface EmpState { until: number; sink: number; rise: number; homeY: number; drift: number }
 export interface Thunderstorm { born: number; until: number; next: number }
 export interface LightningBolt { born: number; duration: number; conduit: boolean; points: {x:number;y:number}[]; branches: {x:number;y:number}[][] }
 type Target = Ufo | Sub | Mothership | AttackDrone | Jelly | Fish;
-export interface LightningChain { target: Target; from: {x:number;y:number}; at: number; seen: Set<object>; left: number }
+export interface LightningChain { target: Target; from: {x:number;y:number}; at: number; seen: Set<object>; left: number; contact?:boolean }
 const craft = (p: Target): p is Ufo | Sub | Mothership | AttackDrone => 'maxBeams' in p || 'hull' in p || 'maxHp' in p || 'stunned' in p;
 const live = (w: World, p: Target) => 'maxBeams' in p ? w.ufos.includes(p) : 'hull' in p ? w.subs.includes(p) : 'maxHp' in p ? w.mothership === p && p.hp > 0 && p.phase === 'battle' : 'stunned' in p ? w.attackDrones.includes(p) && p.hp>0 : 'alive' in p ? p.alive : w.jellies.includes(p);
 function conductors(w: World): Target[] { return [...w.attackDrones.filter(d=>d.hp>0&&!d.detonated),...w.ufos.filter(u=>!u.held && u.state!=='enter' && u.state!=='leave'), ...w.subs.filter(s=>!s.seizedByKraken&&!s.leaving), ...(w.mothership?.phase==='battle'?[w.mothership]:[]), ...w.jellies]; }
@@ -61,27 +63,39 @@ function jagged(from: Point, to: Point, depth=5): Point[] {
  const first=jagged(from,middle,depth-1),second=jagged(middle,to,depth-1);
  return [...first.slice(0,-1),...second];
 }
-function bolt(w: World, from:Point, to:Point, conduit=false) {
- reactToLightning(w,from,to);
- const points=jagged(from,to,6),branches:Point[][]=[];
+export function clipLightning(w:World,path:Point[],ignore=new Set<object>()) {
+ const hulls=conductors(w).filter(p=>craft(p)&&!ignore.has(p)).map(p=>({p,body:bodyPoints(w,p as Ufo|Sub|Mothership|AttackDrone)}));
+ for(let i=1;i<path.length;i++){
+   const a=path[i-1],b=path[i];let first=Infinity,target:Target|undefined;
+   for(const h of hulls){const t=segmentHit(a.x,a.y,b.x,b.y,h.body);if(t<first){first=t;target=h.p;}}
+   if(target){const end={x:a.x+(b.x-a.x)*first,y:a.y+(b.y-a.y)*first};return {points:[...path.slice(0,i),end],target,end};}
+ }
+ return {points:path,target:undefined,end:path.at(-1)!};
+}
+function bolt(w: World, from:Point, to:Point, conduit=false,ignore=new Set<object>()) {
+ const trace=clipLightning(w,jagged(from,to,6),ignore),points=trace.points,branches:Point[][]=[];
+ reactToLightning(w,from,trace.end);
  const length=Math.hypot(to.x-from.x,to.y-from.y),direction=Math.atan2(to.y-from.y,to.x-from.x);
  for(const fraction of [.23,.43,.64,.79]){
    const root=points[Math.floor((points.length-1)*fraction)];
    const side=Math.random()<.5?-1:1,angle=direction+side*rand(.5,1.15),reach=length*rand(.12,.32);
    const tip={x:root.x+Math.cos(angle)*reach,y:root.y+Math.sin(angle)*reach};
-   const branch=jagged(root,tip,4);branches.push(branch);
+   const branch=clipLightning(w,jagged(root,tip,4),ignore).points;branches.push(branch);
    if(length>300){const split=branch[Math.floor(branch.length*.55)],a=angle-side*.6;
-     branches.push(jagged(split,{x:split.x+Math.cos(a)*reach*.4,y:split.y+Math.sin(a)*reach*.4},3));}
+     branches.push(clipLightning(w,jagged(split,{x:split.x+Math.cos(a)*reach*.4,y:split.y+Math.sin(a)*reach*.4},3),ignore).points);}
  }
  w.lightningBolts.push({born:w.time,duration:rand(.18,1.25),conduit,points,branches});
+ return trace;
 }
 export function fryAt(w: World, x:number,y:number,radius=85, cause: "lightning" | "jelly" = "lightning") {
  let fish=0;
  for(const f of w.fish){
-  if(!f.alive||f.eoeBound||Math.hypot(f.x-x,f.y-y)>radius)continue;
+  if(!f.alive||f.docked||f.eoeBound||Math.hypot(f.x-x,f.y-y)>radius)continue;
   if(f.diver){
+   if(evadeThreat(w,f,{x,y})&&Math.hypot(f.x-x,f.y-y)>radius)continue;
    f.alienArmor=false;f.shieldUntil=0;
    const scrap=w.mess.length;
+   f.deathCause=cause==='jelly'?'CHARGED JELLYFISH':'LIGHTNING';
    w.popDiver(f,'blast',false);
    w.mess.splice(scrap);
    w.lightningBones.push({x:f.x,y:f.y,born:w.time,angle:rand(-.4,.4)});
@@ -95,7 +109,7 @@ export function fryAt(w: World, x:number,y:number,radius=85, cause: "lightning" 
 export function strikeLightning(w:World,target?:Target) {
  if(!target){
   const strike=sampleLightningStrike(w);target=strike.target;
-  if(!target){const from={x:clamp(strike.point.x+rand(-w.width*.22,w.width*.22),0,w.width),y:-40};bolt(w,from,strike.point);fryAt(w,strike.point.x,strike.point.y,140);return;}
+  if(!target){const from={x:clamp(strike.point.x+rand(-w.width*.22,w.width*.22),0,w.width),y:-40};const hit=bolt(w,from,strike.point);if(hit.target)w.lightningChains.push({target:hit.target,from:hit.end,at:w.time,seen:new Set(),left:5,contact:true});else fryAt(w,strike.point.x,strike.point.y,140);return;}
  }
  const boss=w.mothership;
  if(boss?.phase==='battle' && !boss.emp && w.time >= (boss.lightningEvadeAt ?? 0) && Math.hypot(target.x-boss.x,target.y-boss.y)<boss.size+700){
@@ -114,11 +128,17 @@ export function stepThunderstorms(w:World,dt:number) {
  if(ended&&!w.thunderstorms.length)w.notices.push('the thunder fades... everyone can stop being a lightning rod.');
  for(const chain of [...w.lightningChains]){
   if(w.time<chain.at)continue;
-  const p=chain.target;
+  let p=chain.target;
   w.lightningChains=w.lightningChains.filter(c=>c!==chain);
   if(!live(w,p))continue;
+  const aimed={x:p.x,y:p.y};
+  if(evadeThreat(w,p,chain.from)){
+    const miss=bolt(w,chain.from,aimed,false,chain.seen);
+    if(!miss.target){fryAt(w,aimed.x,aimed.y,70);continue;}
+    p=miss.target;chain.contact=true;
+  }
+  if(!chain.contact){const hit=bolt(w,chain.from,p,'size' in p&&!craft(p),chain.seen);p=hit.target??p;}
   chain.seen.add(p);
-  bolt(w,chain.from,p,'size' in p&&!craft(p));
   fryAt(w,p.x,p.y,craft(p)?100:70);
   let broken=false;
   if('maxBeams' in p){
@@ -151,7 +171,16 @@ export function stepThunderstorms(w:World,dt:number) {
   const choices=conductors(w).filter(q=>!chain.seen.has(q)&&live(w,q)&&Math.hypot(q.x-p.x,q.y-p.y)<reach);
   choices.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y));
   const next=choices[0];
-  if(next)w.lightningChains.push({...chain,target:next,from:{x:p.x,y:p.y},at:w.time+.12});
+  if(next){
+    let from={x:p.x,y:p.y};
+    if(craft(p)){
+      const a=Math.atan2(next.y-p.y,next.x-p.x),r=Math.max(w.width,w.height)*2;
+      const far={x:p.x+Math.cos(a)*r,y:p.y+Math.sin(a)*r};
+      const t=segmentHit(far.x,far.y,p.x,p.y,bodyPoints(w,p));
+      if(Number.isFinite(t))from={x:far.x+(p.x-far.x)*t,y:far.y+(p.y-far.y)*t};
+    }
+    w.lightningChains.push({...chain,target:next,from,at:w.time+.12,contact:false});
+  }
  }
  for(const jelly of w.jellies){
   if((jelly.chargedUntil??0)<=w.time || w.time-(jelly.empPulseAt??-99)<2.5)continue;

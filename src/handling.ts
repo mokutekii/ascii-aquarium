@@ -46,6 +46,7 @@ export function moveCraft(w: World, a: Craft, dx: number, dy: number) {
 export function kickCraft(w: World, a: Craft, vx: number, vy: number) {
   if (isCraftHeld(w, a))
     return;
+  if ("hull" in a && a.crew) { vx /= 1.5; vy /= 1.5; }
   if ("stunned" in a) { vx /= DRONE_MASS; vy /= DRONE_MASS; }
   let map = motions.get(w);
   if (!map) {
@@ -66,7 +67,7 @@ export function holdCraftAt(w: World, x: number, y: number) {
   }[] = [
       ...w.attackDrones.filter(d => d.hp > 0).map(a => ({ a, rx: cell * 3, ry: cell * 2.5 })),
       ...w.ufos.filter(a => !a.held).map(a => ({ a, rx: saucer, ry: saucer * .34 + 12 })),
-      ...w.subs.filter(a => !a.seizedByKraken).map(a => ({ a, rx: cell * 12, ry: cell * 5 })),
+      ...w.subs.filter(a => !a.seizedByKraken && !a.commanderHold).map(a => ({ a, rx: cell * (a.crew ? 18 : 12), ry: cell * 5 })),
 
     ];
   const hit = choices.find(({ a, rx, ry }) => ((a.x - x) / rx) ** 2 + ((a.y - y) / ry) ** 2 <= 1);
@@ -98,7 +99,7 @@ export function releaseCraft(w: World) {
   holds.delete(w);
   if (!live(w, hold.actor))
     return true;
-  const mass = hold.actor === w.mothership ? .58 : "hull" in hold.actor ? .8 : 1;
+  const mass = hold.actor === w.mothership ? .58 : "hull" in hold.actor ? hold.actor.crew ? .5 : .8 : 1;
   kickCraft(w, hold.actor, w.holdVel.x * mass, w.holdVel.y * mass);
   return true;
 }
@@ -111,7 +112,7 @@ export function stepHandling(w: World, dt: number) {
       holds.delete(w);
     else {
       const x = clamp(w.holdTo.x + hold.dx, 15, w.width - 15), y = clamp(w.holdTo.y + hold.dy, 20, w.height - 25);
-      const nx = hold.x + (x - hold.x) * Math.min(1, dt * 18), ny = hold.y + (y - hold.y) * Math.min(1, dt * 18);
+      const nx = hold.x + (x - hold.x) * Math.min(1, dt * ("hull" in hold.actor && hold.actor.crew ? 9 : 18)), ny = hold.y + (y - hold.y) * Math.min(1, dt * ("hull" in hold.actor && hold.actor.crew ? 9 : 18));
       const ease = Math.min(1, dt * 12);
       w.holdVel.x += ((nx - hold.x) / Math.max(dt, .001) - w.holdVel.x) * ease;
       w.holdVel.y += ((ny - hold.y) / Math.max(dt, .001) - w.holdVel.y) * ease;

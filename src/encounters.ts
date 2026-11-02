@@ -44,6 +44,7 @@ export interface AttackDrone {
     startX?: number;
     startY?: number;
     released?: boolean;
+    caught?: boolean;
     action?: "throw" | "crush";
     dodge?: boolean;
   };
@@ -115,8 +116,7 @@ export interface Mothership {
     kraken: import("./types").Kraken;
     at: number;
     nextCrush: number;
-    dx: number;
-    dy: number;
+    contact?: { angle: number; x: number; y: number; vx: number; vy: number };
     /** How it gets out of the grip: jump away, or send drones to drive the kraken off (then jump if that has not worked). */
     escape: "teleport" | "drones";
     escapeAt: number;

@@ -31,7 +31,9 @@ for(const [width,height] of [[480,360],[1280,720],[2560,1440]]){
   assert.equal(b.phase,'collapse');
   w.time=5.5;encounter.stepEncounters(w,1/60);assert(w.mothershipWreck);assert.equal(w.alienScrap.filter(s=>s.fuse===undefined).length,40);
   w.fish=[];w.subs=[];
-  for(let i=0;i<1800;i++){w.time+=1/60;encounter.stepEncounters(w,1/60);}
+  for(let i=0;i<900;i++){w.time+=1/60;encounter.stepEncounters(w,1/60);}
+  assert.equal(w.alienScrap.length,40,'uncollected armor survives the early wreck cleanup');
+  for(let i=0;i<960;i++){w.time+=1/60;encounter.stepEncounters(w,1/60);}
   assert.equal(w.mothership,null);assert.equal(w.mothershipWreck,null);assert.equal(w.alienScrap.length,0);
 }
 // Capacitor has two mutually exclusive outcomes: salvage or delayed pressure burst.

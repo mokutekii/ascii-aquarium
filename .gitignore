@@ -1,15 +1,18 @@
-# Dependencies and build output
 node_modules/
 dist/
 
-# OS files
+# generated test and release output
+.dev-tests/
+artifacts/
+dev-tests/*.bundle.mjs
+preview.png
+
 .DS_Store
 Thumbs.db
 
-# Per-machine runtime files (backups/ holds copies of your local settings)
+# runtime files
 state/
 backups/
 browser-profile/
 server.pid
 *.log
-

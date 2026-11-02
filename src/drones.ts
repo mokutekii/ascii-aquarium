@@ -133,7 +133,7 @@ export function detonateDrone(w: World, d: AttackDrone, reason = "a drone struck
   w.notices.push(reason);
   d.hp = 0;
   const x = d.x, y = d.y, R = 160;
-  const blast = { x, y, born: w.time, r: R, source: w.mothership ?? d };
+  const blast = { x, y, born: w.time, r: R, profile: "drone" as const, source: w.mothership ?? d };
   w.bombs.push(blast);
   damageCraftInBlast(w, blast);
   w.splash(x, y, 1.7, undefined, { max: 320, weight: 2 });

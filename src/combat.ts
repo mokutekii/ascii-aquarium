@@ -8,6 +8,7 @@ import { provokeSharkDrone, provokeSharkCraft, provokeDrone } from "./drones";
 import { bodyPoints, segmentHit } from "./collision-bodies";
 import { interruptTractor } from "./tractor";
 import { hullPoint } from "./ufo-motion";
+import { evadeThreat } from "./evasion";
 export type Combatant = Fish | Sub | Ufo | Shark | Kraken | Mothership | AttackDrone | Leviathan | Whale;
 const muzzle = (w: World, o: Combatant) => {
   const p = actorPosition(o);
@@ -53,18 +54,35 @@ export function resolveShots(w: World) {
     shot.resolved = true;
     shot.hit ??= new Set();
     bodies ??= [
-      ...w.fish.filter(f => f.alive && !f.riding), ...w.ufos, ...w.subs,
+      ...w.fish.filter(f => f.alive && !f.docked && !f.riding), ...w.ufos, ...w.subs,
       ...w.sharks, ...w.whales, ...w.attackDrones,
       ...(w.kraken ? [w.kraken] : []), ...(w.leviathan ? [w.leviathan] : []),
       ...(w.mothership ? [w.mothership] : []),
     ].filter(actor => actorAlive(w, actor)).map(actor => ({ actor, points: bodyPoints(w, actor) }));
     let victim: Combatant | undefined, first = Infinity;
+    const transparent:{actor:Combatant;distance:number}[]=[];
     for (const body of bodies) {
       if (body.actor === shot.source || !actorAlive(w, body.actor)) continue;
       // Allied saucers can cross mothership beams while defending their fleet.
       if (shot.source === w.mothership && "maxBeams" in body.actor && teamOf(w, body.actor) === "alien") continue;
       const distance = segmentHit(shot.x0, shot.y0, shot.x1, shot.y1, body.points);
-      if (distance < first) { first = distance; victim = body.actor; }
+      // A tiny fish can be burned through; it does not shield a solid hull.
+      if(Number.isFinite(distance)&&"alive" in body.actor&&!body.actor.diver){
+        transparent.push({actor:body.actor,distance});
+        continue;
+      }
+      if (distance < first) {
+        if(Number.isFinite(distance)&&evadeThreat(w,body.actor,{x:shot.x0,y:shot.y0})){
+          body.points=bodyPoints(w,body.actor);
+          const remaining=segmentHit(shot.x0,shot.y0,shot.x1,shot.y1,body.points);
+          if(remaining<first){first=remaining;victim=body.actor;}
+          continue;
+        }
+        first = distance; victim = body.actor;
+      }
+    }
+    for(const thin of transparent)if(thin.distance<first&&!shot.hit.has(thin.actor)){
+      shot.hit.add(thin.actor);applyShotDamage(w,shot,thin.actor);
     }
     if (!victim || shot.hit.has(victim)) continue;
     shot.hit.add(victim);
@@ -120,8 +138,7 @@ function applyShotDamage(w: World, shot: EncounterShot, target: Combatant) {
       else if (shot.source && w.attackDrones.includes(shot.source as AttackDrone))
         provokeSharkDrone(w, sh, shot.source as AttackDrone);
       else {
-        sh.heading = Math.atan2(p.y - shot.y0, p.x - shot.x0);
-        sh.speed = 150;
+        sh.blastFlee = { x: shot.x0, y: shot.y0, until: w.time + 1.5 };
         sh.target = null;
         sh.alertUntil = w.time + 1.5;
       }
@@ -159,8 +176,10 @@ function applyShotDamage(w: World, shot: EncounterShot, target: Combatant) {
       state.hits++;
       state.hitAt = w.time;
       f.stunUntil = w.time + 1.2;
-      if (state.hits >= 3)
+      if (state.hits >= 3) {
+        f.deathCause="LASER FIRE";
         w.popDiver(f, "blast");
+      }
       else
         w.callout(f.x, f.y - 30, "HIT", "255,150,100");
     }

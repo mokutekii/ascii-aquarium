@@ -1,4 +1,7 @@
-import { inKrakenReachArc } from "./kraken-reach";
+import { hullPoint } from "./ufo-motion";
+import { subMuzzle } from "./sub-geometry";
+import { inKrakenReachArc, krakenReachContact, krakenReachVisual } from "./kraken-reach";
+import { evadeThreat } from "./evasion";
 import { sharkWeapon, strikeCraft } from "./shark-craft";
 import { hitDroneWithShark } from "./drone-defense";
 import { provoke } from "./provocation";
@@ -14,7 +17,27 @@ import { carry, pushRim } from "./rim-wave";
 import { bodyPoints, bodiesOverlap } from "./collision-bodies";
 import { provokeSharkCraft } from "./drones";
 import { kickCraft, isCraftHeld, craftVelocity, isCraftDriven } from "./handling";
+import { beginCommanderHold } from "./commanders";
 const contacts = new WeakMap<World, WeakMap<object, WeakMap<object, number>>>();
+const titanThrows = new WeakMap<object, { until: number; impact: boolean }>();
+export function markTitanThrow(w: World, craft: Sub | import("./types").Ufo) {
+  titanThrows.set(craft, { until: w.time + 5, impact: false });
+}
+function thrownImpact(w: World, craft: Sub | import("./types").Ufo, speed: number) {
+  const thrown = titanThrows.get(craft);
+  if (!thrown || thrown.impact || w.time > thrown.until || speed < 140) return false;
+  thrown.impact = true;
+  const radius = clamp(speed * .28, 75, 180);
+  w.blasts.push({ x: craft.x, y: craft.y, born: w.time });
+  w.splash(craft.x, craft.y, 2, undefined, { weight: 3, max: radius });
+  for (const d of [...w.attackDrones]) {
+    const distance = Math.hypot(d.x - craft.x, d.y - craft.y);
+    if (d.hp <= 0 || distance > radius) continue;
+    d.hp -= 4;
+    kickCraft(w, d, (d.x - craft.x) / Math.max(1, distance) * 250, (d.y - craft.y) / Math.max(1, distance) * 250);
+  }
+  return true;
+}
 function once(w: World, a: object, b: object, seconds: number) {
   let map = contacts.get(w);
   if (!map) {
@@ -186,9 +209,12 @@ export function stepHullCombat(w: World, dt: number) {
       w.callout(b.x, b.y - b.size * .2, "CLAMPED", "255,150,130");
     }
     if (sh.hullClamp) {
-      const c = sh.hullClamp, shake = Math.sin(w.time * 19) * Math.min(14, b.size * .05);
-      b.x = sh.nodes[0] + c.dx - Math.sin(sh.heading) * shake;
-      b.y = sh.nodes[1] + c.dy + Math.cos(sh.heading) * shake;
+      const c = sh.hullClamp, age = w.time - (c.until - 3.4);
+      const shake = Math.sin(age * 19) * Math.min(14, b.size * .05) * clamp(age / .4, 0, 1);
+      const tx = sh.nodes[0] + c.dx - Math.sin(sh.heading) * shake;
+      const ty = sh.nodes[1] + c.dy + Math.cos(sh.heading) * shake;
+      const distance = Math.hypot(tx - b.x, ty - b.y), grip = distance ? Math.min(1, 800 * dt / distance) : 1;
+      b.x += (tx - b.x) * grip; b.y += (ty - b.y) * grip;
       if (w.time >= c.nextBite) {
         c.nextBite = w.time + .9;
         sh.chompAt = w.time;
@@ -197,6 +223,7 @@ export function stepHullCombat(w: World, dt: number) {
         w.blasts.push({ x: sh.nodes[0], y: sh.nodes[1], born: w.time });
         w.splash(sh.nodes[0], sh.nodes[1], 1.1, undefined, { max: 200 });
         w.callout(sh.nodes[0], sh.nodes[1] - 30, "CHOMP", "255,120,110");
+        w.titanImpact(.55);
         w.events.push({ kind: "eat", x: sh.nodes[0], y: sh.nodes[1] });
       }
       continue;
@@ -210,6 +237,7 @@ export function stepHullCombat(w: World, dt: number) {
       kickCraft(w, b, nx / d * (head ? 150 : 210), ny / d * (head ? 150 : 210));
       shoveTitan(w, sh, b.x, b.y, 40);
       w.callout(b.x, b.y, "TITAN HULL STRIKE", "255,210,150");
+      w.titanImpact(head ? .8 : .7);
     }
     if (head) {
       const dx = b.x - sh.nodes[0], dy = b.y - sh.nodes[1], a = Math.atan2(dy, dx), d = Math.hypot(dx, dy);
@@ -233,40 +261,49 @@ export function stepHullCombat(w: World, dt: number) {
   if (b.grapple && (b.grapple.kraken !== k || k?.wrapping || k?.whaleTarget))
     b.grapple = undefined;
   if (k && !k.maul) {
-    const armsAligned = inKrakenReachArc(k, b);
-    const withinReach = (touchesHull(b, k.x, k.y, k.size * .23) || touchesHull(b, k.x - Math.cos(k.heading) * k.size * .6, k.y - Math.sin(k.heading) * k.size * .6, k.size * .12));
+    const bank = b.attitude?.bank ?? 0;
+    const c = Math.cos(bank), sn = Math.sin(bank);
+    const dx = k.x - b.x, dy = k.y - b.y;
+    const localX = dx * c + dy * sn, localY = -dx * sn + dy * c;
+    const angle = Math.atan2(localY / .26, localX / .95);
     if (k.hullStrike && (k.hullStrike.target !== b || b.warp || b.spin || w.time - k.hullStrike.at > 10)) k.hullStrike = undefined;
-    if (!k.wrapping && !k.whaleTarget && !b.grapple && !b.spin && !b.warp && (k.hullUntil ?? 0) > w.time && withinReach && Math.cos(Math.atan2(b.y - k.y, b.x - k.x) - k.heading) > .8 && Math.hypot(b.x - k.x, b.y - k.y) < b.size * .65 + k.size * .45 && !k.hullStrike) {
+    if (!k.hullStrike && !k.wrapping && !k.whaleTarget && !b.grapple && !b.spin && !b.warp
+      && (k.hullUntil ?? 0) > w.time && touchesHull(b, k.x, k.y, k.size * .3)) {
       k.hullStrike = { target: b, at: w.time };
-      k.hullUntil = w.time + 6;
-      k.pushAt = undefined;
     }
-    // A real opening wins over the planned line-up: branch the arms out as soon as they can grab.
-    if (k.hullStrike && !b.warp && !b.spin && !b.grapple && withinReach && armsAligned && w.time - k.hullStrike.at >= .45 && k.hullStrike.reachAt === undefined) {
-      k.hullStrike.reachAt = w.time;
-      k.hullStrike.launched = true;
-      k.hullStrike.launchedAt ??= w.time;
-      k.pushAt = undefined;
-    }
-    if (k.hullStrike?.reachAt !== undefined && !withinReach && w.time - k.hullStrike.reachAt > .9) {
+    const strike = k.hullStrike;
+    const gripAngle = strike?.gripAngle ?? angle;
+    const point = hullPoint(b, Math.cos(gripAngle) * b.size * .95, Math.sin(gripAngle) * b.size * .26);
+    const reachable = Math.hypot(point.x - k.x, point.y - k.y) < k.size * .72 && inKrakenReachArc(k, point);
+    if (strike && !b.grapple && !b.warp && !b.spin && !k.wrapping && !k.whaleTarget && reachable) {
+      strike.reachAt ??= w.time;
+      strike.gripAngle = gripAngle;
+      strike.launched = true;
+      strike.launchedAt ??= w.time;
+      if (krakenReachContact(w, k, b, strike.reachAt, .28, point) && once(w, k, b, 12)) {
+        const escape = Math.random() < .25 ? "teleport" : "drones";
+        const speed = k.lastV ?? 55;
+        const vx = Math.cos(k.heading - bank) * speed, vy = Math.sin(k.heading - bank) * speed;
+        k.hullStrike = undefined;
+        k.gripArms = 10;
+        b.grapple = { kraken: k, at: w.time, nextCrush: w.time + 1,
+          contact: { angle: gripAngle, x: localX, y: localY, vx, vy }, escape, escapeAt: w.time + rand(10, 14) };
+        b.nextSpin = Math.max(b.nextSpin ?? 0, w.time + rand(8, 12));
+        w.callout(b.x, b.y, "KRAKEN SEIZES MOTHERSHIP", "255,220,170");
+      }
+    } else if (strike?.reachAt !== undefined) {
       k.hullStrike = undefined;
       k.hullUntil = 0;
       k.nextHull = w.time + 8;
     }
-    if (!k.wrapping && !k.whaleTarget && !b.grapple && !b.spin && withinReach && armsAligned && k.hullStrike?.reachAt !== undefined && w.time - k.hullStrike.reachAt >= .65 && once(w, k, b, 12)) {
-      const gripAt = k.hullStrike.reachAt;
-      k.hullStrike = undefined;
-      // Once caught, the mothership gets out one of two ways: jump away, or send drones to shoot the kraken off.
-      const escape = Math.random() < .25 ? "teleport" : "drones";
-      k.gripArms = 10;
-      b.grapple = { kraken: k, at: gripAt, nextCrush: w.time + 1, dx: b.x - k.x, dy: b.y - k.y, escape, escapeAt: w.time + rand(10, 14) };
-      b.nextSpin = Math.max(b.nextSpin ?? 0, w.time + rand(8, 12));
-      w.callout(b.x, b.y, "KRAKEN SEIZES MOTHERSHIP", "255,220,170");
-    }
     if (b.grapple) {
       const age = w.time - b.grapple.at;
-      b.x = k.x + b.grapple.dx + (Math.sin(age * 7) - Math.sin((age - dt) * 7)) * 4;
-      b.y = k.y + b.grapple.dy + (Math.sin(age * 5.3) - Math.sin((age - dt) * 5.3)) * 3;
+      const contact = b.grapple.contact;
+      if (contact) {
+        const carry = Math.exp(-age * 3) * dt * .25;
+        b.x += (c * contact.vx - sn * contact.vy) * carry;
+        b.y += (sn * contact.vx + c * contact.vy) * carry;
+      }
       if (age > 1.5 && w.time >= b.nextShot) {
         b.nextShot = w.time + rand(3, 5);
         spinLasers(w, b, age);
@@ -289,9 +326,10 @@ export function stepHullCombat(w: World, dt: number) {
       const freeArm = Array.from({ length: 10 - firstFree }, (_, i) => firstFree + i).find(a => !occupied.has(a));
       if (d.hp <= 0 || freeArm === undefined)
         continue;
-      if (!d.returned && inKrakenReachArc(k, d) && Math.hypot(d.x - k.x, d.y - k.y) < k.size * .9 && once(w, k, d, 8) && once(w, k, k, 2.5)) {
+      if (!d.returned && inKrakenReachArc(k, d) && Math.hypot(d.x - k.x, d.y - k.y) < k.size * .9
+        && krakenReachContact(w, k, d, krakenReachVisual(k, d)?.start ?? w.time, .35) && once(w, k, d, 8) && once(w, k, k, 2.5)) {
         const a = Math.atan2(b.y - k.y, b.x - k.x);
-        d.returned = { at: w.time, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, arm: freeArm, action: Math.random() < .3 ? "crush" : "throw", dodge: Math.random() < (w.krakenRage() > 0 ? .08 : .38), startX: d.x, startY: d.y };
+        d.returned = { at: w.time, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, arm: krakenReachVisual(k, d)!.arm, caught: true, action: Math.random() < .3 ? "crush" : "throw", dodge: Math.random() < (w.krakenRage() > 0 ? .02 : .06), startX: d.x, startY: d.y };
         d.stunned = w.time + 6;
       }
     }
@@ -315,6 +353,22 @@ export function stepCraftCrashes(w: World) {
   const craft = [...w.subs.filter(s => !s.seizedByKraken), ...w.ufos.filter(u => !u.held)];
   const shapes = craft.map(actor => bodyPoints(w, actor));
   for (let i = 0; i < craft.length; i++) {
+    const a = craft[i], thrown = titanThrows.get(a);
+    if (!thrown || thrown.impact || w.time > thrown.until) continue;
+    const v = motionVelocity(w, a), speed = Math.hypot(v.x, v.y);
+    if (w.attackDrones.some(d => d.hp > 0 && bodiesOverlap(shapes[i], bodyPoints(w, d))) && thrownImpact(w, a, speed)) {
+      // The thrown hull absorbs the impact too, even when its only collision partner is a drone.
+      a.hitAt = w.time;
+      if ("hull" in a) {
+        a.hull -= 4;
+        if (a.hull <= 0) w.destroySub(a, "the thrown submarine broke apart on impact...");
+      } else {
+        a.hits = (a.hits ?? 0) + 4;
+        if (a.hits >= UFO_HITS_TO_BREAK) w.destroyUfo("blasted", a, "the thrown UFO broke apart on impact...");
+      }
+    }
+  }
+  for (let i = 0; i < craft.length; i++) {
     for (let j = i + 1; j < craft.length; j++) {
       const a = craft[i], b = craft[j];
       if (!("hull" in a ? w.subs.includes(a) : w.ufos.includes(a))
@@ -327,9 +381,11 @@ export function stepCraftCrashes(w: World) {
       const bothAlien = "pilot" in a && "pilot" in b && !a.pilot?.alive && !b.pilot?.alive;
       if (!manual && (bothAlien || !opposing && speed < 65)) continue;
       if (!bodiesOverlap(shapes[i], shapes[j]) || !once(w, a, b, 1.5)) continue;
+      if(evadeThreat(w,a,b)||evadeThreat(w,b,a)){shapes[i]=bodyPoints(w,a);shapes[j]=bodyPoints(w,b);if(!bodiesOverlap(shapes[i],shapes[j]))continue;}
       const message = `a ${craftName(a)} crashed into a ${craftName(b)}...`;
       w.notices.push(message);
-      const damage = speed > 350 ? 3 : speed > 180 ? 2 : 1;
+      const heavy = thrownImpact(w, a, speed) || thrownImpact(w, b, speed);
+      const damage = heavy ? 4 : speed > 350 ? 3 : speed > 180 ? 2 : 1;
       for (const actor of [a, b]) {
         if ("hull" in actor) {
           actor.hull -= damage;
@@ -404,7 +460,7 @@ export function stepSharkCraftContacts(w: World, dt = 1 / 60) {
       if (!("hull" in target)) w.bolts.push({ x0: target.x, y0: target.y, x1: x, y1: y, born: w.time, team: target.pilot ? "human" : "alien" });
       if ("hull" in target) {
         const a = Math.atan2(y - target.y, x - target.x);
-        w.torpedoes.push({ x: target.x + Math.cos(a) * 60, y: target.y + Math.sin(a) * 30, vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, born: w.time, trail: [], owner: target });
+        w.torpedoes.push({ ...subMuzzle(w.width,target), vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, born: w.time, trail: [], owner: target });
         target.nextTorp = w.time + 6;
       }
       w.agitate(shark, "flee", target, 7);
@@ -426,20 +482,35 @@ export function stepTitanCraftContacts(w: World) {
     const body = bodyPoints(w, sh);
     for (const a of craft) {
       if ("hull" in a ? !w.subs.includes(a) : !w.ufos.includes(a)) continue;
+      if ("hull" in a && a.commanderHold) continue;
       if (!bodiesOverlap(body, bodyPoints(w, a))) continue;
+      if(evadeThreat(w,a,{x:sh.nodes[0],y:sh.nodes[1]})&&!bodiesOverlap(body,bodyPoints(w,a)))continue;
+      if ("hull" in a && a.crew && bodiesOverlap([{ x: sh.nodes[0], y: sh.nodes[1], r: sh.length * .055 }], bodyPoints(w, a)) && beginCommanderHold(w, a, sh)) continue;
       provoke(w, sh, a);
       if (!once(w, sh, a, 2)) continue;
+      // The body is lethal: an ordinary craft is destroyed outright. A commander (16 HP) takes a crippling hit, is knocked clear and stunned.
       if ("hull" in a) {
-        a.hull -= 2; a.hitAt = w.time;
-        if (a.hull <= 0) w.destroySub(a, "the megalodon smashed a submarine's hull...");
+        if (a.crew) {
+          const away = Math.atan2(a.y - sh.nodes[1], a.x - sh.nodes[0]);
+          a.hull -= 8; a.hitAt = w.time;
+          kickCraft(w, a, Math.cos(away) * 520, Math.sin(away) * 520);
+          a.emp = { until: w.time + 2.4, sink: 55, rise: 80, homeY: clamp(a.y, 60, w.height - 60), drift: Math.cos(away) * 80 };
+          w.titanImpact(.8);
+          if (a.hull <= 0) w.destroySub(a, "the megalodon smashed a submarine's hull...");
+        }
+        else {
+          w.titanImpact(.7);
+          w.destroySub(a, "the megalodon smashed a submarine's hull...");
+        }
       } else {
-        a.hits = (a.hits ?? 0) + 2; a.hitAt = w.time;
-        if (a.hits >= UFO_HITS_TO_BREAK) w.destroyUfo("smashed", a, "the megalodon's body smashed a UFO...");
+        w.titanImpact(.7);
+        w.destroyUfo("smashed", a, "the megalodon's body smashed a UFO...");
       }
     }
     for (const d of w.attackDrones) {
       if (d.hp <= 0 || !bodiesOverlap(body, bodyPoints(w, d))) continue;
-      if (hitDroneWithShark(w, sh, d)) provoke(w, sh, w.mothership ?? d);
+      d.hp = 0;
+      provoke(w, sh, w.mothership ?? d);
     }
   }
 }

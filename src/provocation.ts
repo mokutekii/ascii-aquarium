@@ -1,4 +1,5 @@
-import { inKrakenReachArc } from "./kraken-reach";
+import { beginCommanderHold } from "./commanders";
+import { inKrakenReachArc, krakenReachContact } from "./kraken-reach";
 import { STRIKE_TIME } from "./types";
 import { bodyPoints, bodiesOverlap } from "./collision-bodies";
 import { isCraftDriven, cancelCraftMotion } from "./handling";
@@ -18,16 +19,17 @@ export const actorPosition = (o: Offender) => "nodes" in o ? { x: o.nodes[0], y:
 export function actorAlive(w: World, o: Offender): boolean {
   if (o === w.mothership)
     return o.hp > 0 && o.phase !== "collapse" && (!o.warp || o.warp.moved);
-  return o === w.leviathan || o === w.kraken || w.fish.includes(o as Fish) && !!(o as Fish).alive
+  return o === w.leviathan || o === w.kraken || w.fish.includes(o as Fish) && !!(o as Fish).alive && !(o as Fish).docked
     || w.sharks.includes(o as Shark) || w.whales.includes(o as Whale) || w.ufos.includes(o as Ufo)
     || w.subs.includes(o as Sub) && (o as Sub).hull > 0 || w.attackDrones.includes(o as AttackDrone) && (o as AttackDrone).hp > 0;
 }
 
-export function provoke(w: World, titan: Shark | Kraken, source: Offender) {
+export function provoke(w: World, titan: Shark | Kraken, source: Offender, soft = false) {
   if (titan === source)
     return;
   const old = w.provocations.get(titan);
-  titan.rageUntil = Math.max(titan.rageUntil ?? 0, w.time + 10);
+  // Wandering into reach draws an attack but hardly angers it; an actual hit does.
+  titan.rageUntil = Math.max(titan.rageUntil ?? 0, w.time + (soft ? 3 : 10));
   // A megalodon stays on a mothership far longer than on anything else: it does not give up the hunt.
   const hold = "nodes" in titan && source === w.mothership ? 24 : 10;
   w.provocations.set(titan, { target: source, until: w.time + hold, strikeAt: old?.strikeAt ?? w.time + .8, touchAt: w.time });
@@ -40,14 +42,16 @@ export function stepProvocations(w: World, dt: number) {
       sub.krakenReachAt = undefined;
   }
   const titans: (Shark | Kraken)[] = [...w.sharks.filter(s => s.mega), ...(w.kraken ? [w.kraken] : [])];
-  const actors: Offender[] = [...w.subs, ...w.ufos, ...w.whales, ...w.attackDrones, ...w.fish.filter(f => f.alive && !f.riding && !f.seized && !f.eoeBound), ...w.sharks.filter(s => !s.mega && !s.grabbed && !s.lifted)];
+  const actors: Offender[] = [...w.subs, ...w.ufos, ...w.whales, ...w.attackDrones, ...w.fish.filter(f => f.alive && !f.docked && !f.riding && !f.seized && !f.eoeBound), ...w.sharks.filter(s => !s.mega && !s.grabbed && !s.lifted)];
   for (const titan of titans) {
     const point = actorPosition(titan), mega = "nodes" in titan;
     if (mega && (titan.grabbed || titan.lifted || w.kraken?.wrapping === titan))
       continue;
     if (!mega && (titan.state === "wrap" || titan.maul))
       continue;
-    const radius = mega ? titan.length * .09 : titan.size * .22;
+    const aggr = clamp(w.titanAggression(titan), 0, 1);
+    // Anything within its reach is fair game: an arm's length for the kraken, a body's width for the megalodon, wider as it gets angrier.
+    const radius = mega ? titan.length * .09 * (1 + aggr) : titan.size * (.5 + .45 * aggr);
     if ((titan.victoryUntil ?? 0) > w.time) {
       const nearest = (list: Offender[]) => list.filter(a => { const p = actorPosition(a); return actorAlive(w, a) && p.x >= 0 && p.x <= w.width && p.y >= 0 && p.y <= w.height; }).sort((a, b) => {
         const pa = actorPosition(a), pb = actorPosition(b);
@@ -70,7 +74,9 @@ export function stepProvocations(w: World, dt: number) {
       for (const actor of actors) {
         if (mega && "nodes" in actor) continue;
         const p = actorPosition(actor), padding = "hull" in actor ? 70 : "maxBeams" in actor ? 65 : 25;
-        let near = Math.hypot(p.x - point.x, p.y - point.y) < radius + padding
+        // A whale is not a target for the proximity rule: it keeps its own encounters.
+        const reachRadius = !mega && w.whales.includes(actor as Whale) ? titan.size * .22 : radius;
+        let near = Math.hypot(p.x - point.x, p.y - point.y) < reachRadius + padding
           || (("hull" in actor || "maxBeams" in actor) && bodiesOverlap(bodyPoints(w, titan), bodyPoints(w, actor)));
         if (mega && !near)
           for (let n = 3; n < titan.nodes.length / 2; n += 3)
@@ -79,7 +85,7 @@ export function stepProvocations(w: World, dt: number) {
               break;
             }
         if (near) {
-          provoke(w, titan, actor);
+          provoke(w, titan, actor, true);
           if (("hull" in actor || "maxBeams" in actor) && isCraftDriven(w, actor)) w.provocations.get(titan)!.strikeAt = w.time;
           break;
         }
@@ -114,7 +120,12 @@ export function stepProvocations(w: World, dt: number) {
     if (ag.target === w.mothership)
       continue;
     // Craft damage is resolved once by full-body contact, including the jaws.
-    if (mega && (w.subs.includes(ag.target as Sub) || w.ufos.includes(ag.target as Ufo))) continue;
+    if (mega && (w.subs.includes(ag.target as Sub) || w.ufos.includes(ag.target as Ufo))) {
+      const sub = ag.target as Sub;
+      if (w.subs.includes(sub) && sub.crew && bodiesOverlap([{ x: titan.nodes[0], y: titan.nodes[1], r: titan.length * .055 }], bodyPoints(w, sub)))
+        beginCommanderHold(w, sub, titan);
+      continue;
+    }
     if (!mega && !inKrakenReachArc(titan, target)) {
       if ("hull" in ag.target) (ag.target as Sub).krakenReachAt = undefined;
       continue;
@@ -130,9 +141,18 @@ export function stepProvocations(w: World, dt: number) {
       w.mothership!.hp -= mega ? 12 : 8;
     else if (w.subs.includes(ag.target as Sub)) {
       const sub = ag.target as Sub;
+      if (sub.crew && (sub.leaving || w.time < (sub.nextTitanGrab ?? 0))) {
+        sub.krakenReachAt = undefined;
+        if (!sub.commanderHold) sub.seizedByKraken = false;
+        continue;
+      }
       if (!mega && !sub.seizedByKraken && (titan.state === "grab" || titan.state === "enter")) {
         if (sub.krakenReachAt === undefined) { sub.krakenReachAt = w.time; ag.strikeAt = w.time + STRIKE_TIME; continue; }
-        if (w.time - sub.krakenReachAt < STRIKE_TIME) continue;
+        if (!krakenReachContact(w,titan,sub,sub.krakenReachAt,STRIKE_TIME*(1-.45*clamp(w.titanAggression(titan),0,1)))) {ag.strikeAt=w.time;continue;}
+        if (sub.crew) {
+          if (beginCommanderHold(w, sub, titan)) sub.krakenReachAt = undefined;
+          continue;
+        }
         cancelCraftMotion(w, sub);
         sub.seizedByKraken = true;
         sub.seizedAt = sub.krakenReachAt;
@@ -142,6 +162,7 @@ export function stepProvocations(w: World, dt: number) {
         w.callout(sub.x, sub.y - 40, "SUBMARINE SEIZED", "255,220,170");
         continue;
       }
+      if (sub.crew) { beginCommanderHold(w, sub, titan); continue; }
       if (sub.seizedByKraken)
         continue;
       sub.hull -= mega ? 2 : 1;
@@ -160,8 +181,7 @@ export function stepProvocations(w: World, dt: number) {
     }
     else if (w.sharks.includes(ag.target as Shark)) {
       const sh = ag.target as Shark;
-      sh.heading = Math.atan2(target.y - point.y, target.x - point.x);
-      sh.speed = 150;
+      sh.blastFlee = { x: point.x, y: point.y, until: w.time + 2.5 };
       sh.target = null;
     }
   }

@@ -23,6 +23,15 @@ world.time += 1; renderer.drawCurrent(world);
 assert.notEqual(JSON.stringify(points), first, 'living light moves');
 points.length = 0; renderer.sharkFlag.fill(1); renderer.drawCurrent(world);
 assert.equal(points.length, 0, 'living light cannot bleed through shark silhouettes');
+// Both event sources use the bright spiral, even in saver mode.
+const foam = [];
+renderer.painter = () => ({ put: (x, y, glyph, color) => foam.push({ x, y, glyph, color }), flush: noop });
+world.whirlpools = [{ x: 400, y: 400, r: 45, born: 60, until: 80, dir: 1 }];
+world.vortices = [{ x: 900, y: 600, r: 145, born: 60, until: 80, dir: -1 }];
+renderer.drawWhirl(world);
+assert.equal(foam.filter(p => p.glyph === '@' && p.color.endsWith('0.93)')).length, 2);
+assert.ok(foam.filter(p => p.x > 650).length > foam.filter(p => p.x < 650).length,
+  'larger funnels cover more cells without losing their bright cores');
 console.log('PASS: bounded 4K detail, visible moving light, creature occlusion');
 
 // A simulated slow computer must shed detail and bound catch-up work.

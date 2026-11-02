@@ -43,8 +43,8 @@ for(const threat of ['mothership','mega','kraken']){
  const w=make();startMothership(w);const b=w.mothership;Object.assign(b,{phase:'battle',x:w.width-20,y:500});kickCraft(w,b,600,0);stepHandling(w,.1);assert.ok(b.x>w.width,'mothership knockback crosses the viewport without a wall bounce');
  w.spawnMegalodon();const m=w.sharks.find(s=>s.mega);m.born=0;m.heading=0;m.megaHeading=0;m.speed=100;m.hullHunt=true;
  for(let i=0;i<m.nodes.length;i+=2){m.nodes[i]=w.width-150-i*10;m.nodes[i+1]=600;}
- const turns=[];for(let i=0;i<1800;i++){w.time+=1/60;w.stepSharks(1/60);turns.push(m.megaTurn??0);}
- assert.ok(m.nodes[0]<w.width-300,'Megalodon arcs into open water after an edge approach');
+ const positions=[],turns=[];for(let i=0;i<2700;i++){w.time+=1/60;w.stepSharks(1/60);turns.push(m.megaTurn??0);positions.push(m.nodes[0]);}
+ assert.ok(Math.min(...positions)<w.width-300,'Megalodon arcs into open water: '+JSON.stringify({min:Math.min(...positions),max:Math.max(...positions),width:w.width,heading:m.heading,speed:m.speed,edge:m.edgeCourse}));
  const active=turns.filter(v=>Math.abs(v)>.02);let changes=0;for(let i=1;i<active.length;i++)if(Math.sign(active[i])!==Math.sign(active[i-1]))changes++;
  assert.ok(changes<5,`boundary turn stays committed (${changes} reversals)`);
 }

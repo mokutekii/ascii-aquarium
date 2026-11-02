@@ -1,3 +1,4 @@
+import { EXPLOSIONS, blastFalloff, blastMass, type ExplosionKind } from "./explosion-profiles";
 import { meteorDistance, type MeteorStyle } from "./meteor";
 import { cancelCraftMotion } from "./handling";
 import { rand } from "./math";
@@ -6,12 +7,13 @@ import { UFO_HITS_TO_BREAK } from "./types";
 import { bodyPoints } from "./collision-bodies";
 import { kickCraft } from "./handling";
 import { scareWhalesFromBlast } from "./whale-scale";
+import { evadeThreat } from "./evasion";
 const hits = new WeakMap<object, Set<object>>();
 /** Every explosion applies four hull damage once; destroyed craft schedule their own delayed blast. */
-export function damageCraftInBlast(w: World, bomb: { x: number; y: number; r: number; meteor?: boolean; style?: MeteorStyle }, radius = bomb.r) {
+export function damageCraftInBlast(w: World, bomb: { x: number; y: number; r: number; meteor?: boolean; style?: MeteorStyle; profile?: ExplosionKind }, radius = bomb.r) {
   scareWhalesFromBlast(w, bomb.x, bomb.y, radius);
   let hit = hits.get(bomb); if (!hit) { hit = new Set(); hits.set(bomb, hit); }
-  const contains=(p: {x:number;y:number;r:number}) => bomb.meteor && bomb.style
+  const contains=(p: {x:number;y:number;r:number}) => bomb.style
     ? meteorDistance(bomb.style,p.x-bomb.x,p.y-bomb.y,p.r)<=radius
     : Math.hypot(p.x-bomb.x,p.y-bomb.y)-p.r<=radius;
   const boss=w.mothership;
@@ -29,14 +31,17 @@ export function damageCraftInBlast(w: World, bomb: { x: number; y: number; r: nu
     // The mothership's own explosions never take out its drones.
     if ("stunned" in craft && (bomb as { source?: unknown }).source !== undefined && ((bomb as { source?: unknown }).source === w.mothership || w.attackDrones.includes((bomb as { source?: unknown }).source as never))) continue;
     if (hit.has(craft) || !bodyPoints(w, craft).some(contains)) continue;
+    if(evadeThreat(w,craft,bomb)&&!bodyPoints(w,craft).some(contains)){hit.add(craft);continue;}
     hit.add(craft);
     const a = Math.atan2(craft.y - bomb.y, craft.x - bomb.x);
-    kickCraft(w, craft, Math.cos(a) * 180, Math.sin(a) * 180);
+    const profile = EXPLOSIONS[bomb.profile ?? (bomb.meteor ? "meteor" : "bomber")];
+    const impulse = profile.impulse * (.25 + .75 * blastFalloff(Math.hypot(craft.x-bomb.x,craft.y-bomb.y),radius)) / blastMass(craft);
+    kickCraft(w, craft, Math.cos(a) * impulse, Math.sin(a) * impulse);
     if ("hull" in craft) {
-      craft.hull -= 4; craft.hitAt = w.time;
+      craft.hull -= profile.damage; craft.hitAt = w.time;
       if (craft.hull <= 0) w.destroySub(craft, "a blast breached a submarine... chain reaction!");
     } else if ("maxBeams" in craft) {
-      craft.hits = (craft.hits ?? 0) + 4; craft.hitAt = w.time;
+      craft.hits = (craft.hits ?? 0) + profile.damage; craft.hitAt = w.time;
       if (craft.hits >= UFO_HITS_TO_BREAK) w.destroyUfo("blasted", craft);
     } else {
       // Shock shielding absorbs collateral blasts; direct fire and impacts remain lethal.

@@ -51,8 +51,8 @@ export class OceanEngine {
   setWorking(working: boolean) {
     this.activitySpeed = working ? 1.55 : 0.85;
   }
-  /** Which assistants are working right now: each keeps a crewed submarine down in the tank. */
-  setWorkers(claude: boolean, codex: boolean) { this.world.setWorkers(claude, codex); }
+  /** The active parent sessions, identified only by anonymous local hashes. */
+  setWorkers(sessions: Array<{ source: "claude" | "codex"; id: string }> | boolean, codex = false) { this.world.setWorkers(sessions,codex); }
   setFps(fps: number) { this.fps = fps; }
   /** Simulation speed multiplier (1, 2 or 4): the world just runs more fixed steps per frame. */
   setSpeed(speed: number) { this.speed = speed; }
@@ -148,6 +148,9 @@ export class OceanEngine {
    * fish and sharks keep their on-screen size however far the page is zoomed.
    */
   private zoom() {
+    // Embedded browsers can expose placeholder outer dimensions unrelated to
+    // the viewport. Treat those as unzoomed instead of enlarging the UI 4x.
+    if(window.outerWidth<240&&window.outerHeight<120)return 1;
     const raw = window.outerWidth / window.innerWidth;
     const steps = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
     if (!Number.isFinite(raw) || raw <= 0)

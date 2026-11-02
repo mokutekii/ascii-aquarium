@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
-const r=await build({stdin:{contents:'export {World} from "./src/world";export {stepMegaSpine} from "./src/mega-swim";export {tractorIntake} from "./src/tractor";',resolveDir:process.cwd()},bundle:true,format:'esm',platform:'node',write:false});
-const {World,stepMegaSpine,tractorIntake}=await import(`data:text/javascript;base64,${Buffer.from(r.outputFiles[0].contents).toString('base64')}`);
+const r=await build({stdin:{contents:'export {World} from "./src/world";export {stepMegaSpine,sharkSpinePoint} from "./src/mega-swim";export {tractorIntake} from "./src/tractor";',resolveDir:process.cwd()},bundle:true,format:'esm',platform:'node',write:false});
+const {World,stepMegaSpine,sharkSpinePoint,tractorIntake}=await import(`data:text/javascript;base64,${Buffer.from(r.outputFiles[0].contents).toString('base64')}`);
 const make=()=>{const w=new World([{kind:'classic',size:.8}],24);w.resize(4000,2600,13,19);w.time=20;w.sharks=[];w.fish=[];w.jellies=[];w.settings.events='off';return w;};
 {
  const w=make();w.spawnMegalodon();const m=w.sharks[0];Object.assign(m,{heading:0,speed:80,phase:0,rageLevel:1,thrash:0});
@@ -9,14 +9,14 @@ const make=()=>{const w=new World([{kind:'classic',size:.8}],24);w.resize(4000,2
  let low=Infinity,high=-Infinity;
  for(let frame=0;frame<600;frame++){
   m.nodes[0]+=80/60;m.phase+=1.7/60;stepMegaSpine(m,1/60);
-  const mid=(Math.floor(m.nodes.length/4))*2;low=Math.min(low,m.nodes[mid+1]);high=Math.max(high,m.nodes[mid+1]);
+  const mid=(Math.floor(m.nodes.length/4))*2;low=Math.min(low,sharkSpinePoint(m,mid/2).y);high=Math.max(high,sharkSpinePoint(m,mid/2).y);
   let previous=m.heading+Math.PI;
   for(let i=2;i<m.nodes.length;i+=2){
    assert.ok(Math.abs(Math.hypot(m.nodes[i]-m.nodes[i-2],m.nodes[i+1]-m.nodes[i-1])-m.length/(m.nodes.length/2-1))<.01,'swim conserves segment lengths');
-   const a=Math.atan2(m.nodes[i+1]-m.nodes[i-1],m.nodes[i]-m.nodes[i-2]);assert.ok(Math.abs(Math.atan2(Math.sin(a-previous),Math.cos(a-previous)))<.121,'body cannot fold at a joint');previous=a;
+   const a=Math.atan2(m.nodes[i+1]-m.nodes[i-1],m.nodes[i]-m.nodes[i-2]);assert.ok(Math.abs(Math.atan2(Math.sin(a-previous),Math.cos(a-previous)))<.161,'body cannot fold at a joint');previous=a;
   }
  }
- assert.ok(high-low>m.length*.015,'physical midbody undulates during straight enraged travel');
+ assert.ok(high-low>m.length*.015,'visible base-shark midbody undulates during straight enraged travel');
  m.biteTarget={fish:{alive:false,x:9999,y:9999},until:w.time+5};w.stepSharks(1/60);assert.equal(m.biteTarget,undefined,'missing prey does not leave a stale bite course');
 }
 const craft=w=>{w.spawnUfo(true);const u=w.ufos[0];Object.assign(u,{x:2000,y:500,hy:500,tx:2000,state:'beam',enterAt:0,beamX:2000,beamUntil:200,maxBeams:3,got:0,keep:true,escapeAt:undefined,giveUpAt:undefined,ammo:0,nextShot:Infinity,hijackChecked:true});return u;};

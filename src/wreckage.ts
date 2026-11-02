@@ -24,28 +24,28 @@ const pieces: Record<WreckKind, readonly (readonly string[])[]> = {
   sub: [[" /==>", "[###>", " \\==>"], ["  | ", " _|_", "[#__]"], ["<###]", "<===|", "  /|"]],
   mothership: [[" /======", "/:://::/", "\\======"], [" .---. ", "[ /@\\ ]", " '---' "], [" /###\\ ", "[o===o]", " \\___/ "]],
 };
-export function spawnCraftDebris(w: World, kind: WreckKind, x: number, y: number, size: number, kick = 80) {
+export function spawnCraftDebris(w: World, kind: WreckKind, x: number, y: number, size: number, kick = 80, hullScale = 1) {
   w.debris ??= [];
   const nearby=w.debris.filter(d=>w.time-d.born<3&&Math.hypot(d.x-x,d.y-y)<260).length;
   const count=Math.max(0,Math.min(kind==="mothership"?randInt(3,5):randInt(1,3),6-nearby));
   const scale=kind==="mothership"?clamp(size/340,1.25,2.3):rand(.6,.88);
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + rand(-.25, .25), side: -1 | 1 = Math.cos(a) < 0 ? -1 : 1;
-    w.debris.push({ x: x + Math.cos(a) * size * .12, y: y + Math.sin(a) * size * .07, vx: Math.cos(a) * rand(kick * .5, kick), vy: Math.sin(a) * kick * .45 + 18, side, born: w.time, buoyancy: rand(-22, 38), kind, part: randInt(0,2), angle: rand(-Math.PI, Math.PI), spin: rand(-1.1,1.1), life: rand(3.5,6), seed: randInt(1,10000), scale: scale*rand(.8,1.15) });
+    w.debris.push({ x: x + Math.cos(a) * size * .12, y: y + Math.sin(a) * size * .07, vx: Math.cos(a) * rand(kick * .5, kick), vy: Math.sin(a) * kick * .45 + 18, side, born: w.time, buoyancy: rand(-22, 38), kind, part: randInt(0,2), angle: rand(-Math.PI, Math.PI), spin: rand(-1.1,1.1), life: kind==="ufo"?15:rand(3.5,6), seed: randInt(1,10000), scale: scale*hullScale*rand(.8,1.15) });
   }
   w.debris = w.debris.slice(-40);
 }
 
 /** Keep chained wrecks readable: sparse sparks with short, varied lives. */
-export function spawnCraftScrap(w: World, kind: "ufo" | "sub", x: number, y: number) {
+export function spawnCraftScrap(w: World, kind: "ufo" | "sub", x: number, y: number, hullScale = 1) {
   const nearby=w.mess.filter(m=>w.time-m.born<2&&Math.hypot(m.x-x,m.y-y)<260).length;
   const count=Math.max(0,Math.min(randInt(5,9),16-nearby));
   const glyphs=kind==="sub"?["=","/","|",".","+","o"]:["-","/",":",".","+","o"];
   const direction=rand(0,Math.PI*2);
   for(let i=0;i<count;i++){
     const a=direction+rand(-2.2,2.2),speed=rand(25,110);
-    w.mess.push({x:x+rand(-45,45),y:y+rand(-25,25),vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
-      born:w.time,life:rand(3,7),glyph:glyphs[randInt(0,glyphs.length-1)],rgb:kind==="sub"?"195,165,85":"130,185,200"});
+    w.mess.push({x:x+rand(-45,45)*hullScale,y:y+rand(-25,25),vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
+      born:w.time,life:kind==="ufo"?15:rand(3,7),glyph:glyphs[randInt(0,glyphs.length-1)],rgb:kind==="sub"?"195,165,85":"130,185,200"});
   }
 }
 

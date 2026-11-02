@@ -1,4 +1,4 @@
-const HOLD_KEYS = new Set(["h", "d", "u", "x"]);
+const HOLD_KEYS = new Set(["h", "d", "u", "x", "a"]);
 /** OS repeat drives held spawns, capped to four batches per second. Other keys never repeat. */
 export class SpawnKeyRepeater {
  private last = new Map<string, number>();

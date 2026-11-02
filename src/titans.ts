@@ -1,4 +1,7 @@
-import { inKrakenReachArc } from "./kraken-reach";
+import { loseMegaTrail } from "./mega-motion";
+import { stepMegaHunt, stepMegaBody } from "./mega-hunt";
+import { megaFlank, krakenArmSlots, krakenReachPoses, stepKrakenReaches, inKrakenReachArc, krakenReachContact, krakenReachVisual } from "./kraken-reach";
+import { evadeThreat } from "./evasion";
 import { bodyPoints, segmentHit } from "./collision-bodies";
 import { allocateKrakenArms, stepKrakenSnatch } from "./drone-arm";
 import { angleDiff, clamp, rand, randInt, TAU } from "./math";
@@ -6,15 +9,114 @@ import { KRAKEN_ARC, KRAKEN_EAT_CHANCE, STRIKE_TIME } from "./types";
 import { DIVER_MASS, SHARK_NODES } from "./types";
 import type { Fish, Kraken, Shark, Whale } from "./types";
 import type { World } from "./world";
+import { cancelCraftMotion, kickCraft } from "./handling";
+import { hullPoint } from "./ufo-motion";
+import { markTitanThrow } from "./hull-combat";
 const contactDivers = new WeakMap<Fish, { x: number; y: number; at: number }>();
 const contactSpines = new WeakMap<Shark, Float64Array>();
+const biteContacts = new WeakMap<Kraken, { at: number; reach: number }>();
+
+/** Both animals keep swimming. A taut grip distributes its load across both bodies. */
+function tension(k: Kraken, m: Shark, point: { x: number; y: number }, reach: number, dt: number) {
+  const dx = point.x - k.x, dy = point.y - k.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= reach) return;
+  const correction = Math.min(distance - reach, 260 * dt) / distance;
+  const x = dx * correction, y = dy * correction;
+  k.x += x * .7;
+  k.y += y * .7;
+  for (let i = 0; i < m.nodes.length; i += 2) {
+    m.nodes[i] -= x * .3;
+    m.nodes[i + 1] -= y * .3;
+  }
+}
+const craftArmSlots = krakenArmSlots;
+function craftArms(k: Kraken, target: object, count: number) {
+  let slots = craftArmSlots.get(k);
+  if (!slots) { slots = new Map(); craftArmSlots.set(k, slots); }
+  let assigned = slots.get(target);
+  if (!assigned || assigned.length < count) {
+    const reaching = krakenReachVisual(k, target);
+    const used = new Set([...slots.values()].flat().concat(krakenReachPoses(k).filter(pose => pose !== reaching).map(pose => pose.arm)));
+    const existing = assigned ?? (reaching ? [reaching.arm] : []);
+    assigned = [...existing, ...Array.from({ length: 10 }, (_, i) => i)
+      .filter(i => !existing.includes(i) && !used.has(i))].slice(0, count);
+    slots.set(target, assigned);
+  }
+  return assigned;
+}
+const ufoArms = new WeakMap<Kraken, { x: number; y: number; extension: number; at: number; grip: number }>();
+const subArms = new WeakMap<Kraken, Map<World["subs"][number], { x: number; y: number; extension: number; at: number; grip: number }>>();
+/** Released sub arms stay at their last contact point while retracting, even after a wreck is removed. */
+function updateSubArmPoses(w: World) {
+  const k = w.kraken;
+  if (!k) return [];
+  let poses = subArms.get(k);
+  if (!poses) { poses = new Map(); subArms.set(k, poses); }
+  for (const sub of w.subs) {
+    if (!sub.seizedByKraken && sub.krakenReachAt === undefined) continue;
+    if (!poses.has(sub)) poses.set(sub, { x: sub.x, y: sub.y, extension: 0, at: w.time, grip: 0 });
+  }
+  const result: { sub: World["subs"][number]; x: number; y: number; extension: number; held: boolean; arms: number[]; grip: number }[] = [];
+  for (const [sub, pose] of poses) {
+    const active = w.subs.includes(sub) && (sub.seizedByKraken || sub.krakenReachAt !== undefined);
+    const held = active && !!sub.seizedByKraken;
+    const dt = clamp(w.time - pose.at, 0, .1); pose.at = w.time;
+    pose.grip = clamp(pose.grip + (held ? 1.4 : -1.4) * dt, 0, 1);
+    const tip = krakenReachVisual(k, sub);
+    if (active && !held && tip) { pose.x = tip.x; pose.y = tip.y; }
+    else if (held) { pose.x += (sub.x - pose.x) * Math.min(1, dt * 6); pose.y += (sub.y - pose.y) * Math.min(1, dt * 6); }
+    const wanted = active ? held ? 1 : clamp((w.time - sub.krakenReachAt!) / STRIKE_TIME, 0, 1) : 0;
+    pose.extension += clamp(wanted - pose.extension, -dt * .9, dt * 2);
+    if (!active && pose.extension < .001) { poses.delete(sub); craftArmSlots.get(k)?.delete(sub); continue; }
+    result.push({ sub, x: !held&&active&&tip?tip.x:pose.x, y:!held&&active&&tip?tip.y:pose.y, extension: !held&&active&&tip?1:pose.extension, held, arms: craftArms(k, sub, 4), grip: pose.grip });
+  }
+  return result;
+}
+/** Retain the last reached point while an arm retracts after release or target loss. */
+function updateUfoArmPose(w: World) {
+  const k = w.kraken;
+  if (!k) return null;
+  const target = k.ufoTarget ?? w.ufo;
+  const active = !!target && w.ufos.includes(target) && (k.ufoHeld || k.ufoStrike !== null);
+  let pose = ufoArms.get(k);
+  if (!pose) {
+    if (!active || !target) return null;
+    pose = { x: target.x, y: target.y, extension: 0, at: w.time, grip: 0 };
+    ufoArms.set(k, pose);
+  }
+  const dt = clamp(w.time - pose.at, 0, .1); pose.at = w.time;
+  const tip=target&&krakenReachVisual(k,target);
+  pose.grip = clamp(pose.grip + (active && k.ufoHeld ? 1.4 : -1.4) * dt, 0, 1);
+  if (active && !k.ufoHeld && tip) { pose.x = tip.x; pose.y = tip.y; }
+  else if (active && target) { pose.x += (target.x - pose.x) * Math.min(1, dt * 6); pose.y += (target.y - pose.y) * Math.min(1, dt * 6); }
+  const wanted = active ? k.ufoHeld ? 1 : clamp((w.time - k.ufoStrike!) / STRIKE_TIME, 0, 1) : 0;
+  pose.extension += clamp(wanted - pose.extension, -dt * .9, dt * 2);
+  if (pose.extension <= .001 && !active) { if (target) craftArmSlots.get(k)?.delete(target); return null; }
+  return { ...pose, ...(!k.ufoHeld&&active&&tip?{x:tip.x,y:tip.y,extension:1}:{}), held: active && k.ufoHeld, arms: target ? craftArms(k, target, 3) : [] };
+}
+const armFrames=new WeakMap<World,{subs:ReturnType<typeof updateSubArmPoses>;ufo:ReturnType<typeof updateUfoArmPose>}>();
+export function stepKrakenArmPoses(w:World){
+  const k=w.kraken;
+  if(k){
+    for(const sub of w.subs)if(sub.krakenReachAt!==undefined)krakenReachContact(w,k,sub,sub.krakenReachAt,STRIKE_TIME);
+    stepKrakenReaches(w);
+  }
+  armFrames.set(w,{subs:updateSubArmPoses(w),ufo:updateUfoArmPose(w)});
+}
+export const krakenSubArmPoses=(w:World)=>armFrames.get(w)?.subs??[];
+export const krakenUfoArmPose=(w:World)=>armFrames.get(w)?.ufo??null;
+/** The old on/off rage (still read by the renderer and the enraged gates): calm titans sit at 0, provoked or moonlit ones climb toward 1. */
+const rageFromAggression = (a: number) => clamp((a - .3) / .5, 0, 1);
 export interface TitanMethods {
+  titanAggression(this: World, t: Shark | Kraken): number;
+  titanKill(this: World, t: Shark | Kraken): void;
   megaRage(this: World, sh: Shark): number;
   krakenRage(this: World): number;
   spawnKraken(this: World, solo?: boolean, megaHere?: boolean): void;
   stepKrakenQueue(this: World): void;
   stepKraken(this: World, dt: number): void;
-  stepTitanContacts(this: World): void;
+  stepTitanContacts(this: World, dt?:number): void;
   rallyPoint(this: World): {
     x: number;
     y: number;
@@ -51,19 +153,41 @@ export const titanMethods: TitanMethods = {
   /** 0 calm → 1 furious: the blood moon keeps it at 1, and a blast in its arms leaves it angry for a while. */
   /** The same for a megalodon: the blood moon keeps it furious, and a laser (or anything else that provokes it) angers it for a while. */
   megaRage(this: World, sh: Shark): number {
-    if (!sh.mega)
-      return 0;
-    if (this.sagas.some((s) => s.kind === "moon"))
-      return 1;
-    return clamp(((sh.rageUntil ?? 0) - this.time) / 4, 0, 1);
+    return sh.mega ? rageFromAggression(this.titanAggression(sh)) : 0;
   },
   krakenRage(this: World): number {
     const k = this.kraken;
-    if (!k)
-      return 0;
-    if (this.sagas.some((s) => s.kind === "moon"))
-      return 1;
-    return clamp(((k.rageUntil ?? 0) - this.time) / 4, 0, 1);
+    return k ? rageFromAggression(this.titanAggression(k)) : 0;
+  },
+  /**
+   * One aggression value (0 to 1.3) shared by both titans. A slow floor (time in the tank, night, the blood moon ramping in and
+   * lingering after), plus spikes that decay: provocation (12s), kills (25s). Everything that used to be "enraged or not" reads this.
+   */
+  titanAggression(this: World, t: Shark | Kraken): number {
+    const time = this.time;
+    const moon = this.sagas.some((s) => s.kind === "moon");
+    if (moon)
+      this.moonSeenAt = time;
+    const born = t.born ?? time;
+    let floor = Math.min(.45, .25 + .02 * Math.max(0, time - born) / 60) + .1 * clamp(this.night, 0, 1);
+    if (moon) {
+      const sg = this.sagas.find((s) => s.kind === "moon")!;
+      floor = Math.max(floor, .85 * clamp((time - sg.born) / 10, 0, 1));
+    }
+    else if (time - this.moonSeenAt < 20)
+      floor = Math.max(floor, .85 * (1 - (time - this.moonSeenAt) / 20));
+    if (this.sagas.some((s) => s.kind === "maelstrom"))
+      floor += .1;
+    const provoked = clamp(((t.rageUntil ?? 0) - time) / 12, 0, 1) * .5;
+    const kills = (t.killSpike ?? 0) * clamp(1 - (time - (t.killSpikeAt ?? -Infinity)) / 25, 0, 1);
+    return clamp(floor + provoked + kills, 0, 1.3);
+  },
+  /** A kill feeds the frenzy: each adds .15 that fades over about 25 seconds. */
+  titanKill(this: World, t: Shark | Kraken): void {
+    const now = this.time;
+    const live = (t.killSpike ?? 0) * clamp(1 - (now - (t.killSpikeAt ?? -Infinity)) / 25, 0, 1);
+    t.killSpike = Math.min(.6, live + .15);
+    t.killSpikeAt = now;
   },
   /** A kraken swims in, seizes sharks (and may eat one), and fights the megalodon that comes for it. */
   spawnKraken(this: World, solo = false, megaHere = false): void {
@@ -105,17 +229,23 @@ export const titanMethods: TitanMethods = {
     if (time < (k.until ?? Infinity) && this.mothership?.grapple?.kraken === k && !(k.maul && k.biteAt === undefined)) {
       const b = this.mothership, g = b.grapple!;
       const age = time - g.at;
-      const aim = Math.atan2(k.y - b.y, k.x - b.x);
-      const reach = b.size * .35 + k.size * .18;
-      k.x += (b.x + Math.cos(aim) * reach - k.x) * (1 - Math.exp(-dt * 1.8));
-      k.y += (b.y + Math.sin(aim) * reach - k.y) * (1 - Math.exp(-dt * 1.8));
-      const head = Math.atan2(b.y - k.y, b.x - k.x) + Math.PI + Math.sin(age * 4.8) * .22;
-      k.heading += angleDiff(k.heading, head) * (1 - Math.exp(-dt * 3));
+      const contact = g.contact;
+      if (contact) {
+        const glide = Math.exp(-age * 3);
+        const outward = Math.atan2(Math.sin(contact.angle) / .26, Math.cos(contact.angle) / .95);
+        const x = Math.cos(contact.angle) * b.size * .95 + Math.cos(outward) * k.size * .15;
+        const y = Math.sin(contact.angle) * b.size * .26 + Math.sin(outward) * k.size * .15;
+        const tension = (1 - glide) * (1 - Math.exp(-dt * 2));
+        contact.x += contact.vx * glide * dt + (x - contact.x) * tension;
+        contact.y += contact.vy * glide * dt + (y - contact.y) * tension;
+        const offset = hullPoint(b, contact.x, contact.y);
+        k.x = offset.x;
+        k.y = offset.y;
+      }
       k.bend = Math.sin(age * 4.8) * .4;
       k.wave += dt * 2.8;
       k.jet = .35 + .15 * Math.sin(age * 5);
       k.stroke = Math.sin(age * 4) * .25;
-      g.dx = b.x - k.x; g.dy = b.y - k.y;
       return;
     }
     k.stroke = undefined;
@@ -124,6 +254,7 @@ export const titanMethods: TitanMethods = {
     // Enraged (blown about by a bomber, or the sea is under a blood moon): it holds more, reaches further and strikes far
     // more often, and takes sharks back almost as soon as it lets go of one.
     const fury = this.krakenRage() > 0;
+    const agg = clamp(this.titanAggression(k), 0, 1);
     // It stays while furious, and only turns to leave a few seconds after it has calmed down.
     if (fury)
       k.calmUntil = Math.max(k.calmUntil ?? 0, time + rand(7, 12));
@@ -155,21 +286,19 @@ export const titanMethods: TitanMethods = {
       speed /= 1 + load * .07;
       speed *= 1 + 0.06 * this.krakenRage();
       // Everything it does turns as a slow, wide, fluid curve: a heavy body that bends round, never a quick rotation.
-      turnRate = Math.min(turnRate * .7, .5) * (.45 + .55 * clamp(speed / 70, 0, 1));
+      const previousSpeed = k.swimSpeed ?? k.lastV ?? speed;
+      k.swimSpeed = previousSpeed + clamp(speed - previousSpeed, -120 * dt, 180 * dt);
+      speed = k.swimSpeed;
+      turnRate = Math.min(turnRate * .7, .28, speed / Math.max(1, k.size * .8));
       // The turn rate eases in and out (a smoothed angular velocity chasing the angle left to cover), so a new target or a
       // change of mind swings the body round in one smooth arc instead of snapping to full speed and stopping dead.
       const want = clamp(angleDiff(k.heading, heading) * 1.2, -turnRate, turnRate);
       k.angVel = (k.angVel ?? 0) + (want - (k.angVel ?? 0)) * Math.min(1, dt * ease);
       const error = angleDiff(k.heading, heading);
       const turn = Math.sign(k.angVel) === Math.sign(error) ? Math.sign(error) * Math.min(Math.abs(error), Math.abs(k.angVel * dt)) : 0;
-      const oldH = k.heading;
       k.heading += turn;
-      // Turning pivots about the middle of the mantle, not the eye: the leading end carries on along its path and the arms swing
-      // out behind, so a turn is a swimming curve and not the whole animal spinning round its eye.
-      // Moving, it turns about its leading end; hovering, about the middle of its body, so turning on the spot never swings the eye round in a wide arc.
-      const piv = k.size * (0.08 + 0.32 * clamp(speed / 220, 0, 1));
-      k.x += piv * (Math.cos(oldH) - Math.cos(k.heading));
-      k.y += piv * (Math.sin(oldH) - Math.sin(k.heading));
+      // The head travels along the swim axis. Body flex depicts a turn without
+      // adding sideways translation around an artificial pivot.
       k.bend += (turn / dt - k.bend) * Math.min(1, dt * 2);
       // Jet propulsion: it surges forward in pulses and glides between them.
       const surge = pulse ? 0.55 + 0.9 * Math.max(0, Math.sin(k.phase * 1.1)) : 1;
@@ -235,11 +364,34 @@ export const titanMethods: TitanMethods = {
       const open = 0.55 * (k.pushP ?? 0.6);
       k.stroke = pt < windup ? open * ss(pt / windup) : pt < th ? open - (open + 0.55) * ss((pt - windup) / (th - windup)) : -0.55 * Math.exp(-(pt - th) / 1.5);
       const align = Math.max(0, Math.cos(diff));
-      const v = (k.pushV ?? 400) * env * align * align * (1 - 0.3 * turnIn);
+      // Coiling changes thrust, not whether the animal is allowed to move. Keep a
+      // travelling glide while turning, and build/brake thrust over time rather
+      // than multiplying existing momentum away when the target crosses its axis.
+      const requested = 55 + (k.pushV ?? 400) * env * (.2 + .8 * align * align) * (1 - 0.3 * turnIn);
+      const previous = k.lastV ?? 55;
+      const v = previous + clamp(requested - previous, -120 * dt, 180 * dt);
       k.lastV = v;
       // A big heavy body: it comes round slowly and gently, easing in and out of every turn.
       move(v, aim, false, (pt < windup ? turnRate * 1.3 : turnRate) * 0.7, false, 2);
       k.jet = Math.max(k.jet, 0.9 * env);
+    };
+    const swimPastMega = (m: Shark) => {
+      if (k.clashPass?.target !== m || (k.state !== "wrap" && time - k.clashPass.at > 9)) {
+        const near = megaFlank(m, 6, 1), far = megaFlank(m, 6, -1);
+        const point = Math.hypot(k.x - near.x, k.y - near.y) < Math.hypot(k.x - far.x, k.y - far.y) ? near : far;
+        const distance = Math.hypot(point.x - k.x, point.y - k.y);
+        const lead = Math.min(1.5, distance / 240);
+        const x = point.x + Math.cos(m.heading) * m.speed * lead;
+        const y = point.y + Math.sin(m.heading) * m.speed * lead;
+        let heading = Math.atan2(y - k.y, x - k.x);
+        // A nearby target behind the mantle is already in reach. Swim past it
+        // with the arms trailing instead of turning back toward its head.
+        if (distance < k.size * 1.2 && Math.abs(angleDiff(k.heading, heading)) > 1.2)
+          heading = k.heading;
+        const travel = Math.max(distance, k.size * 4);
+        k.clashPass = { target: m, at: time, x: k.x + Math.cos(heading) * travel, y: k.y + Math.sin(heading) * travel };
+      }
+      charge(k.clashPass.x, k.clashPass.y, 0, .8, 520, .5);
     };
     const runAway = (wounded: boolean) => {
       k.whaleUntil = 0;
@@ -252,6 +404,7 @@ export const titanMethods: TitanMethods = {
         mega.chaseUntil = time + (k.inkEscape ? 5 : 14);
       letGo();
       k.wrapping = null;
+      k.clashPass = undefined;
       k.lunging = false;
       k.wounded = wounded;
       k.state = "flee";
@@ -345,9 +498,12 @@ export const titanMethods: TitanMethods = {
         const hy = m.nodes[1];
         const d = Math.hypot(hx - k.x, hy - k.y);
         const t = time - k.harpoon.at;
-        if (t > 0.6 && d > k.size * 0.5) {
+        const touching = krakenReachContact(this, k, m, k.harpoon.at, .35, { x: hx, y: hy });
+        if (touching) k.harpoon.hookedAt ??= time;
+        if (k.harpoon.hookedAt !== undefined && touching && d > k.size * 0.5) {
           // Hooked: the whole body is hauled in along the line of the arm.
-          const step = Math.min(d, (380 + 260 * Math.min(1, t / 2)) * dt);
+          const load = clamp((time - k.harpoon.hookedAt) / .5, 0, 1);
+          const step = Math.min(d, (380 + 260 * Math.min(1, t / 2)) * load * dt);
           const dx = ((k.x - hx) / d) * step;
           const dy = ((k.y - hy) / d) * step;
           for (let n = 0; n < m.nodes.length; n += 2) {
@@ -359,7 +515,7 @@ export const titanMethods: TitanMethods = {
             this.events.push({ kind: "splash", x: hx, y: hy, strength: 1 });
           }
         }
-        else if (t > 0.6) {
+        else if (k.harpoon.hookedAt !== undefined && touching) {
           letGo();
           m.retreat = false;
           m.leaveCalm = false;
@@ -410,12 +566,12 @@ export const titanMethods: TitanMethods = {
         const f = k.strike.f;
         if (!f.alive || f.seized || f.riding || f.dragger || !inKrakenReachArc(k, f) || Math.hypot(f.x - rx, f.y - ry) > k.size * 1.5)
           k.strike = null;
-        else if (time - k.strike.at > STRIKE_TIME) {
+        else if (krakenReachContact(this,k,f,k.strike.at,STRIKE_TIME*(1-.45*agg)) && !evadeThreat(this,f,k)) {
           f.seized = true;
           f.crushAt = time + rand(4, 7);
           k.caught.push(f);
           k.strike = null;
-          k.nextCatch = time + rand(2.5, 4.5);
+          k.nextCatch = time + rand(2.5, 4.5) * (1 - .6 * agg);
         }
       }
       else if (this.fish.some((f) => f.diver && f.alive && !f.seized && !f.riding && !f.dragger && Math.hypot(f.x - k.x, f.y - k.y) < k.size * 0.3)) {
@@ -434,14 +590,16 @@ export const titanMethods: TitanMethods = {
           if (!f.diver || !f.alive || f.riding || f.dragger || f.seized)
             continue;
           const d = Math.hypot(f.x - rx, f.y - ry);
-          if (d > k.size * ((f.stunUntil ?? 0) > time ? 1.3 : 1.1) * (fury ? 1.2 : 1) || Math.abs(angleDiff(back, Math.atan2(f.y - k.y, f.x - k.x))) > KRAKEN_ARC)
+          if (d > k.size * ((f.stunUntil ?? 0) > time ? 1.3 : 1.1) * (1 + .3 * agg) || Math.abs(angleDiff(back, Math.atan2(f.y - k.y, f.x - k.x))) > KRAKEN_ARC)
             continue;
           options.push(f);
         }
         // It picks one at random, and only sometimes bothers: the arms do not snap onto whatever comes near.
         if (options.length) {
-          if (Math.random() < (fury ? 0.92 : 0.5))
-            k.strike = { f: options[randInt(0, options.length - 1)], at: time };
+          // Anything within an arm's length is taken for certain; only the outer ring is left to chance, and less so the angrier it is.
+          const inArms = options.filter((f) => Math.hypot(f.x - rx, f.y - ry) < k.size * .6);
+          if (inArms.length || Math.random() < .94 + .05 * agg)
+            k.strike = { f: (inArms.length ? inArms : options)[randInt(0, (inArms.length ? inArms : options).length - 1)], at: time };
           else
             k.nextCatch = time + rand(1.2, 3.5) * (fury ? 0.35 : 1);
         }
@@ -455,30 +613,25 @@ export const titanMethods: TitanMethods = {
       // is chased down rather than the grab just fizzling out.
       const reaching = k.ufoStrike !== null;
       const touching = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * .35;
-      const near = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * (reaching ? 1.7 : 1.2) * (fury ? 1.2 : 1) && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC;
-      if (reaching && k.state === "grab") {
-        const gd = Math.hypot(sauc.x - k.x, sauc.y - k.y);
-        const sp = clamp((gd - k.size * 0.9) * 0.9, 0, 130);
-        k.x += ((sauc.x - k.x) / (gd || 1)) * sp * dt;
-        k.y += ((sauc.y - k.y) / (gd || 1)) * sp * dt;
-      }
+      const near = Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * (reaching ? 1.7 : 1.2) * (1 + .3 * agg) && Math.abs(angleDiff(back, Math.atan2(sauc.y - k.y, sauc.x - k.x))) < KRAKEN_ARC;
       if (k.ufoStrike === null && near) {
-        if (Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * .35 || Math.random() < (fury ? 0.92 : 0.5)) {
+        if (Math.hypot(sauc.x - k.x, sauc.y - k.y) < k.size * .6 || Math.random() < .96 + .03 * agg) {
           k.ufoTarget = sauc;
           k.ufoStrike = time;
         } else
-          k.nextCatch = time + rand(1.5, 4) * (fury ? 0.35 : 1);
+          k.nextCatch = time + rand(1.5, 4) * (1 - .65 * agg);
       }
       else if (k.ufoStrike !== null && !near)
         k.ufoStrike = null;
-      else if (k.ufoStrike !== null && time - k.ufoStrike > STRIKE_TIME * 1.8) {
+      else if (k.ufoStrike !== null && krakenReachContact(this,k,sauc,k.ufoStrike,STRIKE_TIME*(1-.45*agg))) {
         k.ufoStrike = null;
-        if (Math.hypot(sauc.x - k.x, sauc.y - k.y) >= k.size * .35 && Math.random() < 0.25)
+        if (evadeThreat(this,sauc,k))
           k.nextCatch = time + rand(3, 6);
         else {
           k.ufoTarget = sauc;
           k.ufoHeld = true;
           k.ufoUntil = time + rand(5, 8);
+          cancelCraftMotion(this,sauc);
           sauc.held = true;
           this.callout(sauc.x, sauc.y - 40, "UFO CAUGHT", "255,255,255");
         }
@@ -493,16 +646,32 @@ export const titanMethods: TitanMethods = {
       else {
         // Held out on long arms and swayed more slowly than anything else it flings about: a saucer is the heaviest catch.
         const a = k.heading + Math.PI + Math.sin(time * 0.3) * 0.55;
-        const r = Math.min(k.size * (0.9 + 0.08 * Math.sin(time * 0.45)), Math.min(W, H) * 0.45);
-        const pull = Math.min(1, dt * .8);
+        const windup = clamp(1 - (k.ufoUntil - time) / .9, 0, 1);
+        const r = Math.min(k.size * (0.9 + 0.08 * Math.sin(time * 0.45) - .22 * windup), Math.min(W, H) * 0.45);
+        const pull = 1 - Math.exp(-dt * (.8 + windup * 3));
         u.x += (k.x + Math.cos(a) * r - u.x) * pull;
         u.y += (k.y + Math.sin(a) * r - u.y) * pull;
         if (time > k.ufoUntil) {
           k.ufoHeld = false;
           u.held = false;
-          if (Math.random() < 0.7) {
+          if (Math.random() < 0.65) {
+            // The final pullback stores momentum before the arm lets go of its actual catch point.
+            const targets = [...this.attackDrones.filter(d => d.hp > 0), ...this.ufos.filter(o => o !== u && !o.pilot?.alive && !o.held)];
+            const target = targets.sort((a, b) => {
+              const density = (p: { x: number; y: number }) => targets.filter(q => Math.hypot(q.x - p.x, q.y - p.y) < 220).length;
+              return density(b) - density(a) || Math.hypot(a.x-u.x,a.y-u.y)-Math.hypot(b.x-u.x,b.y-u.y);
+            })[0] ?? { x: rand(W * .15, W * .85), y: rand(H * .2, H * .8) };
+            const aim = Math.atan2(target.y - u.y, target.x - u.x);
+            markTitanThrow(this, u);
+            kickCraft(this, u, Math.cos(aim) * 620, Math.sin(aim) * 620);
+            u.state = "seek"; u.fast = true;
+            this.callout(u.x, u.y - 40, "KRAKEN THROWS UFO", "255,200,130");
+            k.nextCatch = time + 6;
+          }
+          else if (Math.random() < .65 + .35 * agg) {
             this.callout(u.x, u.y - 40, "UFO CRUSHED", "255,110,100");
             this.destroyUfo("crushed", u);
+            this.titanKill(k);
           }
           else {
             this.callout(u.x, u.y - 40, "UFO ESCAPES", "150,255,190");
@@ -549,23 +718,29 @@ export const titanMethods: TitanMethods = {
         k.whaleU = (k.whaleU ?? wm2.u) + (wm2.u - (k.whaleU ?? wm2.u)) * Math.min(1, dt * 3);
         const dd = wm2.d;
         const stop = k.whaleLanded === undefined ? k.size * 0.5 : k.size * 0.9;
-        // It lunges at the whale like the megalodon does: head first in a hard surge that builds, then it swings round so
-        // the arms take hold as it lands.
+        // Carry the swim through a close pass until the whale enters the arm arc.
         const toward2 = Math.atan2(wm2.y - k.y, wm2.x - k.x);
         if (k.whaleLanded === undefined && dd <= stop && !inKrakenReachArc(k, wm2)) {
-          move(45, toward2 + Math.PI, true, .9);
-        } else if (dd > stop) {
+          charge(wm2.x, wm2.y, 1, 1.8, 320, .65);
+        } else if (k.whaleLanded === undefined && dd > stop) {
           charge(wm2.x, wm2.y, this.krakenTurnIn(dd, k.size), 1.8, 470, 1.1);
         }
         else {
           k.stroke = undefined;
           // Clamped on, it is carried along with the whale and eases in against it while the body settles arms-first.
-          const carry = whale.speed;
+          const glide = Math.exp(-Math.max(0, time - (k.whaleLanded ?? time)) * 4);
+          const incoming = (k.whaleLanded === undefined ? k.lastV ?? 0 : k.landV ?? 0) * glide;
+          k.x += Math.cos(k.heading) * incoming * dt;
+          k.y += Math.sin(k.heading) * incoming * dt;
+          const carry = whale.speed * (1 - glide);
           k.x += Math.cos(whale.heading) * carry * dt + ((wm2.x - k.x) / (dd || 1)) * Math.max(0, dd - stop * 0.5) * 2 * dt;
           k.y += Math.sin(whale.heading) * carry * dt + ((wm2.y - k.y) / (dd || 1)) * Math.max(0, dd - stop * 0.5) * 2 * dt;
-          move(0, toward2 + Math.PI, false, 1.2);
+          // The grip carries the body in its arrival orientation; arms conform
+          // to the contact instead of rotating the animal into a preset pose.
+          move(0, k.heading, false, 1.2);
           if (k.whaleLanded === undefined) {
             // Lands: all the arms take hold now, and the hold clock starts here.
+            k.landV = k.lastV ?? 0;
             k.whaleLanded = time;
             k.whaleStart = time;
             k.whaleUntil = time + (k.whaleDur ?? 5);
@@ -670,16 +845,20 @@ export const titanMethods: TitanMethods = {
       }
       const dx = k.x - m.nodes[0], dy = k.y - m.nodes[1];
       const d = Math.hypot(dx, dy);
-      // Steer away from the moving hunter, with room to arc back into open water at an edge.
+      // Keep the course it was already swimming. The hunter must solve the
+      // interception; its approach cannot turn the victim into its jaws.
       const margin = Math.min(k.size * .6, Math.min(W, H) * .2);
       const ex = k.x < margin ? 2 : k.x > W - margin ? -2 : 0;
       const ey = k.y < margin ? 2 : k.y > H - margin ? -2 : 0;
-      const away = Math.atan2(dy / (d || 1) + ey, dx / (d || 1) + ex);
-      k.maulRun.heading += clamp(angleDiff(k.maulRun.heading, away), -.45 * dt, .45 * dt);
+      if (ex || ey) {
+        const inward = Math.atan2(ey, ex);
+        k.maulRun.heading += clamp(angleDiff(k.maulRun.heading, inward), -.15 * dt, .15 * dt);
+      }
       move(120, k.maulRun.heading, true, 1.1);
-      k.wave += dt * 2;
-      if (Math.hypot(k.x - m.nodes[0], k.y - m.nodes[1]) < k.size * .04) {
+      const jawAngle = Math.abs(angleDiff(m.heading, Math.atan2(k.y - m.nodes[1], k.x - m.nodes[0])));
+      if (d < k.size * .04 && (d < 2 || jawAngle < .7)) {
         k.biteAt = time;
+        biteContacts.set(k, { at: time, reach: Math.max(2, d) });
         k.stateAt = time;
         m.chompAt = time;
         this.notices.push("the megalodon caught the kraken in its jaws!");
@@ -721,8 +900,8 @@ export const titanMethods: TitanMethods = {
       // A whale it has hold of keeps its arms turned toward it.
       if (!goal && k.whaleUntil > 0 && k.whaleTarget)
         goal = this.whaleMid(k.whaleTarget);
-      if (!goal && k.ufoStrike !== null && this.ufo)
-        goal = { x: this.ufo.x, y: this.ufo.y };
+      if (!goal && k.ufoStrike !== null && k.ufoTarget)
+        goal = { x: k.ufoTarget.x, y: k.ufoTarget.y };
       // Now and then it picks a whale and swims across the tank to it.
       if (k.hunt && (!this.whales.includes(k.hunt) || k.hunt.fleeing || k.whaleUntil > 0 || time - (k.huntAt ?? 0) > 30))
         k.hunt = undefined;
@@ -767,11 +946,7 @@ export const titanMethods: TitanMethods = {
         }
         if (goal && !k.hunt && !(k.hullUntil !== undefined && k.hullUntil > time)) {
           // Drifts in only until the target is within its long reach.
-          const gd = Math.hypot(goal.x - k.x, goal.y - k.y);
-          const sp = clamp((gd - k.size * 1.2) * 0.3, 0, 45);
-          const toward = Math.atan2(goal.y - k.y, goal.x - k.x);
-          k.x += Math.cos(toward) * sp * dt;
-          k.y += Math.sin(toward) * sp * dt;
+          // The movement phase below owns body translation and turning.
         }
       }
       let want = k.heading;
@@ -804,30 +979,19 @@ export const titanMethods: TitanMethods = {
         const strike = k.hullStrike;
         const age = time - strike.at;
         const toward = Math.atan2(hull!.y - k.y, hull!.x - k.x);
-        const aligned = Math.abs(angleDiff(k.heading + Math.PI, toward)) < KRAKEN_ARC - .1;
         strike.heading ??= toward + (angleDiff(k.heading, toward) >= 0 ? -1 : 1) * 1.1;
-        if (strike.reachAt !== undefined) {
-          // Glide through the opening while the branching arms close; do not keep steering for a perfect heading.
-          move(15, k.heading, false, .25, false, 2);
-          k.stroke = .5 * (1 - ss(clamp((time - strike.reachAt) / .8, 0, 1)));
-          k.jet *= Math.exp(-dt * 2);
-        } else if ((age > 5 && !strike.launched) || (strike.launchedAt !== undefined && time - strike.launchedAt > 3)) {
-          // An interception that lost its line becomes a swim-past, not an endless wind-up.
+        if (age > 5) {
           k.hullStrike = undefined;
           k.hullUntil = 0;
           k.nextHull = time + 12;
           k.wanderTo = k.heading;
           k.wanderAt = time + 5;
           move(75, k.heading, true, 1, false, 2);
-        } else if (!strike.launched && (age < (fury ? .9 : 1.6) || !aligned)) {
-          // Mantle leads a shallow pass; the side arms line up without a half-turn.
-          move(38, strike.heading, true, .65, false, 2);
-          k.stroke = .45 * ss(clamp(age / 1.2, 0, 1));
-          k.jet *= Math.exp(-dt * 2);
         } else {
-          if (!strike.launched) { strike.launched = true; strike.launchedAt = time; k.pushAt = undefined; }
+          strike.launched = true;
+          strike.launchedAt ??= time;
           const course = strike.heading;
-          charge(k.x + Math.cos(course) * k.size, k.y + Math.sin(course) * k.size, 0, .65, fury ? 460 : 310, .18);
+          charge(k.x + Math.cos(course) * k.size, k.y + Math.sin(course) * k.size, 0, .85, fury ? 460 : 310, .35);
         }
       }
       else if (hull && hull.phase === "battle" && !hull.warp && !hull.spin && k.hullUntil !== undefined && k.hullUntil > time && !hull.grapple) {
@@ -856,8 +1020,7 @@ export const titanMethods: TitanMethods = {
       else if (mega && !mega.retreat && k.whaleUntil === 0 && !k.caught.length && (k.megaSeenAt ??= time) !== undefined && time - k.megaSeenAt > 1.5) {
         // A titan in the tank is a rival it goes for willingly: it swims straight at the megalodon, thrust and glide, curving in
         // so its arms face it, and wraps it the moment it is in reach.
-        const mgap = Math.hypot(mega.nodes[0] - k.x, mega.nodes[1] - k.y);
-        charge(mega.nodes[0], mega.nodes[1], this.krakenTurnIn(mgap, k.size), 1.8, 600, 0.5);
+        swimPastMega(mega);
       }
       else if (k.whaleUntil === 0) {
         // Lurking: it never just sits and pivots. It floats on, a slow surging drift that wanders gently, and any turn (to face
@@ -909,53 +1072,42 @@ export const titanMethods: TitanMethods = {
     }
     else if (k.state === "wrap") {
       const m = k.wrapping;
+      let canLand = false;
+      let flank = m && megaFlank(m, 6, 1);
+      if (m && k.lunging) {
+        if (k.megaGrip?.target !== m || k.megaGrip.attempt !== k.stateAt) {
+          const near = megaFlank(m, 6, 1), far = megaFlank(m, 6, -1);
+          const side = Math.hypot(k.x - near.x, k.y - near.y) <= Math.hypot(k.x - far.x, k.y - far.y) ? 1 : -1;
+          k.megaGrip = { target: m, side, attempt: k.stateAt };
+        }
+        const grip = k.megaGrip;
+        flank = megaFlank(m, 6, grip.side);
+        if (Math.hypot(flank.x - k.x, flank.y - k.y) < k.size * .72 && inKrakenReachArc(k, flank)) {
+          grip.reachAt ??= time;
+          canLand = krakenReachContact(this, k, m, grip.reachAt, .28, flank);
+        } else grip.reachAt = undefined;
+      }
       if (!m || !this.sharks.includes(m)) {
         runAway(true);
       }
-      else if (k.lunging && time - k.stateAt >= 7 && Math.hypot(m.nodes[12] - k.x, m.nodes[13] - k.y) > k.size * .35) {
+      else if (k.lunging && time - k.stateAt >= 7 && !canLand) {
         // A missed pass stays a miss, never a remote attachment that drags both animals together.
         runAway(false);
         return;
       }
-      else if (k.lunging && Math.hypot(m.nodes[12] - k.x, m.nodes[13] - k.y) > k.size * .35) {
-        // Three beats, one after the other: (1) it turns to face the megalodon with its arms drawing out, (2) it thrusts straight at it,
-        // the arms snapping shut behind, (3) it lands and the arms close (the branch below). It never starts the next beat early.
-        const lead = Math.min(.65, Math.hypot(m.nodes[12] - k.x, m.nodes[13] - k.y) / 500);
-        const tx = m.nodes[12] + Math.cos(m.heading) * m.speed * lead;
-        const ty = m.nodes[13] + Math.sin(m.heading) * m.speed * lead;
-        const gap = Math.hypot(tx - k.x, ty - k.y);
-        const toward = Math.atan2(ty - k.y, tx - k.x);
-        // It goes in arms first (the heading points away from the megalodon, the arms lead), which is how it will sit once it has landed, so
-        // there is no swing round after the landing.
-        const facing = toward + Math.PI;
-        const t0 = time - k.stateAt;
-        if (k.pushAt === undefined) {
-          k.stroke = 0.55 * ss(t0 / 1.1);
-          k.lastV = 0;
-          move(0, facing, false, 1.7, false, 3);
-          k.jet = Math.max(k.jet * 0.92, 0.15);
-          if (Math.abs(angleDiff(k.heading, facing)) < 0.28 && t0 > 0.9) {
-            k.pushAt = time;
-            k.pushV = clamp(gap * 2.6, 520, 1100);
-          }
-        }
-        else {
-          const tt = time - k.pushAt;
-          if (tt > 2.2) { k.pushAt = undefined; k.lastV = 0; return; }
-          k.stroke = tt < 0.3 ? 0.55 - 1.1 * ss(tt / 0.3) : -0.55 * Math.exp(-(tt - 0.3) / 1.2);
-          const alignment = Math.max(0, Math.cos(angleDiff(k.heading, facing)));
-          const v = Math.min(gap * 2, (k.pushV ?? 600) * (0.35 + 0.65 * ss(tt / 0.25)) * Math.exp(-tt / 1.1)) * alignment;
-          k.lastV = v;
-          move(v, facing, false, 1.0, true, 2);
-          k.jet = 1;
-        }
+      else if (k.lunging && !canLand) {
+        // Hunt through the wind-up on the same mantle-first swimming course.
+        // Reaching follows the pass; there is no parked half-turn, reverse launch,
+        // or heading prerequisite that can hold the animal in an attack pose.
+        swimPastMega(m);
       }
       else {
         if (k.lunging) {
           // Lands: the fight clock starts here. It lands while still gliding, and the arms start reaching as it does.
           k.lunging = false;
           k.landAt = time;
-          k.landV = k.lastV ?? 0;
+          k.landV = k.swimSpeed ?? k.lastV ?? 0;
+          if (k.megaGrip) k.megaGrip.reach = Math.hypot(flank!.x - k.x, flank!.y - k.y);
           k.pushAt = undefined;
           k.stateAt = time;
           k.nextShake = time + rand(3, 4.2);
@@ -987,12 +1139,16 @@ export const titanMethods: TitanMethods = {
           k.tilt = -0.1;
           this.callout(k.x, k.y - k.size * 0.3, turned, "130,175,235");
         }
-        // Every few seconds the megalodon whips its head and flings the kraken around it.
+        // Every few seconds the megalodon clamps down and shakes its head, flinging the kraken around it. The jaws do the work; the
+        // tail never hits the kraken.
         if (time >= k.nextShake && time >= k.shakeUntil) {
           k.shakeUntil = time + 1.3;
           k.nextShake = time + rand(2.5, 4) * (k.winner === "mega" ? 1 - 0.4 * progress : 1 + 0.6 * progress) * (1 - 0.35 * this.krakenRage());
           this.splash(m.nodes[0], m.nodes[1], 1.6);
+          this.titanImpact(.8);
+          m.chompAt = time;
         }
+        m.shake = time < k.shakeUntil ? { amp: k.winner === "mega" ? 1 : .7, phase: m.shake?.phase ?? 0 } : undefined;
         // As the megalodon tires, the other sharks come to its rescue; if two reach the kraken, it lets go.
         if (k.winner === "kraken" && !k.doom && !k.maul && !k.rally && progress > 0.25) {
           k.rally = true;
@@ -1019,40 +1175,17 @@ export const titanMethods: TitanMethods = {
           runAway(true);
           return;
         }
-        const shaking = time < k.shakeUntil || !!k.maul;
-        const fling = (shaking ? k.size * 0.09 : k.size * 0.025) * (1 + 0.5 * this.krakenRage());
-        // Right after landing it keeps the glide it arrived with and is only drawn onto the megalodon gradually, so the
-        // lunge runs straight into the clamp: the pull and the turn both ease in over the first second.
-        const sl = clamp((time - (k.landAt ?? -9)) / 1.0, 0, 1);
-        const ease = sl * sl * (3 - 2 * sl);
-        if (sl < 1) {
-          const carry = (k.landV ?? 0) * (1 - ease) * 0.6;
-          k.x += Math.cos(k.heading) * carry * dt;
-          k.y += Math.sin(k.heading) * carry * dt;
-        }
+        // Holding changes the load on a swim stroke. Keep its existing course
+        // and propulsion, then constrain only the separation at the grip.
+        move(k.maul ? 80 : 65, k.maul ? k.maulRun?.heading ?? k.heading : k.heading, true, .5);
         if (k.maul) {
           // Its head is in the jaws: the kraken is carried at the snout and whipped from side to side, mantle and arms flying.
-          const t = time - k.stateAt;
-          const hd = Math.atan2(m.nodes[1] - m.nodes[3], m.nodes[0] - m.nodes[2]);
-          let swing = 0;
-          {
-            // Clamped: the kraken rides the jaws and is whipped from side to side, building up from a gentle sway.
-            const bt = time - k.biteAt!;
-            const sway = Math.min(1, bt / 0.8);
-            swing = Math.sin(bt * 4.6) * (0.45 + 0.3 * Math.sin(t * 1.7)) * sway;
-            const grip = 1; // A closed bite is a contact constraint, not a trailing spring.
-            const gx = m.nodes[0] + Math.cos(hd) * k.size * 0.03;
-            const gy = m.nodes[1] + Math.sin(hd) * k.size * 0.03;
-            k.x += (gx - k.x) * grip;
-            k.y += (gy - k.y) * grip;
-            // Face the jaws, flung round by each swing; the mantle trails away from the megalodon.
-            k.heading += angleDiff(k.heading, hd + Math.PI + swing * 0.8) * Math.min(1, dt * 5);
+          let contact = biteContacts.get(k);
+          if (!contact || contact.at !== k.biteAt) {
+            contact = { at: k.biteAt!, reach: Math.min(k.size * .04, Math.hypot(k.x - m.nodes[0], k.y - m.nodes[1])) };
+            biteContacts.set(k, contact);
           }
-          if (k.biteAt !== undefined) {
-            k.angVel = 0;
-            k.jet = 1;
-          }
-          k.wave += dt * 6;
+          tension(k, m, { x: m.nodes[0], y: m.nodes[1] }, contact.reach, dt);
           if (k.biteAt !== undefined && time - k.inkAt > 0.35) {
             k.inkAt = time;
             this.events.push({ kind: "eat", x: k.x, y: k.y });
@@ -1062,18 +1195,15 @@ export const titanMethods: TitanMethods = {
           }
         }
         else {
-          const pull = Math.min(1, dt * (0.6 + 4.4 * ease));
-          let px = (m.nodes[8] + Math.sin(time * 3.6) * fling - k.x) * pull;
-          let py = (m.nodes[9] + Math.cos(time * 3.2) * fling - k.y) * pull;
-          const stepMax = 650 * dt;
-          const stepLen = Math.hypot(px, py);
-          if (stepLen > stepMax) {
-            px *= stepMax / stepLen;
-            py *= stepMax / stepLen;
-          }
-          k.x += px;
-          k.y += py;
-          move(0, Math.atan2(m.nodes[25] - k.y, m.nodes[24] - k.x) + Math.PI, false, 1.2 + 2.3 * ease);
+          // Hold beside the visible flank, never pull the Kraken's eye/head
+          // into the shark's centreline to make the wrap fit.
+          const near = megaFlank(m, 6, 1), far = megaFlank(m, 6, -1);
+          const side = k.megaGrip?.target === m ? k.megaGrip.side
+            : Math.hypot(k.x - near.x, k.y - near.y) <= Math.hypot(k.x - far.x, k.y - far.y) ? 1 : -1;
+          const point = megaFlank(m, 6, side);
+          const grip = k.megaGrip?.target === m ? k.megaGrip : undefined;
+          const reach = grip?.reach ?? k.size * .3;
+          tension(k, m, point, reach, dt);
         }
         if (!k.maul && time - k.inkAt > 0.8) {
           k.inkAt = time;
@@ -1218,7 +1348,8 @@ export const titanMethods: TitanMethods = {
       if (time < k.until! && mega && !mega.retreat && (mega.victoryUntil ?? 0) <= time) {
         if (k.inkEscape) {
           // Enough ink in the water and the megalodon loses it.
-          if (!k.inkShown && time - k.stateAt > 1.2 && this.inks.length) {
+          if(!k.inkShown&&time-k.stateAt>1.2&&this.inks.length&&(mega.chaseUntil??0)>time){loseMegaTrail(mega,time);this.provocations.delete(mega);}
+          if (!k.inkShown && time - k.stateAt > 1.2 && this.inks.length && Math.hypot(k.x-mega.nodes[0],k.y-mega.nodes[1])>Math.max(k.size*.65,mega.length*.5)) {
             k.inkShown = true;
             mega.chaseUntil = Math.min(mega.chaseUntil ?? 0, time + 0.5);
             this.callout(k.x, k.y - k.size * 0.3, "INK CLOUD - MEGALODON LOSES IT", "200,170,255");
@@ -1280,9 +1411,21 @@ export const titanMethods: TitanMethods = {
    * Nothing shoulders past a titan unharmed. A shark or diver that runs into the megalodon's body is bitten or eaten,
    * and a shark that blunders into the kraken is seized.
    */
-  stepTitanContacts(this: World): void {
+  stepTitanContacts(this: World, dt=1/60): void {
     const { time } = this;
     const mega = this.sharks.find((sh) => sh.mega);
+    // Anger is announced once per spell, and can be announced again after it has cooled.
+    for (const t of [mega, this.kraken]) {
+      if (!t)
+        continue;
+      const rage = this.titanAggression(t);
+      if (rage >= .7 && !t.enragedNoted && !this.quietSpawn) {
+        t.enragedNoted = true;
+        this.notices.push("nodes" in t ? "the megalodon is enraged" : "the kraken is enraged");
+      }
+      else if (rage < .4)
+        t.enragedNoted = false;
+    }
     if (mega) {
       const bodyTouch = (x: number, y: number, pad: number) => {
         for (let n = 0; n < SHARK_NODES; n += 2) {
@@ -1291,6 +1434,7 @@ export const titanMethods: TitanMethods = {
         }
         return false;
       };
+      stepMegaBody(this, mega);
       const outline = bodyPoints(this, mega);
       const oldSpine = contactSpines.get(mega);
       for (const f of this.fish) {
@@ -1315,56 +1459,7 @@ export const titanMethods: TitanMethods = {
         }
       }
       contactSpines.set(mega, Float64Array.from(mega.nodes));
-      const bt = mega.biteTarget;
-      const tx = bt ? (bt.shark ? bt.shark.nodes[0] : bt.fish!.x) : 0;
-      const ty = bt ? (bt.shark ? bt.shark.nodes[1] : bt.fish!.y) : 0;
-      const gone = !bt || time > bt.until || (bt.shark ? !this.sharks.includes(bt.shark) : !bt.fish!.alive);
-      if (gone)
-        mega.biteTarget = undefined;
-      else if (time >= (mega.nextBite ?? 0) && Math.hypot(mega.nodes[0] - tx, mega.nodes[1] - ty) < mega.length * 0.07 + (bt!.shark ? bt!.shark.length * 0.05 : 14)) {
-        // Its mouth has reached what it turned on: now it bites.
-        mega.biteTarget = undefined;
-        mega.chompAt = time;
-        mega.nextBite = time + (bt!.fish ? 1 : 2.5);
-        this.events.push({ kind: "eat", x: tx, y: ty });
-        if (bt!.shark) {
-          const victim = bt!.shark;
-          this.splash(tx, ty, 1.8);
-          if (Math.random() < 0.4) {
-            this.sharks = this.sharks.filter((sh) => sh !== victim);
-            if (this.fight && (this.fight.a === victim || this.fight.b === victim))
-              this.fight = null;
-            this.callout(tx, ty - 40, "SHARK EATEN", "255,120,110");
-            this.notices.push("the megalodon ate a shark... ouch!");
-          }
-          else {
-            // Snapped at and sent flying: it bolts away from the megalodon.
-            victim.heading = Math.atan2(ty - mega.nodes[1], tx - mega.nodes[0]);
-            victim.speed = 150;
-            victim.target = null;
-            victim.alertUntil = time + 2;
-            this.callout(tx, ty - 40, "SHARK BITTEN", "255,170,120");
-          }
-        }
-        else {
-          const d = bt!.fish!;
-          if (this.blasterEscape(d, 0.15, mega.nodes[0], mega.nodes[1]))
-            return;
-          if (this.absorbDiverShield(d)) return;
-          d.alive = false;
-          d.respawnAt = time + rand(3, 8);
-          this.callout(tx, ty - 30, "DIVER EATEN", "255,120,110");
-          this.diverQuip("eaten");
-        }
-      }
-      else if (!mega.biteTarget && !mega.retreat && this.kraken?.wrapping !== mega && this.whaleFight?.mega !== mega) {
-        // It actively picks nearby divers; sharks brushing its body can also draw a bite.
-        const shark = this.sharks.find((sh) => !sh.mega && !sh.leaving && !sh.grabbed && !sh.lifted && !sh.ufoCharge && bodyTouch(sh.nodes[0], sh.nodes[1], sh.length * 0.05));
-        const diver = this.fish.filter(f => f.diver && f.alive && !f.seized && !f.riding && !f.dragger && !f.held && !f.eoeBound && Math.hypot(f.x - mega.nodes[0], f.y - mega.nodes[1]) < mega.length * 2)
-          .sort((a, b) => Math.hypot(a.x - mega.nodes[0], a.y - mega.nodes[1]) - Math.hypot(b.x - mega.nodes[0], b.y - mega.nodes[1]))[0];
-        if (shark || diver)
-          mega.biteTarget = diver ? { fish: diver, until: time + 7 } : { shark, until: time + 4 };
-      }
+      stepMegaHunt(this, mega, dt);
     }
     const k = this.kraken;
     if (k && (k.state === "enter" || k.state === "grab") && k.grabbed.length < 4 && (k.whaleUntil === 0 || this.krakenRage() > 0)) {
@@ -1602,6 +1697,7 @@ export const titanMethods: TitanMethods = {
     const { time } = this;
     // Enraged, it is far readier to kill: it eats more, takes sharks sooner and reaches for them far more often.
     const fury = this.krakenRage() > 0;
+    const agg = clamp(this.titanAggression(k), 0, 1);
     for (const sh of [...k.grabbed]) {
       sh.devourAt ??= time + rand(7, 15) * (fury ? 0.5 : 1);
       if (time < sh.devourAt)
@@ -1619,6 +1715,7 @@ export const titanMethods: TitanMethods = {
         this.events.push({ kind: "eat", x: sh.nodes[0], y: sh.nodes[1] });
         this.splash(k.x, k.y, 2.2);
         this.notices.push("the kraken ate a shark... gulp!");
+        this.titanKill(k);
         this.callout(k.x, k.y - k.size * 0.25, "SHARK EATEN", "255,120,110");
         this.nextSharkDrift = Math.min(this.nextSharkDrift, time + rand(10, 18));
         this.growNext = true;
@@ -1637,14 +1734,14 @@ export const titanMethods: TitanMethods = {
     const strikes = (k.sharkStrikes ??= []);
     for (const st of [...strikes]) {
       // An arm is blooming toward its shark; if the shark swims off, or the arm is not quick enough, it comes to nothing.
-      const gone = !this.sharks.includes(st.sh) || !free(st.sh) || !inArc(st.sh) || Math.hypot(st.sh.nodes[0] - k.x, st.sh.nodes[1] - k.y) > k.size * (fury ? 1.7 : 1.2) || k.hunt || (k.whaleUntil > 0 && !fury);
+      const gone = !this.sharks.includes(st.sh) || !free(st.sh) || !inArc(st.sh) || Math.hypot(st.sh.nodes[0] - k.x, st.sh.nodes[1] - k.y) > k.size * (1.2 + .5 * agg) || k.hunt || (k.whaleUntil > 0 && !fury);
       if (gone) {
         k.sharkStrikes = k.sharkStrikes!.filter((o) => o !== st);
         k.nextGrab = Math.min(k.nextGrab, time + rand(1, 2.5));
       }
-      else if (time - st.at > st.dur) {
+      else if (krakenReachContact(this,k,st.sh,st.at,st.dur)) {
         k.sharkStrikes = k.sharkStrikes!.filter((o) => o !== st);
-        if (Math.random() < (fury ? 0.05 : 0.2))
+        if (Math.random() < .025 * (1 - agg) * (1 - agg))
           k.nextGrab = Math.min(k.nextGrab, time + rand(1.5, 3));
         else {
           st.sh.grabbed = true;
@@ -1663,10 +1760,10 @@ export const titanMethods: TitanMethods = {
     if (!k.hunt && (k.whaleUntil === 0 || fury) && k.grabbed.length + k.sharkStrikes!.length < k.grabCount && busy < (fury ? 9 : 8) && k.regrabs < (fury ? 60 : 30) && time >= k.nextGrab) {
       k.nextGrab = time + rand(0.8, 3);
       // Sometimes it just watches. When it does reach, it picks one of the sharks in range at random, favouring the closer ones.
-      if (Math.random() < (fury ? 0.95 : 0.65)) {
+      if (Math.random() < .96 + .03 * agg) {
         const dirOf = (sh: Shark) => Math.atan2(sh.nodes[1] - k.y, sh.nodes[0] - k.x);
         const taken = [...k.grabbed, ...k.sharkStrikes!.map((o) => o.sh)];
-        const options = this.sharks.filter((sh) => free(sh) && inArc(sh) && !taken.includes(sh) && Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y) < k.size * (fury ? 1.2 : 0.85)
+        const options = this.sharks.filter((sh) => free(sh) && inArc(sh) && !taken.includes(sh) && Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y) < k.size * (.95 + .3 * agg)
           && taken.every((o) => Math.abs(angleDiff(dirOf(o), dirOf(sh))) > 0.4));
         if (options.length) {
           const weights = options.map((sh) => 1 / (60 + Math.hypot(sh.nodes[0] - k.x, sh.nodes[1] - k.y)));

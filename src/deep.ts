@@ -1,7 +1,9 @@
+import { subGeometry, subMuzzle } from "./sub-geometry";
 import { stepEmp } from "./thunderstorm";
 import { craftEntry } from "./spawn-spacing";
 import { angleDiff, clamp, rand, randInt, TAU } from "./math";
-import { UFO_HITS_TO_BREAK, CRAFT_HULL_HP } from "./types";
+import { CRAFT_HULL_HP } from "./types";
+import { damageCraftInBlast } from "./craft-blast";
 import { SHARK_NODES } from "./types";
 import type { Ufo } from "./types";
 import type { AttackDrone, Mothership } from "./encounters";
@@ -41,6 +43,16 @@ export interface Leviathan {
   hitAt: number;
 }
 export interface Sub {
+  sessionId?: string;
+  maxHull?: number;
+  commanderHold?: import("./commanders").CommanderHold;
+  nextTitanGrab?: number;
+  missileUsed?: boolean;
+  /** A fired commander missile reloads slowly, in case another mothership arrives. */
+  missileReadyAt?: number;
+  launchAt?: number;
+  engineerReplaceAt?: number;
+  safeSince?: number;
   emp?: import("./thunderstorm").EmpState;
   x: number;
   y: number;
@@ -99,7 +111,7 @@ export interface Agitation {
 export interface DeepMethods {
   spawnLeviathan(this: World): boolean;
   spawnSub(this: World, crew?: "claude" | "codex", manual?: boolean): boolean;
-  setWorkers(this: World, claude: boolean, codex: boolean): void;
+  setWorkers(this: World, sessions: { source: "claude" | "codex"; id: string }[] | boolean, codex?: boolean): void;
   stepDeep(this: World, dt: number): void;
   destroySub(this: World, sb: Sub, notice: string, vaporize?: boolean): void;
   agitate(this: World, sh: Shark, mode: "attack" | "flee", from: {
@@ -141,11 +153,11 @@ export const deepMethods: DeepMethods = {
       return;
     this.subs = this.subs.filter((s) => s !== sb);
     if (!vaporize) {
-      spawnCraftDebris(this, "sub", sb.x, sb.y, 160, 70);
+      spawnCraftDebris(this, "sub", sb.x, sb.y, subGeometry(this.width,sb).halfLength*2, 70, subGeometry(this.width,sb).scale);
       this.ufoBlasts.push({ x: sb.x, y: sb.y, at: this.time + .25, kind: "sub" });
       this.blasts.push({ x: sb.x, y: sb.y, born: this.time });
       this.notices.push(notice);
-      spawnCraftScrap(this, "sub", sb.x, sb.y);
+      spawnCraftScrap(this, "sub", sb.x, sb.y, subGeometry(this.width,sb).scale);
     }
     this.splash(sb.x, sb.y, 2, undefined, { weight: 2, max: 260 });
     this.events.push({ kind: "eat", x: sb.x, y: sb.y });
@@ -202,32 +214,31 @@ export const deepMethods: DeepMethods = {
     this.subs.push({
       x: entry.x, y: entry.y, vx: 0, vy: 0, face, born: entry.at, arrival: { x: entry.tx, y: entry.ty, at: entry.at },
       until: entry.at + (crew ? Infinity : rand(70, 110)), crew, leaving: false, nextPing: time + rand(1.5, 4), pingAt: -99,
-      nextTorp: time + 4, hull: CRAFT_HULL_HP, fleeUntil: 0, bob: rand(0, TAU), hitAt: -99, bumpAt: -99,
+      nextTorp: time + 4, hull: crew ? 16 : CRAFT_HULL_HP, maxHull: crew ? 16 : CRAFT_HULL_HP, fleeUntil: 0, bob: rand(0, TAU), hitAt: -99, bumpAt: -99,
     });
     if (!crew)
       this.notices.push(pick(SUB_LINES));
     else this.notices.push(crew === "claude" ? "claude crew reporting... orange submarine diving in." : "codex crew reporting... purple submarine diving in.");
     return true;
   },
-  setWorkers(this: World, claude: boolean, codex: boolean) {
-    if (this.eoe)
-      return;
-    for (const [who, on] of [["claude", claude], ["codex", codex]] as const) {
-      const sub = this.subs.find((s) => s.crew === who);
-      if (on && !sub && this.width)
-        this.spawnSub(who);
-      if (on && sub?.leaving) {
-        sub.leaving = false; sub.until = Infinity;
-        this.notices.push(`${who} crew is back on duty... turning the submarine around.`);
+  setWorkers(this: World, sessions: { source: "claude" | "codex"; id: string }[] | boolean, codex = false) {
+    if (typeof sessions === "boolean") sessions = [...(sessions ? [{source:"claude" as const,id:"legacy-claude"}] : []), ...(codex ? [{source:"codex" as const,id:"legacy-codex"}] : [])];
+    if (this.eoe) return;
+    const active = new Set(sessions.map(s => `${s.source}:${s.id}`));
+    for (const session of sessions) {
+      let sub = this.subs.find(s => s.crew === session.source && s.sessionId === session.id);
+      if (!sub && this.width) {
+        this.spawnSub(session.source);
+        sub = this.subs[this.subs.length - 1];
+        sub.sessionId = session.id;
       }
-      if (!on && sub && !sub.leaving) {
-        sub.leaving = true;
-        this.notices.push(`${who} crew is surfacing... leaving a little treasure behind.`);
-        // Work is done: the crew surfaces, scattering a little treasure where it turned.
-        for (let i = 0; i < 8; i++)
-          this.mess.push({ x: sub.x + rand(-20, 20), y: sub.y + 10, vx: rand(-12, 12), vy: rand(10, 40), born: this.time, glyph: i % 3 ? "$" : "*", rgb: "255,215,90" });
-        this.splash(sub.x, sub.y, 1.2, who === "claude" ? 1 : 0);
-      }
+      if (sub) { sub.leaving = false; sub.until = Infinity; }
+    }
+    for (const sub of this.subs) if (sub.crew && !active.has(`${sub.crew}:${sub.sessionId}`) && !sub.leaving) {
+      sub.leaving = true;
+      this.notices.push(`${sub.crew} crew is surfacing... mission complete.`);
+      for(let i=0;i<8;i++) this.mess.push({x:sub.x+rand(-20,20),y:sub.y+10,vx:rand(-12,12),vy:rand(10,40),born:this.time,glyph:i%3?"$":"*",rgb:"255,215,90"});
+      this.splash(sub.x, sub.y, 1.2);
     }
   },
   stepDeep(this: World, dt: number) {
@@ -463,6 +474,8 @@ export const deepMethods: DeepMethods = {
     // --- Submarines ------------------------------------------------------------------------------------------------------
     const ghostBody = this.leviathan ? ghostBlobs(this.leviathan) : [];
     for (const sb of this.subs) {
+      if (sb.commanderHold) continue;
+      if (sb.crew && sb.seizedByKraken) continue;
       if (!isCraftDriven(this, sb) && !sb.seizedByKraken && stepEmp(this, sb, dt)) continue;
       if (sb.arrival && !isCraftDriven(this, sb) && !sb.seizedByKraken) {
         if (time < sb.arrival.at) continue;
@@ -504,7 +517,7 @@ export const deepMethods: DeepMethods = {
         if (time >= sb.nextTorp) {
           sb.nextTorp = time + 10;
           const aim = Math.atan2(k.y - sb.y, k.x - sb.x);
-          this.torpedoes.push({ x: sb.x, y: sb.y, vx: Math.cos(aim) * 190, vy: Math.sin(aim) * 190, born: time, trail: [], owner: sb });
+          this.torpedoes.push({ ...subMuzzle(this.width,sb), vx: Math.cos(aim) * 190, vy: Math.sin(aim) * 190, born: time, trail: [], owner: sb });
         }
         continue;
       }
@@ -622,7 +635,7 @@ export const deepMethods: DeepMethods = {
           sb.nextTorp = nextAttackAt(this, sb, Math.hypot(aimAt.x - sb.x, aimAt.y - sb.y), 10);
           const a = Math.atan2(aimAt.y - sb.y, aimAt.x - sb.x);
           this.whisper(sb.x, sb.y - 40, "FWOOSH", "255,210,120");
-          this.torpedoes.push({ x: sb.x + Math.cos(a) * 60, y: sb.y + Math.sin(a) * 30, vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, born: time, trail: [], owner: sb });
+          this.torpedoes.push({ ...subMuzzle(this.width,sb), vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, born: time, trail: [], owner: sb });
         }
         else
           sb.nextTorp = time + 1;
@@ -655,12 +668,8 @@ export const deepMethods: DeepMethods = {
       }
       const craft = !hit ? this.ufos.find(u => !u.pilot && Math.hypot(u.x - t.x, u.y - t.y) < 65) : undefined;
       if (craft) {
-        craft.hits = (craft.hits ?? 0) + 2;
-        craft.hitAt = time;
-        if (craft.hits >= UFO_HITS_TO_BREAK)
-          this.destroyUfo("shot", craft);
-        else
-          interruptTractor(this, craft);
+        // The torpedo's own blast below does the hull damage and the shove, once.
+        interruptTractor(this, craft);
         hit = true;
       }
       if (!hit && this.leviathan && ghostBody.some((p) => Math.hypot(p.x - t.x, p.y - t.y) < p.r + 6)) {
@@ -683,6 +692,33 @@ export const deepMethods: DeepMethods = {
         }
       }
       if (hit || t.x < -50 || t.x > W + 50 || t.y < -50 || t.y > H + 50 || time - t.born > 4) {
+        if (hit) {
+          const blast = { x: t.x, y: t.y, born: time, r: 65, profile: "torpedo" as const };
+          this.bombs.push(blast);
+          damageCraftInBlast(this, blast);
+          this.splash(t.x, t.y, 1.1, undefined, { quiet: true, max: 160 });
+          // A small shockwave: nearby fish are lost, divers and sharks are thrown clear.
+          for (const sh of this.sharks) {
+            if (sh.mega) continue;
+            const d = Math.hypot(sh.nodes[0] - t.x, sh.nodes[1] - t.y);
+            if (d < 140) { sh.blastFlee = { x: t.x, y: t.y, until: time + 1.2 }; sh.alertUntil = time + 1.2; }
+          }
+          for (const o of this.fish) {
+            if (!o.alive || o.docked || o.riding) continue;
+            const d = Math.hypot(o.x - t.x, o.y - t.y);
+            if (d > 110) continue;
+            o.alarm = 1;
+            if (!o.diver) {
+              if (d < 65) { o.alive = false; o.respawnAt = time + rand(4, 9); }
+              continue;
+            }
+            const a = Math.atan2(o.y - t.y, o.x - t.x), push = 90 + 130 * (1 - d / 110);
+            o.vx = Math.cos(a) * push;
+            o.vy = Math.sin(a) * push;
+            o.stunUntil = time + 1.2;
+            if (d < 40 && !o.seized && Math.random() < .6) this.popDiver(o, "blast");
+          }
+        }
         if (hit)
           for (let i = 0; i < 10; i++) {
             const a = rand(0, TAU);

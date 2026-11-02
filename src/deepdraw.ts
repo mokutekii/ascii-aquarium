@@ -1,3 +1,6 @@
+import { subGeometry, subPoint } from "./sub-geometry";
+export { SUB_BOW } from "./sub-geometry";
+import { commanderMissiles, subMaxHull } from "./commanders";
 import { clamp, TAU } from "./math";
 import type { World } from "./world";
 import { ghostFrame, ghostHalfWidth } from "./leviathan";
@@ -8,7 +11,7 @@ interface Grid { cw: number; ch: number; cols: number; rows: number }
 const hash = (n: number) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 
 /** Columns from a sub's centre to the tip of its hammerhead bow, where the searchlight comes from. */
-export const SUB_BOW = 10.5;
+
 
 /** Sparse kelp and coral on the floor, and the cones of light from the submarines. Drawn behind the fish. */
 export function drawSeabed(put: Put, world: World, g: Grid) {
@@ -39,8 +42,8 @@ export function drawSeabed(put: Put, world: World, g: Grid) {
       const spread = i * 0.34;
       for (let o = -Math.floor(spread); o <= Math.floor(spread); o++) {
         if ((i + o * 3 + Math.floor(t * 4)) % 5) continue;
-        const x = sb.x + sb.face * (SUB_BOW * cw + i * cw);
-        const y = sb.y + sb.vy * 0.15 + o * ch + i * ch * 0.1;
+        const point = subPoint(world.width,sb,subGeometry(world.width,sb).halfLength + i*cw,o*ch+i*ch*.1);
+        const x=point.x,y=point.y;
         put(x, y, ".", `rgb(${col.map((v) => Math.round(v * Math.max(0.1, 0.55 - i / 90))).join(",")})`);
       }
     }
@@ -59,10 +62,11 @@ export function drawSubs(put: Put, world: World, g: Grid) {
     if (sb.crew && world.attention[sb.crew]) put(sb.x, sb.y - ch * 5, "?", `rgba(255,235,160,${0.65 + 0.35 * Math.sin(t * 3) ** 2})`, true);
     const hurt = t - sb.hitAt < 0.4;
     const f = sb.face;
-    const Ls = SUB_BOW * 2 * cw - cw * 2;
+    const geometry = subGeometry(world.width,sb);
+    const Ls = geometry.halfLength * 2;
     const Hh = ch * 1.7;
     // Nose down when diving, nose up when climbing, and a slow rolling sway on top.
-    const pitch = clamp(Math.atan2(sb.vy, Math.max(30, Math.abs(sb.vx))) * 0.9, -0.4, 0.4) + Math.sin(t * 1.3 + sb.bob) * 0.05;
+    const pitch = geometry.pitch + Math.sin(t * 1.3 + sb.bob) * 0.05;
     const cs = Math.cos(pitch);
     const sn = Math.sin(pitch);
     const at = (x: number, y: number, glyph: string, color: string, force = true) => {
@@ -82,6 +86,8 @@ export function drawSubs(put: Put, world: World, g: Grid) {
         else if (v > 0.8) { glyph = "-"; color = "225,238,250"; }
         else if (v > 0.2 && v < 0.5) { glyph = "="; color = accent; }
         else if (Math.abs(v + 0.18) < 0.16 && Math.abs((((u + 1) * 7) % 1) - 0.5) < 0.18 && u > -0.7 && u < 0.78) { glyph = "o"; color = Math.floor(t * 2 + u * 9) % 5 ? "255,236,160" : "255,255,230"; }
+        const damage = 1 - sb.hull / subMaxHull(sb);
+        if (damage > .2 && Math.sin(u*49+v*17+sb.bob) > 1-damage*.9) { glyph = v < 0 ? "/" : "x"; color="95,100,115"; }
         at(x, y, glyph, color);
       }
     }
@@ -93,6 +99,16 @@ export function drawSubs(put: Put, world: World, g: Grid) {
     at(tx + cw * 0.6, -Hh - ch * 3, "|", "150,170,195");
     at(tx + cw * 1.5, -Hh - ch * 3.1, "-", "150,170,195");
     if (Math.floor(t * 1.6 + sb.bob) % 2) at(tx + cw * 2.3, -Hh - ch * 3.1, "*", accent);
+    if (sb.crew) {
+      for (let i=-2;i<=2;i++) at(Ls*.12+i*cw,-Hh-ch*.2,sb.launchAt!==undefined?"/":"_",accent);
+      at(-Ls*.08,-Hh-ch*2.7,"|",accent);
+      if (sb.hull < subMaxHull(sb)) {
+        const label=`${Math.ceil(sb.hull)}/${subMaxHull(sb)} HP`;
+        for(let i=0;i<label.length;i++) at((i-label.length/2)*cw,Hh+ch*2.3,label[i],accent);
+        if (Math.sin(t*19+sb.bob)>.2) at(Ls*.22,-Hh-ch*(.3+(t*3%2)),"*","255,205,100");
+        at(-Ls*.25,Hh+ch*(t*1.5%3),"o","130,210,235",false);
+      }
+    }
     // Tail: upper and lower fins and a spinning propeller, with bubbles streaming back.
     const tail = -Ls / 2;
     for (const s of [-1, 1]) {
@@ -104,6 +120,10 @@ export function drawSubs(put: Put, world: World, g: Grid) {
     // Nose lamp, and the crew's tag underneath.
     at(Ls / 2 + cw * 0.6, 0, "@", Math.floor(t * 3) % 2 ? "255,250,210" : accent);
     if (sb.crew) at(0, Hh + ch * 1.2, sb.crew === "claude" ? "c" : "x", accent);
+  }
+  for(const m of commanderMissiles(world)) {
+    m.trail.forEach((p,i)=>put(p.x,p.y,i%2?"*":"+",`rgba(255,200,100,${i/18})`,true));
+    put(m.x,m.y,"^","rgb(255,255,225)",true);
   }
   for (const tp of world.torpedoes) {
     tp.trail.forEach((p, i) => put(p.x, p.y, i % 2 ? "-" : "=", `rgb(${120 + i * 12},${100 + i * 8},60)`, true));

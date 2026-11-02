@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// One-command setup.
+// One-command setup for people and for agents.
 //   node install.cjs                 install dependencies, build, create shortcuts (Windows)
 //   node install.cjs --hooks         also wire up Claude Code / Codex activity hooks (edits user config)
 //   node install.cjs --check         report what is installed, as JSON; changes nothing

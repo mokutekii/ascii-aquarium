@@ -8,8 +8,8 @@ Math.random = () => 0;
 try {
   for (const [key, count, classify] of [
     [GHOST_ARRIVE[0], 10, isGhost],
-    ['the kraken has awoken!', 8, isBoss],
-    ['the megalodon has awoken!', 8, isBoss],
+    ['the kraken has awoken!', 10, isBoss],
+    ['the megalodon has awoken!', 10, isBoss],
     ['the kraken rises... and something vast comes for it!!!', 6, isClash],
   ]) {
     let last;

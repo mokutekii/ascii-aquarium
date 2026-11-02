@@ -1,4 +1,5 @@
 import type { World, Ufo, Fish, Jelly } from "./world";
+import { bodyPoints } from "./collision-bodies";
 export const TRACTOR_HALF_WIDTH = 42;
 export function tractorIntake(w: World, u: Ufo) {
   return u.y + Math.max(40, Math.min(w.width, w.height) * .07) * .18;
@@ -25,7 +26,7 @@ export function tractorContains(w: World, u: Ufo, p: {
   y: number;
 }) {
   const top = tractorIntake(w, u), bottom = tractorBottom(w, u);
-  if (u.state !== "beam" || p.y > bottom)
+  if (u.state !== "beam" || bottom<=top || p.y > bottom)
     return false;
   if (u.cargo?.has(p as Fish) && p.y > u.y - 160 && Math.abs(p.x - u.beamX) < tractorHalfWidth(w, u)) return true;
   if (p.y < top)
@@ -39,7 +40,7 @@ export function tractorCaptives(w: World) {
   for (const u of w.ufos)
     if (u.state === "beam" && !u.held) {
       for (const f of w.fish)
-        if (f.alive && !f.riding && !f.held && !f.seized && !f.dragger && tractorContains(w, u, f))
+        if (f.alive && !f.docked && !f.riding && !f.held && !f.seized && !f.dragger && tractorContains(w, u, f))
           captured.add(f);
       for (const j of w.jellies)
         if (tractorContains(w, u, j))
@@ -67,7 +68,7 @@ export function chooseBeamTarget(w: World, u: Ufo) {
     }
   };
   for (const f of w.fish)
-    if (f.alive && !f.riding && !f.dragger && !f.seized && !f.eoeBound)
+    if (f.alive && !f.docked && !f.riding && !f.dragger && !f.seized && !f.eoeBound)
       consider(f);
   for (const j of w.jellies)
     consider(j);
@@ -113,15 +114,30 @@ export function tractorBottom(w: World, u: Ufo) {
     bottom = Math.max(bottom, cargo.y + pad);
   }
   bottom = Math.min(w.height, bottom);
-  // Heavy bodies intercept the column; targets beneath them cannot be pulled through.
-  for (const wh of w.whales)
-    for (let t = 0; t <= 1; t += 0.1) {
-      const c = w.whalePoint(wh, t), r = wh.length * 0.075;
-      if (Math.abs(c.x - u.beamX) < r + TRACTOR_HALF_WIDTH && c.y - r > u.y)
-        bottom = Math.min(bottom, c.y - r);
-    }
-  for (const sb of w.subs)
-    if (Math.abs(sb.x - u.beamX) < 125 + TRACTOR_HALF_WIDTH && sb.y - 35 > u.y)
-      bottom = Math.min(bottom, sb.y - 35);
-  return bottom;
+  return tractorObstruction(w,u,bottom);
+}
+
+/** First contact of the expanding cone with any occupied heavy hull. */
+export function tractorObstruction(w:World,u:Ufo,bottom:number,x=u.beamX,half=tractorHalfWidth(w,u)) {
+  const top=tractorIntake(w,u), slope=(half-16)/Math.max(1,bottom-top);
+  const actors=[...w.whales,...w.subs,...w.ufos.filter(o=>o!==u&&o.state!=="leave"),
+    ...w.sharks.filter(o=>o.mega&&o!==u.targetShark),...(w.kraken?[w.kraken]:[]),...(w.leviathan?[w.leviathan]:[]),
+    ...(w.mothership&&w.mothership.phase!=="collapse"&&(!w.mothership.warp||w.mothership.warp.moved)?[w.mothership]:[])];
+  let first=bottom;
+  for(const actor of actors)for(const c of bodyPoints(w,actor)){
+    let lo=Math.max(top,c.y-c.r),end=Math.min(bottom,c.y+c.r);
+    if(lo>end)continue;
+    let hi=Math.max(lo,Math.min(end,c.y+c.r*slope/Math.sqrt(1+slope*slope)));
+    const gap=(y:number)=>Math.abs(c.x-x)-(16+slope*(y-top))-Math.sqrt(Math.max(0,c.r*c.r-(y-c.y)**2));
+    if(gap(hi)>0)continue;
+    if(gap(lo)>0)for(let i=0;i<14;i++){const mid=(lo+hi)/2;if(gap(mid)<=0)hi=mid;else lo=mid;}
+    else hi=lo;
+    first=Math.min(first,hi);
+  }
+  return first;
+}
+
+/** Legacy name, shared heavy-body obstruction for target selection and capture. */
+export function titanBlocksBeam(w: World, u: Ufo, x = u.beamX, bottom = Math.min(w.height, tractorBottom(w, u) + 60), half = TRACTOR_HALF_WIDTH) {
+  return tractorObstruction(w,u,bottom,x,Math.max(half,tractorHalfWidth(w,u)))<bottom-.1;
 }

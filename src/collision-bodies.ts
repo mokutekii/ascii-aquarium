@@ -1,3 +1,5 @@
+import { sharkSpinePoint } from "./mega-swim";
+import { subGeometry, subPoint } from "./sub-geometry";
 import type { World } from "./world";
 import type { Offender } from "./provocation";
 import { ghostBlobs } from "./leviathan";
@@ -23,16 +25,15 @@ export function bodyPoints(w: World, actor: Offender): BodyCircle[] {
     const points: BodyCircle[] = [];
     for (let i = 0; i < actor.nodes.length / 2; i += 3) {
       const u = i / (actor.nodes.length / 2 - 1);
-      points.push({ x: actor.nodes[i * 2], y: actor.nodes[i * 2 + 1], r: actor.length * (.035 + .055 * Math.sin(Math.PI * u)) });
+      points.push({ ...sharkSpinePoint(actor,i), r: actor.length * (.035 + .055 * Math.sin(Math.PI * u)) });
     }
     return points;
   }
   if ("hull" in actor) {
-    const angle = Math.atan2(actor.vy, Math.max(30, Math.abs(actor.vx))) * .9;
-    return [-.7, 0, .7].map(u => ({
-      x: actor.x + Math.cos(angle) * actor.face * u * cell * 11,
-      y: actor.y + Math.sin(angle) * u * cell * 11,
-      r: cell * 3.3,
+    const g = subGeometry(w.width,actor);
+    return [-.8,-.4,0,.4,.8].map(u => ({
+      ...subPoint(w.width,actor,u*g.halfLength),
+      r:g.halfHeight*Math.sqrt(1-u*u),
     }));
   }
   if ("maxBeams" in actor) {

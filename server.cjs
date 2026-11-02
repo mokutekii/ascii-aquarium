@@ -6,17 +6,21 @@ const STATE_DIR = process.env.AQUARIUM_STATE_DIR || path.join(__dirname, 'state'
 const STALE_MS = 6 * 60 * 60 * 1000;
 function getState(dir = STATE_DIR, now = Date.now()) {
   const blank = () => ({ active: 0, stale: 0, lastFinished: 0, seen: false, attention: 0, planAt: 0, subagentAt: 0 });
-  const result = { claude: blank(), codex: blank() };
+  const result = { claude: blank(), codex: blank(), sessions: [] };
   let files = [];
   try { files = fs.readdirSync(dir).filter(f => /^(claude|codex)-[a-f0-9]{24}\.json$/.test(f)); } catch {}
   for (const name of files) {
     try {
       const record = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
-      if (!Object.hasOwn(result, record.source) || !Number.isFinite(record.updatedAt)) continue;
+      if (!["claude", "codex"].includes(record.source) || !Number.isFinite(record.updatedAt)) continue;
       if (now - record.updatedAt > 24 * 60 * 60 * 1000) { fs.unlinkSync(path.join(dir, name)); continue; }
       const source = result[record.source];
       source.seen = true;
-      if (record.working) source[now - record.updatedAt < STALE_MS ? 'active' : 'stale']++;
+      const isActive = !!record.working && now - record.updatedAt < STALE_MS;
+      if (record.working) source[isActive ? 'active' : 'stale']++;
+      // Return only anonymous file hashes for currently working sessions. Child agents
+      // share their parent's session record and never appear as separate commanders.
+      if (isActive) result.sessions.push({ source: record.source, id: name.slice(record.source.length + 1, -5) });
       source.lastFinished = Math.max(source.lastFinished, Number(record.lastFinished) || 0);
       if (record.attention && now - record.updatedAt < 20 * 60 * 1000) source.attention++;
       source.planAt = Math.max(source.planAt, Number(record.planAt) || 0);

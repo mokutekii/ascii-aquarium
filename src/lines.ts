@@ -8,46 +8,85 @@
  * kept, and the toast takes the red "boss" style.
  */
 const BOSS: Record<string, string[]> = {
-  "kraken remains": ["the kraken has already claimed these waters...", "the trench has answered. it will not answer twice...", "the kraken is still watching...", "the kraken has not finished with you..."],
-  "mega remains": ["the megalodon is already hunting...", "the apex predator yields to nothing...", "one shadow is enough to empty the sea...", "the megalodon has yet to be satisfied..."],
-  "mothership remains": ["the mothership still commands the sky...", "the crown above has not been broken...", "their gaze remains upon the water...", "the siege has already begun..."],
-  "saga remains": ["the titans have already answered...", "the deep has no room for another throne...", "two ancient hungers still contest the sea...", "the clash has yet to choose its victor..."],
-
-  "the mothership has eclipsed the surface...": ["the mothership has eclipsed the surface...", "the sky has lowered its crown...", "the deep is beneath their gaze...", "something vast commands the lights..."],
-  "the mothership has fallen...": ["the mothership has fallen...", "the crown of the invaders lies broken...", "the divers have broken the siege..."],
-  // The warning, before anything shows itself (the K, M and C keys).
-  "you feel like you're being watched...": ["you feel like you're being watched...", "something is watching from below...", "the water has gone cold...", "you are not alone down here..."],
-  "something stirs from below...": ["something stirs from below...", "a great shadow rises from the deep...", "something stirs beneath the seabed...", "the sand begins to shake..."],
-  "the deep has awoken...": ["the deep has awoken...", "ancient horrors stir in the dark...", "something old and terrible answers the call...", "you feel an evil presence watching you..."],
-  // The arrival.
-  "the kraken has awoken!": ["the kraken has awoken!", "an ancient terror has awoken!", "the kraken has come for you!", "the kraken uncoils from the trench!", "the kraken has found you...", "the trench opens its arms...", "the kraken rises from the abyss!", "the deep belongs to the kraken..."],
-  "the megalodon has awoken!": ["the megalodon has awoken!", "the apex of the sea has arrived!", "a vast shadow eclipses the reef...", "the megalodon is hunting!", "the megalodon has caught your scent...", "the water parts for the megalodon...", "the megalodon has come to feed!", "an ancient hunger has found you..."],
-  "the blood moon drives the kraken wild...": ["the blood moon is rising...", "the kraken has gone feral...", "the red moon wakes the kraken..."],
-  "the blood moon drives the kraken wild... and something huge is coming for it": ["the blood moon is rising...", "the red moon wakes the horrors below..."],
-  // How it went.
-  "the kraken scared the megalodon off... for now!": ["the megalodon slinks back into the dark...", "the kraken holds the deep, for now...", "the megalodon retreats, but it will return..."],
-  "the sharks drove the kraken off!": ["the kraken has been driven back...", "the kraken retreats into the dark...", "the kraken will return..."],
-  "the megalodon tore free!": ["the megalodon has torn itself free!", "the megalodon will not be held!", "the arms tear away..."],
-  "the kraken tore the megalodon apart... the sharks move in on the scraps!": ["the megalodon has been slain...", "the apex has fallen...", "the kraken tore the megalodon apart..."],
-  "the megalodon ate the kraken... what a feast!": ["the kraken has been devoured...", "the kraken has been vanquished...", "the kraken is no more..."],
-  "the chase is over... the kraken never stood a chance.": ["the kraken never stood a chance...", "the kraken has been run down...", "there was nowhere left to run..."],
-  "the titans have parted... the water settles...": ["the titans have withdrawn...", "the deep goes quiet...", "the silence offers no comfort..."],
-  // Moves.
-  "the megalodon has the kraken by the head": ["the megalodon has the kraken by the head!", "jaws close on the kraken's eye!", "the megalodon tears into the kraken!"],
-  "the kraken's arm lashes out": ["the kraken's arm lashes out!", "the kraken will not let it leave!", "an arm reaches out of the dark!"],
-  "the megalodon is going for the kraken": ["the megalodon is going for the kraken!", "the megalodon has picked its prey...", "a long shadow lines up on the kraken..."],
-  "the kraken has the megalodon wrapped": ["the kraken has the megalodon wrapped!", "the arms close round the megalodon!", "the kraken coils round the megalodon!"],
-  "the megalodon is closing in": ["the megalodon is closing in...", "the megalodon smells a wounded kraken...", "the megalodon is gaining..."],
-  "the kraken vanishes into the ink": ["the kraken vanishes into the ink...", "the megalodon swims blind through the ink...", "the ink swallows the kraken..."],
-  "the kraken tore itself free": ["the kraken has torn itself free!", "the kraken wrenches its head free!", "the kraken turns on the megalodon!"],
+  "kraken remains": ["The Kraken still holds these waters.", "The Kraken has not been defeated.", "The Kraken is still watching...", "The Kraken has not finished with you...", "The deep already has a master.", "The Kraken will not be summoned twice."],
+  "mega remains": ["The Megalodon is already hunting.", "The Megalodon has not been satisfied...", "One shadow is enough to empty the sea.", "The Megalodon still circles below...", "There is no room for a second apex.", "The apex yields to nothing."],
+  "mothership remains": ["The Mothership still commands the sky.", "The Mothership has not been defeated.", "The siege has already begun...", "Their gaze remains upon the water...", "The crown above has not been broken."],
+  "saga remains": ["The Titans have already answered.", "The Titans have not finished...", "Two hungers still contest the sea...", "The clash has yet to choose a victor...", "The deep has room for no other throne."],
+  "the mothership has eclipsed the surface...": ["The Mothership has eclipsed the surface!", "The Mothership has arrived!", "The sky has lowered its crown...", "The deep is beneath their gaze...", "Something vast commands the lights...", "The Mothership is approaching!"],
+  "the mothership has fallen...": ["The Mothership has been defeated!", "The Mothership has fallen!", "The crown of the invaders lies broken...", "The divers have broken the siege!", "The siege has been lifted..."],
+  "you feel like you're being watched...": ["You feel an evil presence watching you...", "The water is getting colder around you...", "Something is watching from below...", "This is going to be a terrible night...", "You are not alone down here...", "The sea has gone silent around you..."],
+  "something stirs from below...": ["Something stirs from below...", "The sand begins to shake...", "You feel vibrations from deep below...", "A great shadow rises from the deep...", "The seabed is breaking open..."],
+  "the deep has awoken...": ["The deep has awoken...", "Ancient horrors stir in the dark...", "Something old and terrible answers the call...", "You feel an evil presence watching you...", "The abyss is no longer asleep..."],
+  "the kraken has awoken!": ["The Kraken has awoken!", "The Kraken has risen from the trench!", "The Kraken has come for you!", "The Kraken uncoils from the abyss!", "The Kraken has found you!", "The trench opens its arms...", "The Kraken has surfaced!", "The Kraken is here!", "The deep belongs to the Kraken...", "The Kraken stirs, and the sea answers!"],
+  "the megalodon has awoken!": ["The Megalodon has awoken!", "The Megalodon is hunting!", "The Megalodon has caught your scent!", "The Megalodon has arrived!", "The Megalodon has come to feed!", "The apex of the sea has awoken!", "A vast shadow eclipses the reef...", "The Megalodon is closing in!", "The water parts for the Megalodon...", "The Megalodon has found you!"],
+  "the blood moon drives the kraken wild...": ["The Blood Moon is rising...", "The Kraken has gone feral...", "The red moon wakes the Kraken...", "The Blood Moon drives the Kraken wild!"],
+  "the blood moon drives the kraken wild... and something huge is coming for it": ["The Blood Moon is rising...", "The red moon wakes the horrors below...", "The Blood Moon has stirred the deep!"],
+  "the kraken scared the megalodon off... for now!": ["The Megalodon has retreated.", "The Megalodon slinks back into the dark...", "The Kraken holds the deep, for now.", "The Megalodon will return..."],
+  "the sharks drove the kraken off!": ["The Kraken has been driven back.", "The Kraken retreats into the dark.", "The Kraken will return..."],
+  "the megalodon tore free!": ["The Megalodon has torn itself free!", "The Megalodon will not be held!", "The arms tear away!"],
+  "the kraken tore the megalodon apart... the sharks move in on the scraps!": ["The Megalodon has been defeated!", "The apex has fallen!", "The Kraken has torn the Megalodon apart!", "The Megalodon is no more..."],
+  "the megalodon ate the kraken... what a feast!": ["The Kraken has been defeated!", "The Kraken has been devoured!", "The Kraken is no more...", "The Megalodon has claimed the deep!"],
+  "the chase is over... the kraken never stood a chance.": ["The Kraken never stood a chance.", "The Kraken has been run down!", "There was nowhere left to run...", "The Kraken has been defeated!"],
+  "the titans have parted... the water settles...": ["The Titans have withdrawn.", "The deep goes quiet...", "The silence offers no comfort...", "The Titans have parted..."],
+  "the megalodon has the kraken by the head": ["The Megalodon has the Kraken by the head!", "Jaws close on the Kraken's eye!", "The Megalodon tears into the Kraken!", "The Megalodon has clamped on!"],
+  "the kraken's arm lashes out": ["The Kraken's arm lashes out!", "The Kraken will not let it leave!", "An arm reaches out of the dark!", "The Kraken has seized its prey!"],
+  "the megalodon is going for the kraken": ["The Megalodon is going for the Kraken!", "The Megalodon has picked its prey...", "A long shadow lines up on the Kraken...", "The Megalodon is charging!"],
+  "the kraken has the megalodon wrapped": ["The Kraken has the Megalodon wrapped!", "The arms close round the Megalodon!", "The Kraken coils round the Megalodon!", "The Megalodon is being crushed!"],
+  "the megalodon is closing in": ["The Megalodon is closing in!", "The Megalodon smells a wounded Kraken...", "The Megalodon is gaining!"],
+  "the kraken vanishes into the ink": ["The Kraken vanishes into the ink...", "The Megalodon swims blind through the ink...", "The ink swallows the Kraken..."],
+  "the kraken tore itself free": ["The Kraken has torn itself free!", "The Kraken wrenches its head free!", "The Kraken turns on the Megalodon!"],
+  "the mothership dispatches drones to drive the kraken off!": ["The Mothership has dispatched its drones!", "Drones pour from the Mothership at the Kraken!", "The Mothership answers the Kraken with a swarm!"],
+  "the mothership tears free of the kraken and jumps away!": ["The Mothership has torn free of the Kraken!", "The Mothership jumps clear of the arms!", "A flash, and the Mothership is gone from the Kraken's grip!"],
+  "the mothership's rim charges for its final departure...": ["The Mothership is charging its rim to depart...", "The Mothership is leaving...", "The rim glows. The Mothership is preparing to go..."],
+  "the kraken goes for the mothership...": ["The Kraken is going for the Mothership!", "The Kraken has set its sights on the Mothership...", "Arms reach for the Mothership..."],
+  "the megalodon turns back for a rematch!": ["The Megalodon turns back for a rematch!", "The Megalodon is not finished...", "A long shadow returns..."],
+  "the kraken turns back for a rematch!": ["The Kraken turns back for a rematch!", "The Kraken is not finished...", "The arms return..."],
+  "the megalodon caught the kraken in its jaws!": ["The Megalodon has caught the Kraken in its jaws!", "Jaws close on the Kraken!", "The Megalodon has the Kraken!"],
+  "the kraken slips the megalodon's jaws...": ["The Kraken has slipped the Megalodon's jaws!", "The Kraken twists out of the bite...", "The jaws close on ink..."],
+  "the megalodon is hunting": ["The Megalodon is hunting!", "The Megalodon has caught a scent!", "The Megalodon is charging!", "The water trembles ahead of the Megalodon!"],
+  "the megalodon has clamped on": ["The Megalodon has clamped on!", "Jaws close and the Megalodon shakes its head!", "The Megalodon will not let go!"],
+  "the megalodon is enraged": ["The Megalodon is enraged!", "The Megalodon has gone berserk!", "The Megalodon is out for blood!"],
+  "the kraken is enraged": ["The Kraken is enraged!", "The Kraken has gone berserk!", "The arms of the Kraken will not be denied!"],
+  "the megalodon has clamped on the commander": ["The Commander has been clamped!", "The Megalodon has the Commander in its jaws!", "The Commander is caught in the jaws..."],
+  "the kraken has seized the commander": ["The Kraken has seized the Commander!", "The Commander is in the Kraken's grip!", "The arms close round the Commander!"],
+  "the megalodon has flung the commander": ["The Commander has been flung!", "The Megalodon has thrown the Commander!", "The Commander is hurled across the tank!"],
+  "the kraken has hurled the commander": ["The Commander has been hurled!", "The Kraken has thrown the Commander!", "The Commander flies from the Kraken's arms!"],
+  "the megalodon's tail struck the mothership...": ["The Mothership has been struck!", "The Megalodon's tail has struck the Mothership!", "The Mothership is knocked off the field!"],
 };
 
 
 /** A titans clash, whichever way it starts (K then M, M then K, or C): one line, in the purple of a Terraria event. */
-const CLASH: string[] = ["the titans have awoken!", "the titans clash...", "ancient rivals have awoken...", "the sea is no longer yours...", "the deep trembles beneath their wrath...", "ancient hungers have met..."];
+const CLASH: string[] = ["The Titans have awoken!", "The Titans clash!", "Ancient rivals have awoken!", "The sea is no longer yours...", "The deep trembles beneath their wrath...", "Ancient hungers have met!"];
 const CLASH_KEYS = ["the kraken rises... and something vast comes for it!!!", "the kraken and the megalodon meet!!! the whole sea holds its breath..."];
 
 const VARIANTS: Record<string, string[]> = {
+  "the megalodon smashed a submarine's hull...": ["the megalodon ploughed through a submarine...", "a submarine met the megalodon head on... scrap", "the megalodon's body flattened a hull..."],
+  "the megalodon's body smashed a UFO...": ["the megalodon swam straight through a saucer...", "a saucer met the megalodon's flank... gone", "the megalodon's body smashed a ufo into scrap..."],
+  "a bomber blew up in the kraken's arms... it flees": ["a bomber went off in the kraken's arms... it recoils", "boom... the kraken drops everything and flees", "the kraken tasted the bomb... and left"],
+  "a bomber blew up in the kraken's arms... now it's furious": ["the bomb only made the kraken angrier...", "smoke clears... the kraken is furious", "the kraken shrugged off the blast... and got mad"],
+  "a diver plugged in a sandevistan drive...": ["a diver slotted in a sandevistan drive...", "the drive clicks in... the diver blurs", "a diver is moving faster than the sea can follow..."],
+  "a megalodon follows the herd...": ["a long shadow trails the herd...", "something enormous is following the whales...", "the megalodon is shadowing the herd..."],
+  "a ribbon of living light drifts through the deep...": ["a ribbon of light unspools through the dark...", "the deep glows with a drifting ribbon...", "living light winds past the reef..."],
+  "a sandevistan drive tumbles out of the wreck...": ["a sandevistan drive spills from the wreckage...", "the wreck drops a glowing drive...", "something bright sinks out of the scrap..."],
+  "a ufo bombed its own wingman... oops.": ["a ufo bombed its own wingman... oops", "friendly fire from above... the wingman is not amused", "the bomb aimed true... at the wrong saucer"],
+  "a whale turns away from the danger and swims for open water...": ["the whale turns from the danger... open water", "a whale slips away before it is noticed", "the whale song fades as it swims off..."],
+  "friendly fire... a craft crossed a live laser!": ["friendly fire... someone crossed the beam!", "a craft flew into its own side's laser", "oops... that laser was live"],
+  "individual lives return to the sea...": ["the divers surface and the sea exhales...", "every diver returns to the water...", "lives return to the sea..."],
+  "the aliens retreat... they'll be back": ["the aliens withdraw... for now", "the saucers fade into the sky... they will return", "the invaders retreat..."],
+  "the bomber woke up inside the ufo!": ["the bomber woke up inside the ufo... uh oh", "a bomber on a saucer... surprise", "the bomber opens his eyes: aliens"],
+  "the core is collapsing... brace for the shockwave!": ["the core is collapsing... brace!", "the reactor is going... the shockwave is coming", "the mothership's core is failing..."],
+  "the departing mothership releases a rim blast...": ["the mothership fires a parting rim blast...", "a rim blast rolls out as it leaves...", "the mothership departs in a ring of fire..."],
+  "the divers cut their commander free...": ["the divers cut the commander free!", "snip... the commander is loose!", "the crew has freed the commander..."],
+  "the saucer gave up its catch...": ["the saucer lets go of its catch...", "the saucer drops its prize", "the catch slips from the saucer..."],
+  "the sawshark sawed itself free!": ["the sawshark saws itself loose!", "zzzip... the sawshark is free", "the sawshark cut its way out!"],
+  "the ufo dropped it without looking...": ["the ufo dropped it without a glance...", "the saucer lets go, uncaring", "dropped from above..."],
+  "the ufo fumbled a bomb... kaboom": ["the ufo fumbled a bomb... kaboom", "the bomb slipped... kaboom", "butterfingers... kaboom"],
+  "the ufo pulled a shark aboard!": ["the ufo pulled a shark aboard!", "a shark vanishes into the saucer", "the beam lifts a shark skyward..."],
+  "the ufo stole a diver from a shark... sneaky!": ["the ufo snatched a diver from a shark... sneaky!", "a diver is lifted from the jaws", "the saucer steals the shark's lunch"],
+  "the megalodon bit a submarine in half...": ["the megalodon bit a submarine in half...", "jaws closed on a submarine... nothing left", "the megalodon crunched through a hull..."],
+  "the megalodon's tail broke a submarine...": ["one tail strike and a submarine is gone...", "the megalodon's tail splintered a hull...", "a submarine did not survive the tail..."],
+  "the megalodon's jaws crushed a UFO...": ["the megalodon's jaws crushed a ufo...", "a saucer in the jaws... scrap", "the megalodon bit the saucer in two..."],
+  "the megalodon's tail smashed a UFO...": ["the megalodon's tail swatted a ufo into scrap...", "one tail strike and the saucer is gone...", "a saucer met the tail... briefly"],
   "a chase! run, little fish, run!": ["a chase! scatter!", "someone is very hungry... run!", "fins everywhere... a chase!"],
   "a bait ball forms... dinner is served!": ["the school balls up... dinner bell!", "a bait ball spins tight... the sharks have noticed", "a silver sphere of panic... dinner is served!"],
   "a whale is coming... listen closely...": ["a low song rolls in... a whale", "the water hums... a whale approaches", "something gentle and enormous drifts in..."],
@@ -105,6 +144,9 @@ export const FRENZY_LINES = [
   "teeth everywhere... the pack has lost its manners",
 ];
 
+/** Whether a notice has alternative tellings (tests check that every fixed notice does). */
+export const hasLines = (text: string) => !!(BOSS[text] || VARIANTS[text] || CLASH_KEYS.includes(text) || GHOST_ARRIVE.includes(text));
+
 export function flavor(text: string): string {
   if (GHOST_ARRIVE.includes(text)) return pickLine(GHOST_ARRIVE);
   if (CLASH_KEYS.includes(text)) return pickLine(CLASH);
@@ -123,6 +165,12 @@ export function isClash(text: string) {
 /** Whether a toast belongs to a boss (it gets the red style). */
 export function isBoss(text: string) {
   return Object.values(BOSS).some((l) => l.includes(text));
+}
+
+/** Classification uses original wording; presentation owns case and punctuation. */
+export function toastText(text:string,tone:string){
+  if(["boss","clash","ghost"].includes(tone))return text.toLowerCase().replace(/!+/g,"").trim();
+  return tone==="whale"?text.replace(/[.!~\s]+$/,"")+"~":text;
 }
 
 const lineDecks = new WeakMap<string[], { deck: string[]; last?: string }>();

@@ -1,6 +1,13 @@
-import { krakenArmRoot, inKrakenReachArc } from "./kraken-reach";
+import { subGeometry, subPoint } from "./sub-geometry";
+import { sagaStatus, timerStatus, countStatus, healthStatus } from "./event-status";
+import { EXPLOSIONS } from "./explosion-profiles";
+import { commanderMissiles } from "./commanders";
+import { krakenUfoArmPose, krakenSubArmPoses } from "./titans";
+import { megaFlank, krakenFreeArm, krakenReachPoses, krakenArmRoot, inKrakenReachArc, krakenReachVisual } from "./kraken-reach";
 import type { Put } from "./deepdraw";
 import { hullPoint } from "./ufo-motion";
+import { megaTailFrame, sharkSwimWave, sharkSwimOffset } from "./mega-swim";
+
 /**
  * Draws the World as a grid of ASCII cells:
  *   1. a dark water grid that fades from daylight to indigo night
@@ -11,6 +18,8 @@ import { hullPoint } from "./ufo-motion";
  */
 import { drawGhost, drawSeabed, drawSubs } from "./deepdraw";
 import { drawClassicSaucer } from "./saucer-draw";
+import { BLINK_GHOST_LIFE } from "./ufo-blink";
+import { SANDE_GHOST_LIFE } from "./sandevistan";
 import { drawCraftDebris } from "./wreckage";
 import { tractorIntake, tractorBottom, tractorHalfWidth, tractorCaptives } from "./tractor";
 import { drawMothership, drawEncounterShots, drawEoe, mergerCrossFrame } from "./encounters-draw";
@@ -86,30 +95,14 @@ const SUBSAMPLES = [0.25, 0.3, 0.75, 0.3, 0.25, 0.72, 0.75, 0.72];
  * megalodon keeps a long, slow S-curve that builds toward the tail, and a bigger, tighter wave while it thrashes.
  */
 function bodyWave(sh: Shark, s: number) {
-  if (sh.mega && sh.swimSpine) return 0;
-  const L = sh.length;
-  // About a full wavelength along the body, so the middle swings across as well as the tail: an S that travels, never a fixed crescent.
-  if (!sh.mega)
-    return L * 0.05 * (0.2 + 0.8 * Math.pow(s, 1.6)) * clamp(sh.speed / 60, 0.4, 1.4) * (sh.tailAmp ?? 1) * Math.sin(sh.phase - s * 6.6);
-  const th = sh.thrash ?? 0;
-  const power = clamp(0.9 + sh.speed / 150, 0.9, 1.3) * (1 + 0.2 * Math.min(1, th));
-  return L * 0.052 * (0.18 * s + 0.82 * Math.pow(s, 1.65)) * power * Math.sin(sh.phase - s * 4.8);
+  return sharkSwimOffset(sh,s);
 }
 /**
  * The megalodon's tail fin is a blade hinged on the tail stalk: it points along the end of the body, then pitches a
  * little behind the wave, so each stroke whips through the fin instead of sliding past it. Returns its base point and axis.
  */
 function megaFinFrame(sh: Shark, sp: ArrayLike<number>, N: number) {
-  const th = sh.thrash ?? 0;
-  const power = clamp(0.9 + sh.speed / 150, 0.9, 1.3) * (1 + 0.2 * Math.min(1, th));
-  const fi = 0.88 * (N - 1);
-  const i0 = Math.floor(fi);
-  const w = fi - i0;
-  const bx = sp[i0 * 2] * (1 - w) + sp[i0 * 2 + 2] * w;
-  const by = sp[i0 * 2 + 1] * (1 - w) + sp[i0 * 2 + 3] * w;
-  const ang = Math.atan2(sp[(N - 1) * 2 + 1] - sp[(N - 3) * 2 + 1], sp[(N - 1) * 2] - sp[(N - 3) * 2]) +
-    (Math.cos(sh.phase - 4.8 - .65) + .22 * Math.sin(sh.phase * 2 - 5.4)) * (0.46 + 0.24 * th) * Math.min(1.4, power);
-  return { bx, by, c: Math.cos(ang), s: Math.sin(ang), flex: Math.sin(sh.phase - 5.8) * (.018 + .012 * th) };
+  return megaTailFrame(sh,sp);
 }
 /** The kraken's ivory, shared by its body and every arm that wraps something so they match exactly. */
 /** Which spine node an arm takes hold at: the body, and never the saw at a sawshark's snout. */
@@ -122,7 +115,6 @@ const HOLD_ARMS = 3;
 const holdArmsFor = (sh: Shark) => Math.max(1, Math.min(HOLD_ARMS, Math.round(sh.length / 130)));
 /** Every limb takes hold of a wrapped megalodon (none left waving free); the coil bands are fewer so they stay readable. */
 const WRAP_ARMS = 10;
-const WRAP_BANDS = 7;
 const ARM_STAGGER = 0.45;
 const WRAP_STAGGER = 0.15;
 /** How angry the kraken looks this frame (0 calm → 1 furious): its ivory flushes red. Set once per frame by render(). */
@@ -614,6 +606,7 @@ export class AsciiRenderer {
   }
   render(world: World, dt: number) {
     this.eventBarCount = 0;
+    this.lightCount = 0;
     const { ctx, dpr, cols, ch } = this;
     if (cols === 0)
       return;
@@ -701,6 +694,7 @@ export class AsciiRenderer {
     this.drawCurrent(world);
     this.markFish(world);
     this.drawDots(t);
+    this.drawCraftLights(world);
     this.drawYeatGlows(world, t);
     ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
     ctx.textAlign = "center";
@@ -714,6 +708,8 @@ export class AsciiRenderer {
     this.drawDeepLayer(world, "mid");
     this.drawWhirl(world);
     this.drawDivers(world);
+    this.drawSandevistans(world);
+    this.drawRearCraftWraps(world);
     this.drawDeepLayer(world, "front");
     this.drawBolts(world);
     this.drawBombs(world);
@@ -734,10 +730,19 @@ export class AsciiRenderer {
         }
         drawMothership(put, world, this.cw, this.ch, !this.reduced);
       }
+      for(const shot of world.encounterShots.slice(-(this.quality===2?12:32))) {
+        const age=world.time-shot.fireAt;if(age<0||age>.4)continue;
+        const fade=Math.max(0,1-age/.4),rgb=shot.rgb??"130,255,200";
+        this.lightBloom(shot.x0,shot.y0,45,rgb,fade*.35);
+        this.lightBloom(shot.x1,shot.y1,55,rgb,fade*.4);
+        // The beam itself stays pixelated glyphs; light only pools softly along it.
+        this.lightBloom((shot.x0+shot.x1)/2,(shot.y0+shot.y1)/2,40,rgb,fade*.25);
+      }
+      for(const wave of world.rimWaves)this.lightBloom(wave.x,wave.y,wave.size+200,"130,255,190",Math.max(0,1-(world.time-wave.born)/2)*(.2+this.night*.2+this.yeat*.2));
       drawEncounterShots(put, world, this.cw, this.ch);
       drawMothershipFx(put, world, this.cw, this.ch);
       drawRimWaves(put, world, this.cw);
-      flush();
+      flush(this.quality===2?0:3+this.night*5+this.yeat*7);
     }
     this.drawDebris(world);
     boneRage = world.krakenRage() * (0.88 + 0.12 * Math.sin(world.time * 5));
@@ -747,7 +752,7 @@ export class AsciiRenderer {
       boneHit = since < .45 ? (1 - since / .45) * (Math.floor(since * 16) % 2 ? .55 : 1) : 0;
     }
     // A kraken wrapped round the megalodon is drawn over it, so its arms really lie across the body instead of vanishing beneath it.
-    const overShark = world.kraken?.state === "wrap" && !!world.kraken.wrapping && !world.kraken.maul;
+    const overShark = world.kraken?.state === "wrap" && !!world.kraken.wrapping && !world.kraken.maul && !world.kraken.lunging;
     if (!overShark)
       this.drawKraken(world);
     this.drawSharks(t);
@@ -766,7 +771,7 @@ export class AsciiRenderer {
     // The more there are, the tighter they pack, so the stack stays in the top half of the screen.
     let slot = 0;
     if (world.mothership)
-      this.drawEventBar(world, "THE MOTHERSHIP", "170,255,205", Math.max(0, world.mothership.hp / world.mothership.maxHp), "CORE", slot++, 1, [0.5, 0.33, 0.1]);
+      this.drawEventBar(world, "THE MOTHERSHIP", "170,255,205", Math.max(0, world.mothership.hp / world.mothership.maxHp), healthStatus(world.mothership.hp,world.mothership.maxHp).counter, slot++, 1, [0.5, 0.33, 0.1]);
     const order = [...world.sagas].sort((a, b) => Number(b.kind === "clash") - Number(a.kind === "clash"));
     const bars = order.length + world.thunderstorms.length + (world.invasion ? 1 : 0) + (world.mothership ? 1 : 0);
     this.barStep = Math.max(2.6, Math.min(4.2, (this.rows * 0.5 - 3.2) / Math.max(1, bars)));
@@ -777,7 +782,7 @@ export class AsciiRenderer {
     for (const sg of order)
       this.drawSagaBanner(world, sg, slot++);
     for(const storm of world.thunderstorms)
-      this.drawEventBar(world,"THUNDERSTORM","195,165,255",clamp((storm.until-world.time)/(storm.until-storm.born),0,1),"CHARGE",slot++);
+      this.drawEventBar(world,"THUNDERSTORM","195,165,255",clamp((storm.until-world.time)/(storm.until-storm.born),0,1),timerStatus(storm.born,storm.until,world.time).counter,slot++);
     this.drawMeteors(world);
     this.drawStormElectricity(world);
     this.drawSawBlade(world);
@@ -850,7 +855,8 @@ export class AsciiRenderer {
     const age = te ? world.time - te.born : 99;
     const still = age > 5 || this.reduced;
     const impactAge = world.time - world.lastMeteorAt;
-    const impactShake = this.reduced ? 0 : Math.max(0, 1 - impactAge / 0.45) * 0.65;
+    const titanAge = world.time - world.impactAt;
+    const impactShake = this.reduced ? 0 : Math.max(Math.max(0, 1 - impactAge / 0.45) * 0.65, Math.max(0, 1 - titanAge / 0.6) * world.impactPower);
     const shake = Math.max(impactShake, still ? 0 : Math.min(1, age / 0.25) * Math.max(0, 1 - age / 2.6));
     const css = shake > 0.01 ? `translate(${(Math.sin(world.time * 47) * 5 * shake).toFixed(1)}px,${(Math.cos(world.time * 39) * 4 * shake).toFixed(1)}px)` : "";
     if (css !== this.lastShake) {
@@ -919,7 +925,7 @@ export class AsciiRenderer {
         cells.set(key, [glyph, color]);
     };
     const flush = (glow = 0) => {
-      glow = this.quality > 0 ? 0 : glow;
+      glow = this.quality === 2 ? 0 : this.quality === 1 ? glow * .5 : glow;
       for (const [key, [glyph, color]] of cells) {
         ctx.fillStyle = color;
         if (glow > 0) {
@@ -1002,15 +1008,14 @@ export class AsciiRenderer {
       return;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
-    const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
+    const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul && !k.lunging;
     const grip = k.state === "grab" || wrapped;
-    const shudder = world.mothership?.grapple?.kraken === k ? 9 : k.maul && k.biteAt !== undefined ? 16 : (wrapped ? (world.time < k.shakeUntil ? 9 : 5) * (k.ambush ? 1.5 : 1) : 3) * (1 + 0.9 * world.krakenRage());
     // Just after a blast the whole body is knocked about: the head jolts and the mantle lurches off its line, while the arms
     // flail loose. An angry kraken (blast or blood moon) also thrashes its arms harder.
     const hit = clamp(1 - (world.time - (k.blastAt ?? -99)) / 2.5, 0, 1);
     const anger = world.krakenRage();
-    const hx = k.x + (grip ? Math.sin(k.phase * 3.6) * shudder : 0) + Math.sin(world.time * 31) * k.size * 0.014 * hit;
-    const hy = k.y + (grip ? Math.cos(k.phase * 4.4) * shudder : 0) + Math.cos(world.time * 27) * k.size * 0.014 * hit;
+    const hx = k.x;
+    const hy = k.y;
     const skew = hit * (0.3 + Math.sin(world.time * 17) * 0.2);
     const dx = Math.cos(k.heading + skew);
     const dy = Math.sin(k.heading + skew);
@@ -1028,8 +1033,12 @@ export class AsciiRenderer {
     const holders = held.length;
     // A whale in the grip gets the same full set of limbs as a megalodon: each one grips its own spot along the body.
     const hullHold = world.mothership?.grapple?.kraken === k ? world.mothership : null;
-    const hullReach = k.hullStrike?.reachAt !== undefined ? k.hullStrike.target : null;
-    const hullTarget = hullHold ?? hullReach;
+    const hullTarget = hullHold;
+    const hullContact = hullHold?.grapple?.contact?.angle ?? 0;
+    const megaGrip = k.wrapping === k.megaGrip?.target ? k.megaGrip : undefined;
+    const reachPoses = krakenReachPoses(k);
+    const flank = wrapped ? Array.from({ length: SHARK_NODES }, (_, i) =>
+      megaFlank(k.wrapping!, i, megaGrip?.side ?? 1)) : undefined;
     const whaleHold = k.whaleTarget && k.whaleUntil > world.time && k.whaleLanded !== undefined ? k.whaleTarget : null;
     const whaleGrip = (a: number) => {
       // Each limb takes its own spot within arm's reach of where the kraken has hold of the whale.
@@ -1037,17 +1046,19 @@ export class AsciiRenderer {
       const u = clamp((k.whaleU ?? 0.4) + spread, 0.05, 0.95);
       return world.whalePoint(whaleHold!, u);
     };
-    const bone = krakenBone;
-    // Charging a megalodon or a whale, the arms spread wide and then snap together as each jet stroke drives it forward.
-    const attack = k.lunging || k.hunt ? clamp(k.jet, 0, 1) : 0;
-    const open = (1 - Math.sin(k.phase * 1.1)) / 2;
-    const stretch = world.krakenRage() > 0 && world.time < (k.rageStretchUntil ?? 0)
-      ? Math.sin(Math.PI * clamp(1 - ((k.rageStretchUntil ?? 0) - world.time) / 2.4, 0, 1)) : 0;
-    const spreadMul = (k.stroke !== undefined ? 1 + 0.9 * k.stroke : 1 + 1.1 * attack * open) + stretch * .35;
+    const bone = (value: number, tint = 0) => krakenBone(value + (hullHold ? 28 : 0), tint);
     // Six short arms and four long looping tentacles, reaching out from the front of the head.
     const shortArms = 6;
     const limbs = shortArms + 4;
+    const craftLimbs = new Set([
+      ...(krakenUfoArmPose(world)?.held ? krakenUfoArmPose(world)!.arms : []),
+      ...krakenSubArmPoses(world).filter(pose => pose.held).flatMap(pose => pose.arms),
+    ]);
     for (let a = 0; a < limbs; a++) {
+      // A gripping limb replaces its swimming limb; it is not an extra arm.
+      const reachPose = reachPoses.find(pose => pose.arm === a);
+      if (reachPose?.heldAt !== undefined && k.caught.some(f => f === reachPose.target)) continue;
+      if (craftLimbs.has(a) && (!reachPose || reachPose.heldAt !== undefined)) continue;
       const feeder = a >= shortArms;
       const fi = a - shortArms;
       const psi = feeder ? [-0.75, -0.25, 0.25, 0.75][fi] : (a / (shortArms - 1) - 0.5) * 2.0;
@@ -1059,8 +1070,8 @@ export class AsciiRenderer {
       // could really wrap with. The rest keep waving until their turn comes, so the count only ever climbs.
       // Every limb is on the whale; only when enraged do the long tentacles stay free to flail at divers, saucers and sharks.
       const hullArm = hullTarget && a < (k.gripArms ?? 8);
-      const hullAngle = a / 10 * Math.PI * 2;
-      const wp = hullArm ? hullPoint(hullTarget!, Math.cos(hullAngle) * hullTarget!.size * .8, Math.sin(hullAngle) * hullTarget!.size * .23)
+      const hullAngle = hullContact + (a === 0 ? 0 : Math.sin(a * 2.4) * 1.25);
+      const wp = hullArm ? hullPoint(hullTarget!, Math.cos(hullAngle) * hullTarget!.size * .95, Math.sin(hullAngle) * hullTarget!.size * .26)
         : whaleHold && a < (k.gripArms ?? 10) ? whaleGrip(a) : null;
       const sh0 = wp || holders === 0 ? null : held[a % holders];
       const sinceG = wp ? world.time - (hullArm ? hullHold?.grapple?.at ?? k.hullStrike?.reachAt ?? world.time : k.whaleStart ?? world.time) : !sh0 ? 0 : wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh0.grabbedAt ?? -99);
@@ -1091,9 +1102,10 @@ export class AsciiRenderer {
       const hp: number[] = [];
       if (holds) {
         const sh = wp ? null : held[a % holders];
-        const n0 = sh ? bodyNode(sh, a) : 0;
-        const x0 = wp ? wp.x : sh!.nodes[n0 * 2];
-        const y0 = wp ? wp.y : sh!.nodes[n0 * 2 + 1];
+        const n0 = sh ? (wrapped ? clamp(6 + Math.round(Math.sin(a * 2.4) * 3), 3, 9) : bodyNode(sh, a)) : 0;
+        const gripPoint = wp ?? (flank ? flank[n0]
+          : { x: sh!.nodes[n0 * 2], y: sh!.nodes[n0 * 2 + 1] });
+        const x0 = gripPoint.x, y0 = gripPoint.y;
         const vx = x0 - rx;
         const vy = y0 - ry;
         const vl = Math.hypot(vx, vy) || 1;
@@ -1114,18 +1126,20 @@ export class AsciiRenderer {
             const f = Math.min(SHARK_NODES - 1.01, n0 + u * 5);
             const i0 = Math.min(SHARK_NODES - 2, Math.floor(f));
             const w = f - i0;
-            const sx = sh.nodes[i0 * 2] * (1 - w) + sh.nodes[i0 * 2 + 2] * w;
-            const sy = sh.nodes[i0 * 2 + 1] * (1 - w) + sh.nodes[i0 * 2 + 3] * w;
+            const p0 = flank ? flank[i0] : { x: sh.nodes[i0 * 2], y: sh.nodes[i0 * 2 + 1] };
+            const p1 = flank ? flank[i0 + 1] : { x: sh.nodes[i0 * 2 + 2], y: sh.nodes[i0 * 2 + 3] };
+            const sx = p0.x * (1 - w) + p1.x * w;
+            const sy = p0.y * (1 - w) + p1.y * w;
             const tx = sh.nodes[i0 * 2 + 2] - sh.nodes[i0 * 2];
             const ty = sh.nodes[i0 * 2 + 3] - sh.nodes[i0 * 2 + 1];
             const tl = Math.hypot(tx, ty) || 1;
-            const wrap = Math.sin(u * 20 + a + k.phase * 2) * Math.max(sh.length * 0.05, 14);
+            const wrap = Math.sin(u * 20) * Math.max(sh.length * 0.05, 14);
             hp.push(sx + (-ty / tl) * wrap, sy + (tx / tl) * wrap);
           }
           else if (hullArm) {
             const u = (t - .5) / .5, angle = hullAngle + u * Math.PI * 2;
-            const pt = hullPoint(hullTarget!, Math.cos(angle) * hullTarget!.size * .8,
-              Math.sin(angle) * hullTarget!.size * (.23 + .015 * Math.sin(k.phase * 2)));
+            const pt = hullPoint(hullTarget!, Math.cos(angle) * hullTarget!.size * (.95 - .12 * Math.sin(u * Math.PI) * (1 + a % 3)),
+              Math.sin(angle) * hullTarget!.size * (.26 - .025 * Math.sin(u * Math.PI) * (a % 3)));
             hp.push(pt.x, pt.y);
           }
           else {
@@ -1136,28 +1150,8 @@ export class AsciiRenderer {
           }
         }
       }
-      {
-        // Arms fan out and wave; the long tentacles trail out and curl over into loops.
-        // Jetting stretches the arms out behind it.
-        const hullCoilAge = k.hullStrike ? world.time - k.hullStrike.at : -1;
-        const hullCoil = hullCoilAge < 0 ? 0 : !k.hullStrike?.launched ? smoothstep(0, 1.2, hullCoilAge) : Math.max(0, 1 - (world.time - (k.hullStrike.launchedAt ?? world.time)) / .6);
-        const coil = a < 8 ? hullCoil : 0;
-        const len = (1 + .3 * stretch) * (1 - .35 * coil) * (feeder ? S * (1.2 + 0.18 * Math.abs(psi)) : S * (0.4 + 0.2 * Math.sin((a + 0.5) * 1.9) ** 2)) * (1 + 0.3 * k.jet);
-        const ds = len / N;
-        const curl = (psi < 0 ? -1 : 1) * coil * 6 + (1 - .7 * stretch) * (feeder ? (psi < 0 ? -1 : 1) * (3.4 + 1.2 * Math.abs(psi)) * (1 - 0.6 * k.jet) : -psi * 0.6);
-        let x = rx;
-        let y = ry;
-        for (let i = 0; i <= N; i++) {
-          const t = i / N;
-          pts.push(x, y);
-          // Arms that aren't holding anything keep moving: a slow wave plus a lazy sway of their own, never frozen.
-          const wave = (Math.sin(k.wave - t * (5 + 4 * k.jet) + a * 0.9) * (feeder ? 0.6 : 0.45) + Math.sin(k.phase * 0.8 + a * 1.7 - t * 2) * (feeder ? 0.3 : 0.12) + Math.sin(k.wave * 1.6 - t * 9 + a * 2) * (feeder ? 0.55 : 0.3) * Math.pow(t, 2.4)) * (1 + (k.stroke !== undefined ? 0.15 : 1.3) * k.jet + 1.6 * hit + 1.1 * anger) * (0.2 + 1.5 * Math.pow(t, 1.4));
-          // Whatever the curl, no limb bends past 135 degrees either side of the line behind the head.
-          const ang = armAng + clamp(psi * spreadMul * (feeder ? 0.7 : 0.9 - 0.4 * t) + curl * Math.pow(t, feeder ? 2.2 : 2) - k.bend * 0.9 * Math.pow(t, 1.3) + wave, -KRAKEN_ARC, KRAKEN_ARC);
-          x += Math.cos(ang) * ds;
-          y += Math.sin(ang) * ds;
-        }
-      }
+      const free = krakenFreeArm(k, a, world.time, anger);
+      pts.push(...free.points);
       // The free arm is bent point by point onto its grip path as it takes hold, then coils.
       const reach = N;
       let girth = 1;
@@ -1167,8 +1161,14 @@ export class AsciiRenderer {
         // A holding arm also thickens gradually as it lands.
         girth = 0.6 + 0.4 * ease;
       }
+      if (reachPose) {
+        const blend = reachPose.heldAt === undefined ? 0 : smoothstep(0, .6, world.time - reachPose.heldAt);
+        for (let i = 0; i < pts.length; i++)
+          pts[i] = reachPose.points[i] + (pts[i] - reachPose.points[i]) * blend;
+      }
       for (let i = 0; i <= reach; i++) {
         const t = i / N;
+        if (hullArm && t > .5 && Math.cos(hullAngle + (t - .5) * Math.PI * 4 - hullContact) < 0 && ease > .8) continue;
         const j = Math.min(N - 1, i);
         // An arm never passes over the face: points on the head, or on the mantle in front of it, are not drawn.
         if (i > 2) {
@@ -1187,7 +1187,7 @@ export class AsciiRenderer {
         const half = holds ? Math.max(1, Math.round((wrapped ? 2.4 : 1.6) * girth * Math.pow(1 - t, 0.8))) : Math.round((feeder ? 1.4 : 1.9) * Math.pow(1 - t, 1.2));
         // Neighbouring limbs alternate bright and dim, each with a dark rim and a thin gap cut round it, and the later one
         // sits on top, so where arms cross they read as separate arms instead of one glob.
-        const tone = a % 2 ? -42 : 0;
+        const tone = a % 2 ? (hullArm ? -18 : -42) : 0;
         const apart = Math.hypot(pts[i * 2] - hx, pts[i * 2 + 1] - hy) > R * 1.6;
         if (apart && half > 0) {
           for (const o of [-half - 1, half + 1])
@@ -1196,7 +1196,7 @@ export class AsciiRenderer {
         for (let o = -half; o <= half; o++) {
           const edge = Math.abs(o) === half && half > 0;
           const glyph = holds && t > 0.5 ? (i % 2 ? "@" : "8") : holds && t > 0.97 ? "@" : edge ? "o" : t < 0.2 ? "@" : t < 0.45 ? "8" : t < 0.75 ? "o" : ".";
-          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, bone(240 - 110 * t + tone - (edge ? 70 : 0), 40 * t), apart);
+          put(pts[i * 2] + nx * o * cw * 0.85, pts[i * 2 + 1] + ny * o * cw * 0.85, glyph, bone(240 - (hullArm ? 48 : 110) * t + tone - (edge ? 70 : 0), 40 * t), apart);
         }
       }
     }
@@ -1258,10 +1258,23 @@ export class AsciiRenderer {
     for (const drone of world.attackDrones) {
       if (!drone.returned || world.time - drone.returned.at >= DRONE_RELEASE_TIME + .3) continue;
       const frame = droneArmFrame(world, k, drone);
+      const age = world.time - drone.returned.at;
+      const original = krakenReachVisual(k, drone)?.points;
+      const free = krakenFreeArm(k, drone.returned.arm ?? 6, world.time, anger).points;
       for (let i = 0; i <= 56; i++) {
         const t = i / 56, v = 1 - t;
-        const x = v * v * frame.rootX + 2 * v * t * frame.controlX + t * t * frame.tipX;
-        const y = v * v * frame.rootY + 2 * v * t * frame.controlY + t * t * frame.tipY;
+        let x = v * v * frame.rootX + 2 * v * t * frame.controlX + t * t * frame.tipX;
+        let y = v * v * frame.rootY + 2 * v * t * frame.controlY + t * t * frame.tipY;
+        const path = age < .25 ? original : age >= DRONE_RELEASE_TIME ? free : undefined;
+        if (path) {
+          const n = t * 90, j = Math.min(89, Math.floor(n)), f = n - j;
+          const px = path[j * 2] * (1 - f) + path[j * 2 + 2] * f;
+          const py = path[j * 2 + 1] * (1 - f) + path[j * 2 + 3] * f;
+          const blend = age < .25 ? 1 - smoothstep(0, .25, age) : smoothstep(0, .3, age - DRONE_RELEASE_TIME);
+          x += (px - x) * blend; y += (py - y) * blend;
+        }
+        const ox = x - hx, oy = y - hy, along = ox * mdx + oy * mdy;
+        if (Math.hypot(ox, oy) < R * 1.05 || along > 0 && along < S * .62 && Math.abs(ox * mpx + oy * mpy) < R * 1.5) continue;
         put(x, y, i % 5 === 0 ? "o" : "#", bone(205), true);
         if (i < 40) put(x + cw * .6, y, ":", bone(130));
       }
@@ -1494,7 +1507,7 @@ export class AsciiRenderer {
     }
     else
       drawSubs(put, world, grid);
-    flush(layer === "mid" ? 5 + world.yeat * 12 : 0);
+    flush(layer === "mid" ? 5 + world.yeat * 12 : layer === "front" ? 2 + this.night*5 + world.yeat*7 : 0);
   }
   private drawWhale(world: World) {
     for (const w of world.whales)
@@ -1627,16 +1640,20 @@ export class AsciiRenderer {
     // The kraken seizes divers as it swims in too, so its arms are drawn from the moment it arrives.
     if (!k || k.state === "flee")
       return;
-    const wrapped = k.state === "wrap" && !!k.wrapping && !k.maul;
-    const held = wrapped ? [k.wrapping!] : k.grabbed;
+    const held = k.grabbed;
     const { cw, ch } = this;
     const { put, flush } = this.painter();
     // Tentacles on divers: one lashes out to a diver it is after, then holds on and coils round it.
     const back = k.heading + Math.PI;
+    const craftRoot = (index: number) => {
+      const psi = index < 6 ? (index / 5 - .5) * 2 : [-.75, -.25, .25, .75][index - 6];
+      const radius = k.size * .085 * (1 + .04 * Math.sin(k.phase * 1.1));
+      return { x: k.x + Math.cos(back + psi) * radius, y: k.y + Math.sin(back + psi) * radius };
+    };
     const arm = (x1: number, y1: number, seed: number, thick: number, whip = 0, trail?: {
       x: number;
       y: number;
-    }, origin?: { x: number; y: number }) => {
+    }, origin?: { x: number; y: number }, unfold = 1, resting?: number[]) => {
       // Rooted in the fan of arms on the side facing the diver, never across the head or eye.
       // Arms only reach out from the arm side of the head, 270 degrees in all: it has to turn to face anything beyond.
       if (!origin && !inKrakenReachArc(k, { x: x1, y: y1 }))
@@ -1667,8 +1684,14 @@ export class AsciiRenderer {
         const side = trail ? clamp((trail.x * -dy + trail.y * dx) / len, -len * 0.14, len * 0.14) : 0;
         const env = Math.sin(u * Math.PI) * (0.3 + 0.7 * u);
         const s2 = trail ? side * 0.6 * env - len * 0.06 * env * (Math.sin(k.wave - u * 3.4 + seed) + 0.5 * Math.sin(k.phase * 0.8 + seed * 1.7 - u * 2)) : 0;
-        const x = (1 - u) * (1 - u) * rootX + 2 * (1 - u) * u * cx + u * u * x1 - (dy / len) * (bow - s2);
-        const y = (1 - u) * (1 - u) * rootY + 2 * (1 - u) * u * cy + u * u * y1 + (dx / len) * (bow - s2);
+        let x = (1 - u) * (1 - u) * rootX + 2 * (1 - u) * u * cx + u * u * x1 - (dy / len) * (bow - s2);
+        let y = (1 - u) * (1 - u) * rootY + 2 * (1 - u) * u * cy + u * u * y1 + (dx / len) * (bow - s2);
+        if (resting) {
+          const n = u * (resting.length / 2 - 1), i = Math.min(resting.length / 2 - 2, Math.floor(n)), f = n - i;
+          const rx = resting[i * 2] * (1 - f) + resting[i * 2 + 2] * f;
+          const ry = resting[i * 2 + 1] * (1 - f) + resting[i * 2 + 3] * f;
+          x = rx + (x - rx) * unfold; y = ry + (y - ry) * unfold;
+        }
         if (Math.hypot(x - k.x, y - k.y) < k.size * 0.095)
           continue;
         {
@@ -1693,78 +1716,40 @@ export class AsciiRenderer {
           put(x, y, "o", krakenBone(250), true);
       }
     };
-    // The reach: the lead arm grows out from the body to its target along a whipping curve while a pair of shorter
-    // arms flares out around it, so the whole mass of tentacles seems to blossom toward the prey.
-    const bloom = (tx: number, ty: number, p: number, seed: number, thick: number, strands = 3) => {
-      if (!inKrakenReachArc(k, { x: tx, y: ty })) return;
-      const e = p * p * (3 - 2 * p);
-      const root = krakenArmRoot(k, { x: tx, y: ty });
-      const rx = root.x, ry = root.y;
-      const toX = tx - rx;
-      const toY = ty - ry;
-      const dist = Math.hypot(toX, toY) || 1;
-      // One long tentacle grows straight out to the target, snaking a little as it goes.
-      const whip = (1 - e) * 0.5;
-      // Thinner arms run along behind it, a little to each side and never quite as far out, so the reach reads as a single
-      // rope of strands, not a spray. How many go out fits the target: a lone arm for a diver, two for a shark, three for a saucer.
-      for (const [j, side] of (strands >= 3 ? [-1, 1] : strands === 2 ? [seed % 2 < 1 ? -1 : 1] : []).entries()) {
-        const ee = e * (0.7 + 0.08 * j);
-        const off = side * Math.min(k.size * 0.05, dist * 0.08) * e * (1 - 0.5 * e);
-        arm(rx + toX * ee - (toY / dist) * off, ry + toY * ee + (toX / dist) * off, seed + j * 1.7 + 1, Math.max(1, thick - 2), whip * e, undefined, root);
-      }
-      arm(rx + toX * e, ry + toY * e, seed, thick, whip * e, undefined, root);
-    };
-    if (k.strike && k.strike.f.alive) {
-      const f = k.strike.f;
-      bloom(f.x, f.y, Math.min(1, (world.time - k.strike.at) / STRIKE_TIME), f.x * 0.01, 2, 1);
-    }
-    for (const ss of k.sharkStrikes ?? []) {
-      const sh = ss.sh;
-      const bx = sh.nodes[12];
-      const by = sh.nodes[13];
-      bloom(bx, by, Math.min(1, (world.time - ss.at) / ss.dur), sh.length * 0.01, 3, sh.length > 330 ? 3 : 2);
-    }
-    if (k.harpoon && world.sharks.includes(k.harpoon.target)) {
-      // The harpoon: one of the kraken's own arms shoots out to the megalodon's head and stays hooked while it is hauled in.
-      const m = k.harpoon.target;
-      bloom(m.nodes[0], m.nodes[1], Math.min(1, (world.time - k.harpoon.at) / 0.5), 5.3, 3, 1);
-    }
     const uf = k.ufoTarget ?? world.ufo;
-    if (uf && k.ufoStrike !== null) {
-      bloom(uf.x, uf.y, Math.min(1, (world.time - k.ufoStrike) / STRIKE_TIME), 3, 3, 3);
-    }
-    if (uf && k.ufoHeld) {
-      arm(uf.x, uf.y, 3, 3);
-      // Coils wrapped round the saucer.
-      const half = Math.max(40, Math.min(world.width, world.height) * 0.07);
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2 + world.time * 4;
-        put(uf.x + Math.cos(a) * half * 1.05, uf.y + Math.sin(a) * ch * 1.4, i % 2 ? "@" : "8", krakenBone(232), true);
+    const armPose = krakenUfoArmPose(world);
+
+    if (uf && k.ufoHeld && armPose && armPose.extension >= .99) {
+      // Stable, connected bands follow the saucer's bank and silhouette.
+      const half = Math.max(40, Math.min(world.width, world.height) * .07);
+      for(let band=0;band<armPose.arms.length;band++){
+        const along=(band-1)*half*.48;
+        const grip=hullPoint(uf,along+half*.18,0);
+        const resting = krakenReachVisual(k, uf)?.arm === armPose.arms[band]
+          ? krakenReachVisual(k, uf)!.points : krakenFreeArm(k, armPose.arms[band], world.time, world.krakenRage()).points;
+        arm(grip.x,grip.y,3+band,3,0,undefined,craftRoot(armPose.arms[band]),armPose.grip,resting);
+        for(let j=0;j<=18;j++){
+          const a=j/18*Math.PI*armPose.grip, p=hullPoint(uf,along+Math.cos(a)*half*.18,Math.sin(a)*half*.29);
+          put(p.x,p.y,j%2?"8":"@",krakenBone(235),true);
+        }
       }
     }
-    // A seized submarine is taken like a saucer: a lashing arm reaches it, then holds on while coils wind and tighten along the hull.
-    for (const sub of world.subs) {
-      if (!sub.seizedByKraken && sub.krakenReachAt === undefined)
-        continue;
-      const age = world.time - (sub.krakenReachAt ?? sub.seizedAt ?? world.time);
-      if (age < STRIKE_TIME) {
-        bloom(sub.x, sub.y, age / STRIKE_TIME, 4, 3, 3);
-        continue;
-      }
-      arm(sub.x, sub.y, 4, 3);
-      const cell = Math.max(8, Math.min(13, Math.round(world.width / 124)));
-      const crush = clamp(age / Math.max(1, (sub.crushAt ?? age + 1) - (sub.seizedAt ?? 0)), 0, 1);
-      const squeeze = (1 - .22 * crush) * (1 + .06 * Math.sin(world.time * (5 + 9 * crush)));
-      const face = sub.face || 1;
-      for (let band = 0; band < 5; band++) {
-        const along = (band - 2) * cell * 3.4 * face;
-        const wind = world.time * (2.6 + 3 * crush) + band * 1.3;
-        for (let i = 0; i < 18; i++) {
-          const a = (i / 18) * Math.PI * 2 + wind;
-          const front = Math.sin(a) > 0;
-          // Each band leans like a spiral wrap, with the far side of the coil dimmer.
-          const lean = Math.cos(a) * cell * .5 * face;
-          put(sub.x + along + lean, sub.y + Math.sin(a) * cell * 3 * squeeze, front ? (i % 2 ? "@" : "8") : "o", krakenBone(front ? 238 : 150), true);
+    for(const pose of krakenSubArmPoses(world)){
+      if (!pose.held) continue;
+      const sub=pose.sub;
+      const g=subGeometry(world.width,sub);
+      for(let band=0;band<pose.arms.length;band++){
+        const along=(band/3-.5)*g.halfLength*1.4;
+        const grip=subPoint(world.width,sub,along+g.halfHeight*.5,0);
+        const root=craftRoot(pose.arms[band]);
+        const endX=pose.x+(grip.x-sub.x)*pose.grip,endY=pose.y+(grip.y-sub.y)*pose.grip;
+        const resting = krakenReachVisual(k, sub)?.arm === pose.arms[band]
+          ? krakenReachVisual(k, sub)!.points : krakenFreeArm(k, pose.arms[band], world.time, world.krakenRage()).points;
+        arm(root.x+(endX-root.x)*pose.extension,root.y+(endY-root.y)*pose.extension,4+band,3,0,undefined,root,pose.grip,resting);
+        if(!pose.held)continue;
+        for(let j=0;j<=18;j++){
+          const a=j/18*Math.PI*pose.grip,p=subPoint(world.width,sub,along+Math.cos(a)*g.halfHeight*.5,Math.sin(a)*g.halfHeight);
+          put(p.x,p.y,j%2?"8":"@",krakenBone(235),true);
         }
       }
     }
@@ -1820,7 +1805,7 @@ export class AsciiRenderer {
       const tight = Math.min(1, 1 - left / 7);
       const rOut = cw * (3.4 - 0.9 * tight);
       const rIn = cw * (1.3 - 0.3 * tight);
-      arm(f.x + Math.cos(toK) * rOut, f.y + Math.sin(toK) * rOut * 0.8, f.x * 0.01, 2, 0.12, { x: (vx / vm) * bowBack, y: (vy / vm) * bowBack });
+      arm(f.x + Math.cos(toK) * rOut, f.y + Math.sin(toK) * rOut * 0.8, f.x * 0.01, 2, 0.12, { x: (vx / vm) * bowBack, y: (vy / vm) * bowBack }, krakenReachVisual(k, f)?.root);
       const TURNS = 1.5;
       const COIL = 44;
       for (let i = 0; i <= COIL; i++) {
@@ -1840,10 +1825,10 @@ export class AsciiRenderer {
     for (const [hi, sh] of held.entries()) {
       // One band closes for each arm that has actually arrived (the first once its arm has landed), so the number of
       // coils always matches the number of arms visibly holding on.
-      const since = wrapped ? (k.lunging ? 0 : world.time - k.stateAt) : world.time - (sh.grabbedAt ?? -99);
+      const since = world.time - (sh.grabbedAt ?? -99);
       let bands = 0;
-      for (let rk = 0, a = hi; rk < (wrapped ? WRAP_BANDS : holdArmsFor(sh)) && a < (wrapped ? 10 : 6); rk++, a += held.length) {
-        if (since - rk * (wrapped ? WRAP_STAGGER : ARM_STAGGER) >= (wrapped ? 0.6 : 1.0))
+      for (let rk = 0, a = hi; rk < holdArmsFor(sh) && a < 6; rk++, a += held.length) {
+        if (since - rk * ARM_STAGGER >= 1.0)
           bands++;
       }
       if (bands === 0)
@@ -1867,7 +1852,7 @@ export class AsciiRenderer {
       };
       for (let b = 0; b < bands; b++) {
         const centre = sh.kind === "sawshark" ? 8 + (b / Math.max(1, bands - 1)) * 7 : 3.5 + (b / Math.max(1, bands - 1)) * 12.5;
-        const squeeze = 1 + 0.12 * Math.sin(world.time * (wrapped ? 5 : 3) + b * 1.4);
+        const squeeze = 1 + 0.12 * Math.sin(world.time * (3) + b * 1.4);
         const slant = 1.5 * (b % 2 ? 1 : -1);
         const STEPS = 22;
         for (let s = 0; s <= STEPS; s++) {
@@ -1911,26 +1896,7 @@ export class AsciiRenderer {
     if (closing) {
       text(clamp(k.x, cw * 15, world.width - cw * 15), Math.max(ch * 2, k.y - k.size * .42), "CLOSING IN", "235,245,255");
     } else if (k && k.state === "wrap" && k.wrapping && !k.lunging && k.coiled) {
-      const progress = krakenFightProgress(k, world.time);
-      const lead = (k.winner === "kraken" ? 1 : -1) * (0.15 + 0.85 * Math.pow(progress, 1.2));
-      // A massive fight: the line lurches around, harder during the thrashing, and the divers lean it too.
-      const shaking = world.time < k.shakeUntil;
-      const swing = Math.sin(world.time * 9) * (shaking ? 0.2 : 0.09) + Math.sin(world.time * 23 + 1) * (shaking ? 0.12 : 0.06) + Math.sin(world.time * 4.1) * 0.08 + (shaking ? (Math.random() - 0.5) * 0.14 : 0);
-      const pos = Math.max(-1, Math.min(1, lead + k.tilt * 0.5 + swing));
-      const width = 22;
-      const cx = Math.max(width * cw, Math.min(world.width - width * cw, k.x));
-      const y = Math.max(ch * 2, k.y - k.size * 0.42);
-      // White (the kraken's side, on the left) fills toward the right as it wins; blue (the megalodon's) fills toward the left as it wins.
-      const mark = Math.round(((1 + pos) / 2) * (width - 1));
-      let bar = "";
-      for (let i = 0; i < width; i++)
-        bar += i === mark ? "|" : i < mark ? "#" : "=";
-      text(cx, y - ch * 1.1, k.maul ? (k.biteAt !== undefined ? "MAULED!!" : "CLOSING IN") : shaking ? "THRASHING!!" : "WRAPPED", "255,255,255", 0.9);
-      // The kraken's share is on the left, the megalodon's on the right.
-      text(cx - (width / 2 + 5) * cw, y, "KRAKEN", "235,235,240");
-      text(cx + (width / 2 + 6) * cw, y, "MEGALODON", "130,175,235");
-      for (let i = 0; i < width; i++)
-        put(cx + (i - width / 2) * cw, y, bar[i], i === mark ? "rgb(255,255,255)" : i < mark ? "rgb(235,235,240)" : "rgb(110,150,225)", true);
+      text(clamp(k.x,cw*15,world.width-cw*15),Math.max(ch*2,k.y-k.size*.42),k.maul?"MAULING":world.time<k.shakeUntil?"THRASHING":"WRAPPED","235,240,250",.9);
     }
     flush();
     // Event labels: big bold coloured text with a dark outline, so they read against any background.
@@ -2014,6 +1980,24 @@ export class AsciiRenderer {
     }
     flush();
   }
+  private drawRearCraftWraps(world:World){
+    const k=world.kraken;if(!k)return;
+    const {put,flush}=this.painter();
+    const u=k.ufoTarget;
+    if(k.ufoHeld&&u){const half=Math.max(40,Math.min(world.width,world.height)*.07);
+      for(let band=0;band<3;band++)for(let j=0;j<=18;j++){
+        const a=Math.PI+j/18*Math.PI,p=hullPoint(u,(band-1)*half*.48+Math.cos(a)*half*.18,Math.sin(a)*half*.29);
+        put(p.x,p.y,"o",krakenBone(145),true);
+      }
+    }
+    for(const pose of krakenSubArmPoses(world))if(pose.held){const sub=pose.sub,g=subGeometry(world.width,sub);
+      for(let band=0;band<pose.arms.length;band++)for(let j=0;j<=18;j++){
+        const a=Math.PI+j/18*Math.PI*pose.grip,p=subPoint(world.width,sub,(band/3-.5)*g.halfLength*1.4+Math.cos(a)*g.halfHeight*.5,Math.sin(a)*g.halfHeight);
+        put(p.x,p.y,"o",krakenBone(145),true);
+      }
+    }
+    flush();
+  }
   /** A saucer with blinking lights and a shimmering green tractor beam when it is lifting something. */
   private drawUfo(world: World) {
     for (const u of world.ufos)
@@ -2024,7 +2008,7 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     const t = world.time;
     const night = world.night;
-    if (u.state === "beam") {
+    if (u.state === "beam" && tractorBottom(world,u)>tractorIntake(world,u)+.1) {
       // The pull acts through the whole column; its visible trail must reach it too.
       const top = Math.max(0, u.y + Math.max(40, Math.min(world.width, world.height) * .07) * .18);
       const bottom = tractorBottom(world, u);
@@ -2070,7 +2054,34 @@ export class AsciiRenderer {
     const half = Math.max(40, Math.min(world.width, world.height) * .07);
     const bank = u.attitude?.bank ?? 0;
     const hull = this.hullPainter(u.x, u.y + half * .18, 1, bank);
-    const hullPut: Put = (...args) => { if (world.time - (u.hitAt ?? -99) < .3) args[3] = "rgb(255,80,80)"; hull.put(...args); };
+    const blink = u.blink;
+    const phasing = !!blink && blink.until > t;
+    if (blink?.ghosts.length) {
+      // Afterimages shift from cyan through blue to violet as they age, like a sandevistan trail.
+      const shown = this.quality >= 2 ? blink.ghosts.slice(-4) : blink.ghosts;
+      let prev: { x: number; y: number } | null = null;
+      for (const g of shown) {
+        const age = clamp((t - g.at) / BLINK_GHOST_LIFE, 0, 1);
+        const hue = 185 + age * 110;
+        const alpha = (1 - age) * .55;
+        const ghost = this.hullPainter(g.x, g.y + half * .18, 1, g.bank);
+        const color = `hsla(${hue.toFixed(0)},90%,${(64 - age * 14).toFixed(0)}%,${alpha.toFixed(2)})`;
+        const ghostPut: Put = (...args) => { args[3] = color; ghost.put(...args); };
+        drawClassicSaucer(ghostPut, g.x, g.y, half, ghost.cw, ghost.ch, t, false);
+        ghost.flush();
+        if (prev && this.quality < 2) {
+          const { put: streak, flush: streakFlush } = this.painter();
+          for (let i = 1; i < 5; i++) streak(prev.x + (g.x - prev.x) * i / 5, prev.y + (g.y - prev.y) * i / 5, i % 2 ? "-" : "=", color, true);
+          streakFlush();
+        }
+        prev = g;
+      }
+    }
+    const hullPut: Put = (...args) => {
+      if (world.time - (u.hitAt ?? -99) < .3) args[3] = "rgb(255,80,80)";
+      else if (phasing && Math.floor(t * 24) % 2 === 0) args[3] = "rgb(150,240,255)";
+      hull.put(...args);
+    };
     const piloted = !!u.pilot?.alive;
     drawClassicSaucer(hullPut, u.x, u.y, half, hull.cw, hull.ch, t, piloted);
     hull.flush();
@@ -2115,11 +2126,50 @@ export class AsciiRenderer {
     drawCraftDebris(put, world, this.cw, this.ch);
     flush();
   }
+  /** Dropped sandevistan drives, and the colour-shifting afterimages and speed sparks of divers running one. */
+  private drawSandevistans(world: World) {
+    const elite = world.fish.filter(f => f.sande && (f.alive || f.sande.ghosts.length));
+    if (!world.drives.length && !elite.length) return;
+    const cw = clamp(Math.round(world.width / 124), 8, 13);
+    const t = world.time;
+    for (const d of world.drives) {
+      const { put, flush } = this.hullPainter(d.x, d.y, Math.min(1, cw / this.cw) * .8);
+      const pulse = .6 + .4 * Math.sin(t * 5 + d.x);
+      put(d.x + 5, d.y - 20, "/", "rgba(190,195,205,.9)");
+      put(d.x + 10, d.y - 28, "\\", "rgba(190,195,205,.9)");
+      put(d.x - 6, d.y - 8, "[", "rgba(150,155,165,.95)");
+      put(d.x, d.y - 8, "@", `rgba(90,255,150,${pulse.toFixed(2)})`, true);
+      put(d.x + 6, d.y - 8, "]", "rgba(150,155,165,.95)");
+      for (let i = 0; i < 3; i++) put(d.x - 10 - i * 7, d.y + i * 4, i % 2 ? "=" : "~", "rgba(235,205,45,.9)");
+      flush();
+    }
+    for (const f of elite) {
+      const s = f.sande!;
+      const { put, flush } = this.hullPainter(f.x, f.y, Math.min(1, cw / this.cw) * .75);
+      const shown = this.quality >= 2 ? s.ghosts.slice(-3) : s.ghosts;
+      for (const g of shown) {
+        const age = clamp((t - g.at) / SANDE_GHOST_LIFE, 0, 1);
+        const color = `hsla(${(160 + age * 130).toFixed(0)},90%,${(62 - age * 12).toFixed(0)}%,${((1 - age) * .6).toFixed(2)})`;
+        put(g.x, g.y - 12, "O", color, true);
+        put(g.x, g.y - 3, "#", color, true);
+        put(g.x, g.y + 6, "H", color, true);
+        put(g.x - 6, g.y + 15, "/", color, true);
+        put(g.x + 6, g.y + 15, "\\", color, true);
+      }
+      if (f.alive && s.burstUntil > t) {
+        for (let i = 0; i < 4; i++) {
+          const a = t * 14 + i * 1.6;
+          put(f.x + Math.cos(a) * 16, f.y + Math.sin(a * 1.3) * 18, i % 2 ? "·" : "*", "rgba(130,255,200,.9)", true);
+        }
+      }
+      flush();
+    }
+  }
   /** Divers drawn as little people: head, orange suit, silver tank, and kicking blue fins. */
   private drawDivers(world: World) {
     const cw = clamp(Math.round(world.width / 124), 8, 13);
     for (const f of world.fish) {
-      if (!f.diver || !f.alive || f.riding)
+      if (!f.diver || !f.alive || f.riding || f.docked)
         continue;
       const { put, flush } = this.hullPainter(f.x, f.y, Math.min(1, cw / this.cw) * .75);
       const sp = Math.hypot(f.vx, f.vy);
@@ -2156,6 +2206,10 @@ export class AsciiRenderer {
       put(...at(1.9, cw * .95), "/", suit, true);
       put(...at(2.55, cw * .45), "|", suit, true);
       put(...at(2.55, -cw * .45), "|", suit, true);
+      if (kind === "support") {
+        put(...at(.5,cw*1.5),"+","rgb(100,255,220)",true);
+        if(f.weldAt!==undefined) { put(f.x,f.y-cw,"*","rgb(255,250,190)",true); this.lightBloom(f.x,f.y-cw,cw*5,"130,235,255",.18); }
+      }
       if (kind === "scuba")
         put(...at(1.4), "o", "rgb(205,212,222)", true);
       else if (kind === "treasure")
@@ -2229,7 +2283,11 @@ export class AsciiRenderer {
     }
   }
   /** One event bar: the title in the event's colour, a progress bar, and a short counter to the right of the bar. */
-  private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1, tiers?: number[]) {
+  private lightCount = 0;
+  private advantagePose = { round: -1, value: .5, time: 0 };
+  private drawEventBar(world: World, title: string, rgb: string, progress: number, counter: string, slot: number, fade = 1, tiers?: number[], mode: "normal" | "advantage" | "phase" = "normal") {
+    title=title.toUpperCase();
+    counter=counter.toUpperCase();
     const index = this.eventBarCount++;
     if (world.settings.eventBars === "one" && index > 0)
       return;
@@ -2251,13 +2309,13 @@ export class AsciiRenderer {
       const lit = tier === 0 || Math.floor(t * (1 + tier) * 2) % 2 === 0;
       for (let i = 0; i < width; i++) {
         const tick = !!tiers?.some(s => Math.round(s * width) === i);
-        const color = tick ? "rgb(235,235,240)" : i < filled ? (lit ? `rgb(${rgb})` : `rgba(${rgb},0.3)`) : dark ? "rgb(135,135,155)" : "rgb(80,80,90)";
-        put(cx + (i - width / 2) * cw, y + ch * 1.4, tick ? "|" : i < filled ? "#" : "-", color, true);
+        const color = mode === "advantage" ? (i === 13 ? "rgb(255,250,220)" : i < filled ? "rgb(235,150,115)" : "rgb(120,190,255)") : tick ? "rgb(235,235,240)" : i < filled ? (lit ? `rgb(${rgb})` : `rgba(${rgb},0.3)`) : dark ? "rgb(135,135,155)" : "rgb(80,80,90)";
+        put(cx + (i - width / 2) * cw, y + ch * 1.4, mode === "phase" ? "-" : mode === "advantage" ? i === 13 ? "|" : "#" : tick ? "|" : i < filled ? "#" : "-", color, true);
       }
       for (let i = 0; i < counter.length; i++)
         put(cx + (width / 2 + 2 + i) * cw, y + ch * 1.4, counter[i], "rgb(235,235,240)", true);
       if (world.settings.eventBars === "one" && this.eventBarCount > 1) {
-        const more = `+ ${this.eventBarCount - 1} more`;
+        const more = `+ ${this.eventBarCount - 1} MORE`;
         for (let i = 0; i < more.length; i++)
           put(cx + (i - more.length / 2) * cw, y + ch * 2.6, more[i], "rgb(170,205,215)", true);
       }
@@ -2287,7 +2345,7 @@ export class AsciiRenderer {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     const done = inv.killed + inv.escaped;
-    this.drawEventBar(world, "ALIEN INVASION", "150,255,170", done / inv.total, `${done} of ${inv.total}`, slot);
+    this.drawEventBar(world, "ALIEN INVASION", "150,255,170", done / inv.total, countStatus(done,inv.total,"resolved").counter, slot);
   }
   /** The bar for the other big events (blood moon, titans clash, meteor shower, ...), plus the blood moon's red wash. */
   private drawSagaBanner(world: World, sg: World["sagas"][number], slot: number) {
@@ -2305,17 +2363,14 @@ export class AsciiRenderer {
       ctx.fillRect(0, 0, w, h);
     }
     const k = world.kraken;
-    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-    const left = Math.max(0, Math.ceil(sg.until - t));
-    const progress = sg.kind === "clash" ? krakenFightProgress(k, t)
-      : sg.kind === "migration" ? clamp01(sg.count / Math.max(1, sg.total))
-        : sg.kind === "bloom" ? clamp01(sg.count / Math.max(1, sg.peak))
-          : clamp01((t - sg.born) / (sg.until - sg.born));
-    const counter = sg.kind === "migration" ? `${sg.count} of ${sg.total}`
-      : sg.kind === "bloom" ? `${sg.count} of ${Math.max(sg.peak, sg.count)}`
-        : sg.kind === "clash" ? (k?.maul && k.biteAt === undefined ? "closing in" : "")
-          : `${left}s`;
-    this.drawEventBar(world, sg.title, sg.rgb, progress, counter, slot, fade);
+    const status = sagaStatus(sg,t,k);
+    let value=status.progress;
+    if(status.kind === "advantage") {
+      const round=k?.stateAt??-1, previous=this.advantagePose;
+      value=previous.round!==round?value:previous.value+(value-previous.value)*(1-Math.exp(-Math.max(0,t-previous.time)*8));
+      this.advantagePose={round,value,time:t};
+    }
+    this.drawEventBar(world, status.kind === "advantage" ? "KRAKEN  |  MEGALODON" : sg.title, sg.rgb, value, status.counter, slot, fade, undefined, status.kind === "advantage" ? "advantage" : status.kind === "phase" ? "phase" : "normal");
   }
   /** Meteors: a white-hot head with a long orange tail streaking down through the water. */
   private drawMeteors(world: World) {
@@ -2344,11 +2399,16 @@ export class AsciiRenderer {
     const { put, flush } = this.painter();
     for (const b of world.bombs) {
       const age = world.time - b.born;
-      if (age < 0 || age > 1.3)
+      const profile=EXPLOSIONS[b.profile??(b.meteor?"meteor":"bomber")];
+      this.lightBloom(b.x,b.y,b.r*(.5+Math.min(1,age*3)),b.green?"100,255,145":"255,165,70",Math.max(0,1-age/profile.duration)*(.15+this.night*.25+this.yeat*.18));
+      if (age < 0 || age > profile.duration)
         continue;
       const fire = Math.min(1, age / 0.3);
-      const fade = Math.max(0, 1 - age / 1.3);
-      const coreR = b.r * (b.meteor ? 0.22 : 0.55) * fire;
+      const fade = Math.max(0, 1 - age / profile.duration);
+      const nuke = b.profile === "nuke";
+      const coreR = b.r * (b.meteor ? 0.22 : nuke ? .4 : 0.55) * fire;
+      // A nuke's fireball lifts as it grows, and its edge follows the same ragged footprint as its shockwave.
+      const lift = nuke ? age * b.r * .12 : 0;
       if (b.meteor && age < 0.18) {
         const flash = this.ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
         flash.addColorStop(0, `rgba(255,245,210,${(0.4 * (1 - age / 0.18)).toFixed(3)})`);
@@ -2356,16 +2416,25 @@ export class AsciiRenderer {
         this.ctx.fillStyle = flash;
         this.ctx.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
       }
-      const rings = 9;
+      const rings = this.quality===2?4:this.quality===1?6:9;
       for (let i = 1; i <= rings; i++) {
         const f = i / rings;
         const rad = coreR * f;
-        const count = Math.max(6, Math.min(70, Math.round((2 * Math.PI * rad) / (cw * 0.8))));
+        const count = Math.max(6, Math.min(this.quality===2?28:this.quality===1?48:70, Math.round((2 * Math.PI * rad) / (cw * 0.8))));
         const rgb = b.green ? (f < 0.4 ? "225,255,170" : f < 0.75 ? "110,235,90" : "30,150,60") : f < 0.4 ? "255,240,130" : f < 0.75 ? "255,160,40" : "230,60,30";
         const glyphs = f < 0.4 ? "@%#" : f < 0.75 ? "%#*" : "*o:";
         for (let j = 0; j < count; j++) {
           const a = (j / count) * Math.PI * 2 + i * 0.7;
-          put(b.x + Math.cos(a) * rad, b.y + Math.sin(a) * rad * 0.85, glyphs[(i + j) % glyphs.length], `rgba(${rgb},${(fade * (1.1 - f * 0.4)).toFixed(2)})`, true);
+          const edge = nuke && b.style ? meteorRadius(b.style, a) : 1;
+          put(b.x + Math.cos(a) * rad * edge, b.y - lift * (1.1 - f) + Math.sin(a) * rad * edge * 0.85, glyphs[(i + j) % glyphs.length], `rgba(${rgb},${(fade * (1.1 - f * 0.4)).toFixed(2)})`, true);
+        }
+      }
+      if (nuke && b.style && this.quality < 2) {
+        // Hot debris and streaks thrown outward ahead of the fire.
+        const reach = b.r * Math.min(1, age * (b.style.rate ?? 1) / .9);
+        for (let k = 0; k < 28; k++) {
+          const a = b.style.seed + k * 2.399, dist = reach * (.35 + .65 * ((Math.sin(k * 12.9898 + b.style.seed) * 43758.5453) % 1 + 1) % 1);
+          put(b.x + Math.cos(a) * dist, b.y + Math.sin(a) * dist * .85, k % 3 ? "*" : "#", `rgba(255,${190 - k * 3},90,${(fade * .9).toFixed(2)})`, true);
         }
       }
       // The shockwave: a thin ring of foam that outruns the fire.
@@ -2383,7 +2452,7 @@ export class AsciiRenderer {
         }
       }
     }
-    flush();
+    flush(this.quality===2?0:5+this.night*10+this.yeat*12);
   }
   /** Blaster bolts: a red streak that leaps from the barrel to its target and fades. */
   private drawStormElectricity(world: World) {
@@ -2450,6 +2519,33 @@ export class AsciiRenderer {
     }
     flush(this.quality === 2 ? 0 : 3 + night * 7 + this.yeat * 9);
   }
+  /** One bounded gradient per emitter avoids a blur for every ASCII glyph. */
+  private lightBloom(x:number,y:number,r:number,rgb:string,alpha:number) {
+    if(alpha<=0||r<=0||this.lightCount >= (this.quality===2?24:this.quality===1?40:72)||x < -r||y < -r||x>this.width+r||y>this.height+r)return;
+    this.lightCount++;
+    r*=this.quality===2?.65:this.quality===1?.85:1;
+    const ctx=this.ctx;ctx.save();ctx.globalCompositeOperation="screen";
+    const gradient=ctx.createRadialGradient(x,y,0,x,y,r);
+    gradient.addColorStop(0,`rgba(${rgb},${Math.min(.7,alpha)})`);gradient.addColorStop(.35,`rgba(${rgb},${Math.min(.35,alpha*.4)})`);gradient.addColorStop(1,`rgba(${rgb},0)`);
+    ctx.fillStyle=gradient;ctx.fillRect(x-r,y-r,r*2,r*2);ctx.restore();
+  }
+  private drawCraftLights(world:World) {
+    const power=.08+this.night*.2+this.yeat*.24;
+    if(world.mothership)this.lightBloom(world.mothership.x,world.mothership.y,world.mothership.size*.65,"120,255,185",power);
+    for(const sh of world.sharks.filter(s=>s.mega))this.lightBloom(sh.nodes[16],sh.nodes[17],sh.length*.32,"255,175,90",power*.55);
+    if(world.kraken)this.lightBloom(world.kraken.x,world.kraken.y,world.kraken.size*.55,"205,180,255",power*.55);
+    if(world.leviathan)this.lightBloom(world.leviathan.x,world.leviathan.y,world.leviathan.length*.35,"85,195,255",power);
+    const emitters=[
+      ...world.subs.filter(s=>!s.emp).map(s=>({x:s.x,y:s.y,r:s.crew?115:65,rgb:s.crew==="claude"?"255,160,85":s.crew==="codex"?"195,150,255":"255,210,140",priority:s.crew?3:1})),
+      ...world.ufos.filter(u=>!u.emp).map(u=>({x:u.x,y:u.y,r:80,rgb:u.pilot?.alive?"100,200,255":"90,255,150",priority:u.blink?.until&&u.blink.until>world.time?3:1})),
+      ...world.attackDrones.filter(d=>d.hp>0).map(d=>({x:d.x,y:d.y,r:40,rgb:"150,255,175",priority:0})),
+      ...world.torpedoes.map(t=>({x:t.x,y:t.y,r:35,rgb:"255,190,90",priority:4})),
+      ...commanderMissiles(world).map(m=>({x:m.x,y:m.y,r:75,rgb:"255,220,140",priority:5})),
+      ...world.meteors.map(m=>({x:m.x,y:m.y,r:80,rgb:"255,160,65",priority:4}))
+    ].sort((a,b)=>b.priority-a.priority);
+    for(const e of emitters.slice(0,this.quality===2?5:this.quality===1?9:14))this.lightBloom(e.x,e.y,e.r,e.rgb,power);
+  }
+
   private drawBolts(world: World) {
     if (!world.bolts.length)
       return;
@@ -2459,6 +2555,9 @@ export class AsciiRenderer {
       const age = world.time - b.born;
       const reach = Math.min(1, age / 0.1);
       const fade = Math.max(0, 1 - age / 0.45);
+      const color=b.team==="alien"?"100,255,150":b.team==="human"?"100,200,255":"200,155,255";
+      this.lightBloom(b.x0,b.y0,28,color,fade*.3);
+      if(reach===1)this.lightBloom(b.x1,b.y1,40,color,fade*.35);
       const len = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) || 1;
       const steps = Math.max(2, Math.round((len * reach) / (cw * 0.6)));
       for (let i = 0; i <= steps; i++) {
@@ -2467,7 +2566,7 @@ export class AsciiRenderer {
         put(b.x0 + (b.x1 - b.x0) * u, b.y0 + (b.y1 - b.y0) * u, head ? "*" : "=", head ? `rgba(255,235,220,${fade.toFixed(2)})` : `rgba(${b.team === "alien" ? "110,255,135" : b.team === "human" ? "90,190,255" : "180,140,255"},${(fade * 0.9).toFixed(2)})`, true);
       }
     }
-    flush();
+    flush(this.quality===2?0:5+this.night*7+this.yeat*9);
   }
   /** A whirlpool: three spiral arms of foam turning around the centre. */
   /** Drifting patches of living light; passing bodies leave gaps in the flow. */
@@ -2538,21 +2637,22 @@ export class AsciiRenderer {
   private drawOneWhirl(world: World, wp: NonNullable<World["whirl"]>) {
     const { put, flush } = this.painter();
     const fade = Math.max(0, Math.min(1, (world.time - wp.born) / 2, (wp.until - world.time) / 2));
-    const arms = (wp.baseR ?? wp.r) > 180 ? 4 : 3;
-    const samples = this.quality === 2 ? 48 : 96;
-    for (let arm = 0; arm < arms; arm++) {
-      for (let i = 0; i <= samples; i++) {
-        const u = i / samples;
-        const surge = 1 + 0.06 * Math.sin(world.time * 1.3 - u * 8 + arm);
-        const rad = wp.r * 2.3 * u * surge;
-        const ang = wp.dir * (u * 11 + (world.time - wp.born) * (wp.spin ?? 1) * (0.7 + 80 / (wp.r + 80))) + (arm * Math.PI * 2) / arms;
-        const broken = Math.sin(u * 35 - world.time * 2.2 + arm * 1.7);
-        if (u > 0.3 && broken < -0.6)
-          continue;
-        put(wp.x + Math.cos(ang) * rad, wp.y + Math.sin(ang) * rad * 0.8, u < 0.1 ? "." : broken > 0.7 ? "+" : "~", `rgba(110,220,235,${(0.8 * fade * (1 - u * 0.7)).toFixed(2)})`, true);
+    if (fade <= 0) return;
+    const spin = wp.dir * (world.time - wp.born) * (wp.spin ?? 1) * .32;
+    const count = Math.round(clamp(wp.r / this.cw * 3, 15, this.quality === 2 ? 44 : 70));
+    // Paint inward so faint outer foam cannot overwrite the brighter core.
+    for (let i = count; i >= 0; i--) {
+      const u = i / count;
+      const radius = wp.r * (.15 + 1.3 * u);
+      const alpha = fade * (.32 + .56 * (1 - u));
+      for (let arm = 0; arm < 3; arm++) {
+        const angle = spin + arm * Math.PI * 2 / 3 + wp.dir * Math.log(radius / wp.r) * 2;
+        put(wp.x + Math.cos(angle) * radius, wp.y + Math.sin(angle) * radius,
+          i % 4 ? "~" : "+", `rgba(158,229,245,${alpha.toFixed(2)})`, true);
       }
     }
-    flush();
+    put(wp.x, wp.y, "@", `rgba(205,248,255,${(fade * .93).toFixed(2)})`, true);
+    flush(2);
   }
   // ── simulation → field ──────────────────────────────────────────────
   private cellIndex(x: number, y: number) {
@@ -2792,12 +2892,12 @@ export class AsciiRenderer {
       const dy = py - mf.by;
       const fx = dx * mf.c + dy * mf.s;
       const fy = Math.abs(-dx * mf.s + dy * mf.c - L * mf.flex * clamp(fx / (L * .18), 0, 1) ** 2);
-      const reach = L * 0.13;
-      if (inTriangle(fx, fy, -L * 0.02, 0, L * 0.1, 0, L * 0.18, reach) &&
-        !inTriangle(fx, fy, L * 0.1, 0, L * 0.1 + L * 0.08 * 0.33, reach * 0.55, L * 0.18, reach)) {
-        this.hitFlag = FLAG_FIN;
-        this.hitShade = 0.34 + 0.16 * (1 - clamp(fy / reach, 0, 1));
-        return true;
+      const reach=L*.13,v=fy/reach;
+      const sweep=L*(.025+.115*Math.pow(Math.min(1,v),1.6));
+      const chord=L*(.027*Math.pow(Math.max(0,1-v),.65)+.003);
+      const stalk=fx>=-L*.025&&fx<=L*.06&&fy<L*.016;
+      if(stalk||v<=1&&Math.abs(fx-sweep)<chord){
+        this.hitFlag=FLAG_FIN;this.hitShade=.38+.18*(1-clamp(v,0,1));return true;
       }
     }
     const tip = bestSign > 0 ? this.finTipRight : this.finTipLeft;
@@ -2997,7 +3097,7 @@ export class AsciiRenderer {
    */
   private drawYeatGlows(world: World, t: number) {
     const yeat = this.yeat;
-    if (yeat <= 0 || this.quality > 0)
+    if (yeat <= 0)
       return;
     const { ctx } = this;
     const hash = (n: number) => {
@@ -3005,6 +3105,7 @@ export class AsciiRenderer {
       return x - Math.floor(x);
     };
     const glowAt = (x: number, y: number, r: number, seed: number, chance = 0.45, period = 7) => {
+      if(this.lightCount>=(this.quality===2?11:this.quality===1?20:32))return;
       const clock = t / period + seed * 0.37;
       const slot = Math.floor(clock);
       if (hash(seed * 13.7 + slot * 3.1) > chance)
@@ -3012,11 +3113,7 @@ export class AsciiRenderer {
       const env = Math.pow(Math.sin(Math.PI * (clock - slot)), 0.7) * yeat;
       if (env < 0.02)
         return;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, `rgba(255,255,255,${(0.34 * env).toFixed(3)})`);
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      this.lightBloom(x,y,r,"220,235,255",.4*env);
     };
     ctx.save();
     ctx.globalCompositeOperation = "lighter";

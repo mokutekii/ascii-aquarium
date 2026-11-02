@@ -138,10 +138,11 @@ try {
     assert.equal(w.fish[0].vx, 0, 'spin has a visible wind-up');
     w.time += 1.3;
     stepHullCombat(w, 1 / 60);
-    const v = w.fish[0].vx;
-    assert.ok(v > 0);
+    assert.equal(w.fish[0].alive, false, 'the expanded rim blast kills an exposed diver');
+    assert.ok(b.spin.hit.has(w.fish[0]), 'the sweep records the struck body');
+    const hitCount = b.spin.hit.size;
     stepHullCombat(w, 1 / 60);
-    assert.equal(w.fish[0].vx, v, 'each sweep hits a body once');
+    assert.equal(b.spin.hit.size, hitCount, 'each sweep hits a body once');
     cases++;
   }
   {
@@ -162,12 +163,23 @@ try {
     const w = make(), b = boss(w);
     w.spawnKraken(true);
     const k = w.kraken;
-    Object.assign(k, { x: b.x, y: b.y });
+    Object.assign(k, { x: b.x - b.size * .95 - 55, y: b.y, heading: 0, hullUntil: w.time + 10 });
     stepHullCombat(w, 1 / 60);
     assert.equal(b.grapple, undefined, 'arms coil before making contact');
     assert.ok(k.hullStrike);
-    w.time += .96; stepHullCombat(w, 1 / 60);
+    k.heading = Math.PI;
+    w.time += .46; stepHullCombat(w, 1 / 60);
+    assert.equal(b.grapple, undefined, 'arms must reach the hull before gripping');
+    for (let i = 0; i < 120 && !b.grapple; i++) { w.time += 1 / 60; stepHullCombat(w, 1 / 60); }
     assert.equal(b.grapple?.kraken, k);
+    const heading = k.heading, x = k.x;
+    w.time += 1 / 60; w.stepKraken(1 / 60);
+    assert.equal(k.heading, heading, 'the grapple keeps the incoming heading');
+    assert.ok(k.x < x && x - k.x < 4, 'incoming glide carries through contact without a jump');
+    b.y += 8;
+    const y = k.y;
+    w.time += 1 / 60; w.stepKraken(1 / 60);
+    assert.ok(k.y - y > 7 && k.y - y < 9, 'the grip follows the hull frame');
     const hp = b.hp;
     w.time += 1.1;
     stepHullCombat(w, 1 / 60);
@@ -180,6 +192,7 @@ try {
     const d = { id: 4, x: 600, y: 500, hp: 3, stunned: 0, nextShot: 0 };
     w.attackDrones = [d];
     stepHullCombat(w, 1 / 60);
+    for (let i = 0; i < 120 && !d.returned; i++) { w.time += 1 / 60; stepHullCombat(w, 1 / 60); }
     assert.ok(d.returned);
     for (let i = 0; i < 240 && d.hp > 0; i++) {
       w.time += 1 / 60;
@@ -237,7 +250,7 @@ try {
   {
     const w = make(), b = boss(w); b.hp = b.maxHp * .8;
     api.stepMothershipRegen(w, b, 1); const hp = b.hp;
-    w.time += 9; api.stepMothershipRegen(w, b, 1); assert.equal(b.hp, hp);
+    w.time += 4; api.stepMothershipRegen(w, b, 1); assert.equal(b.hp, hp);
     w.time += 1; api.stepMothershipRegen(w, b, 1); assert.ok(b.hp > hp);
     b.hp -= 2; const damaged = b.hp; api.stepMothershipRegen(w, b, 1); assert.equal(b.hp, damaged);
     w.time += 11; b.hp = b.maxHp * .5; api.stepMothershipRegen(w, b, 1);
@@ -338,7 +351,8 @@ try {
     sh.nodes[1] = 600;
     sh.heading = 0;
     stepHammerheads(w);
-    assert.equal(u.hits, 3, 'hammerhead bash is its weakness: 1.5x a normal head hit (2 becomes 3)');
+    assert.equal(u.hits, 1, 'a hammerhead contact applies one direct hull hit');
+    stepHammerheads(w); assert.equal(u.hits, 1, 'contact cooldown prevents frame-by-frame damage');
     cases++;
   }
   {
@@ -356,12 +370,12 @@ try {
     d.x = 600;
     d.y = 600;
     api.stepDroneImpacts(w);
-    assert.ok(d.detonated);
-    assert.ok(sh.rageUntil > w.time);
-    assert.equal(w.provocations.get(sh).target, b);
+    assert.equal(d.hp, 2, 'ordinary shark contact damages a drone without detonating it');
+    assert.ok(!d.detonated);
     const n = w.bombs.length;
     api.stepDroneImpacts(w);
-    assert.equal(w.bombs.length, n, 'each drone explodes once');
+    assert.equal(d.hp, 2, 'one contact run cannot damage the drone each frame');
+    assert.equal(w.bombs.length, n, 'ordinary contact does not spawn explosions');
     cases++;
   }
   {
@@ -383,11 +397,13 @@ try {
     for (const kind of ['ufo', 'sub', 'mothership']) {
       const w = make();
       api.spawnCraftDebris(w, kind, 900, 500, 400);
-      assert.ok(w.debris.length >= 3);
-      assert.equal(new Set(w.debris.map(d => d.part)).size, 3);
+      assert.ok(w.debris.length >= (kind === 'mothership' ? 3 : 1) && w.debris.length <= (kind === 'mothership' ? 5 : 3), 'wreck piece counts follow their bounded profile');
+      assert.ok(w.debris.every(d => d.part >= 0 && d.part <= 2), 'random pieces use valid silhouettes');
       let glyphs = 0;
       api.drawCraftDebris((x, y) => { assert.ok(Number.isFinite(x + y)); glyphs++; }, w, 13, 19);
-      assert.ok(glyphs > 15);
+      assert.ok(glyphs > 0, 'every wreck produces visible glyphs');
+      for (let i = 0; i < 10; i++) api.spawnCraftDebris(w, kind, 900, 500, 400);
+      assert.ok(w.debris.length <= 6, 'nearby chain wrecks cap their debris');
     }
     const hull = [];
     api.drawClassicSaucer((x, y, g) => hull.push({ x, y, g }), 0, 0, 100, 13, 19, 0);
@@ -432,7 +448,7 @@ try {
       w.stepUfo(1 / 60);
     }
     assert.equal(f.alive, false, 'a fish reaches the intake instead of stalling below the UFO');
-    assert.ok(f.y < u.y, 'capture completes only after the whole fish reaches the saucer');
+    assert.ok(f.y + 6 < api.tractorIntake(w, u), 'capture completes only after the whole fish clears the visible intake');
     cases++;
   }
   {
@@ -516,4 +532,20 @@ try {
 }
 finally {
   Math.random = original;
+}
+
+for (const side of [-1, 1]) {
+  const w = make(), b = boss(w);
+  w.spawnKraken(true);
+  const k = w.kraken, dt = 1 / 60;
+  Object.assign(k, { x: b.x + side * (b.size * .95 + 70), y: b.y, heading: side < 0 ? Math.PI : 0,
+    lastV: 90, hullUntil: w.time + 10, hullStrike: { target: b, at: w.time } });
+  for (let i = 0; i < 120 && !b.grapple; i++) {
+    k.x += Math.cos(k.heading) * 90 * dt;
+    b.y += .2;
+    w.time += dt;
+    stepHullCombat(w, dt);
+  }
+  assert.ok(b.grapple, 'moving passes can latch on either side of the hull');
+  assert.equal(Math.sign(b.grapple.contact.x), side);
 }

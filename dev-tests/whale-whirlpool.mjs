@@ -21,9 +21,10 @@ const make = () => { const w = new World([{ kind: 'classic', size: .8 }], 24); w
  const w=make(); w.time=5; const wp={x:900,y:600,r:150,born:0,until:30,dir:1,rippleAt:5,spin:1,suction:1};
  const f=w.fish[0]; w.fish=[f]; Object.assign(f,{x:975,y:600,alive:true,vx:100,vy:0});
  const distance=()=>Math.hypot(f.x-wp.x,f.y-wp.y);
- for(let i=0;i<60;i++) { f.x+=100/60; w.pullWhirlObjects(wp,1/60); }
+ w.whirlpools=[wp];
+ for(let i=0;i<36;i++) { w.time+=1/60;f.x+=100/60; w.pullWhirlObjects(wp,1/60); }
  assert.ok(distance()<75,'inner current overcomes outward swimming');
- const measure=(suction,spin)=>{Object.assign(f,{x:975,y:600});w.pullWhirlObjects({...wp,suction,spin},1/60);return {d:distance(),angle:Math.atan2(f.y-600,f.x-900)};};
+ const measure=(suction,spin)=>{const t=make();t.time=5;const p={...wp,suction,spin};t.whirlpools=[p];const g=t.fish[0];t.fish=[g];Object.assign(g,{x:975,y:600,alive:true,vx:0,vy:0});for(let i=0;i<30;i++){t.time+=1/60;t.pullWhirlObjects(p,1/60);}return {d:Math.hypot(g.x-p.x,g.y-p.y),angle:Math.atan2(g.y-600,g.x-900)};};
  assert.ok(measure(1.8,1).d<measure(.7,1).d,'stronger suction pulls harder');
  assert.ok(measure(1,2).angle>measure(1,.5).angle,'spin varies independently');
  const sizes=[],speeds=[]; for(let i=0;i<20;i++){w.whirl=null;w.spawnWhirl();sizes.push(w.whirl.r);speeds.push(w.whirl.spin);}
